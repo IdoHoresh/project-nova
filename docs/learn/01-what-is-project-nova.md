@@ -115,3 +115,4 @@ If you want to understand how Nova actually works:
 - **[05 — The Decision Loop](05-the-decision-loop.md)** — how a single move happens, step by step
 - **[06 — Brain Panel Tour](06-brain-panel-tour.md)** — every element on the UI explained
 - **[08 — Glossary](08-glossary.md)** — a quick reference for jargon
+- **[09 — Security](09-security.md)** — why keys must never leak, and how the project defends against it

@@ -636,6 +636,68 @@ project-nova/
     └── README.md  (instructions for forking stdbilly/2048_Unity)
 ```
 
+### 6.5 Security — top-priority requirement
+
+The repository is public. Any leaked secret is publicly exposed within minutes. Security is therefore a first-class requirement, not an afterthought.
+
+#### Five-layer defense (defense-in-depth)
+
+| Layer | Mechanism | Catches |
+| --- | --- | --- |
+| 1 | `.gitignore` blocks all standard secret filename patterns | `.env`, `*.key`, `*.pem`, `secrets.*`, `credentials.*`, `*api_key*`, etc. |
+| 2 | Code loads secrets ONLY from environment variables — never hardcoded, never from committed JSON | Secrets baked into `.py` or `.ts` source |
+| 3 | Local `gitleaks` pre-commit hook scans staged changes before each commit | Accidental staging of secrets in source files |
+| 4 | GitHub-side: **secret scanning** + **push protection** + **dependabot security updates** (verified enabled on this repo) | Anything that slips past layers 1–3; pushes containing detected secrets are BLOCKED at the GitHub edge |
+| 5 | Anthropic Console daily-spend cap + in-code `NOVA_DAILY_BUDGET_USD` guardrail | Bounds blast radius if a key leaks despite all other layers |
+
+#### Hard rules — non-negotiable
+
+1. **No secret ever appears in source code.** All API keys, tokens, and credentials are loaded from `os.environ` (Python) or `process.env` (Node) at runtime.
+2. **`.env` is never committed.** A `.env.example` template lives at the repo root with all keys present but no values.
+3. **Browser-exposed env vars contain no secrets.** Next.js `NEXT_PUBLIC_` prefix variables are public — they go into the bundle. Secrets stay server-side.
+4. **The brain-panel viewer in v1 needs no secrets.** The viewer talks to the local agent over WebSocket; the agent owns all credentials.
+5. **`SECURITY.md` is the canonical reference.** Read it before any commit involving credentials or auth.
+
+#### Required artifacts (committed in repo root)
+
+- `.gitignore` — extended secret-pattern blocklist
+- `.env.example` — template with all keys, no values, with a security checklist at the bottom
+- `SECURITY.md` — full security policy, leak response procedure, and milestone-review checklist
+
+#### Milestone security reviews
+
+At each major milestone (end of week 1, week 3, week 6), run the security review checklist from `SECURITY.md` §"Security review — required before each milestone":
+
+1. `gitleaks detect --redact` (full git-history scan)
+2. Verify nothing matching `*.env`, `*secrets*`, `*credentials*` has ever been committed
+3. Check the GitHub Security tab for secret-scanning alerts
+4. Confirm `.env.example` contains no real values
+5. Confirm push protection + secret scanning + dependabot are still enabled
+
+A milestone is not done until all five pass.
+
+#### Leak response — fast path
+
+If a secret is committed (whether or not it has been pushed):
+
+1. **Rotate the key immediately** at the provider console — DO NOT wait, DO NOT try to git-rebase first.
+2. Update `.env` with the new key.
+3. Optionally scrub git history with `git filter-repo`.
+4. Run `gitleaks detect --redact` to find anything else exposed.
+
+Full procedure in `SECURITY.md` §"What to do if a key is leaked".
+
+#### Threat model — in/out of scope for v1
+
+| In scope | Out of scope |
+| --- | --- |
+| Accidental key commits (most common case) | Compromised dev machine — OS keychain owns these |
+| Public-repo exposure | Adversarial supply-chain dep — partial mitigation only |
+| Cost-amplification attacks via leaked key | Network-level attacks — v1 is local only |
+| Credential leaks in logs / recordings / screenshots | Production deployment hardening (deferred to v2/v3 when deployment exists) |
+
+When v2 / v3 add a deployed/cloud component, this section gets a follow-up covering at-rest encryption, transport TLS, auth on the WebSocket, and rate limiting.
+
 ---
 
 ## 7. Hardest problems and time-sinks

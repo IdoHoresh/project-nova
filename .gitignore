@@ -39,13 +39,40 @@ wheels/
 .coverage.*
 htmlcov/
 
-# Environment / secrets
+# Environment / secrets — DO NOT COMMIT ANY OF THESE
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.template
 *.key
 *.pem
+*.p12
+*.pfx
+*.crt
+*.cer
 secrets.json
+secrets.yaml
+secrets.yml
+credentials.json
+credentials.yaml
+credentials.yml
+service-account*.json
+*-secrets.json
+*-credentials.json
+auth.json
+config.local.json
+config.local.yaml
+
+# API keys / tokens commonly leaked
+*api_key*
+*api-key*
+!*api_key*.example
+!*api-key*.example
+*apikey*
+!*apikey*.example
+.anthropic
+.openai
+.google_credentials
 
 # Node / Next.js (nova-viewer)
 node_modules/

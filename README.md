@@ -47,6 +47,8 @@ project-nova/
   - [06 — Brain Panel Tour](docs/learn/06-brain-panel-tour.md)
   - [07 — Reading the Code](docs/learn/07-reading-the-code.md)
   - [08 — Glossary](docs/learn/08-glossary.md)
+  - [09 — Security: Keys, Secrets, and Not Getting Burned](docs/learn/09-security.md)
+- **[SECURITY.md](SECURITY.md)** — full security policy and leak-response procedure.
 
 ## License
 
