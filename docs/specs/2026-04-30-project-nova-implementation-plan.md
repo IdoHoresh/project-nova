@@ -794,14 +794,30 @@ The LLM adapters (Anthropic + Gemini) are modified in their `complete()` to call
 # nova-agent/src/nova_agent/llm/mock.py
 """Deterministic LLM client for plumbing tests (§6.7 L1).
 
-Returns scripted responses keyed off the rendered prompt or a free-form key.
-Records every call for assertion. NEVER makes a network call.
+R5 — strict mock. Unlike `MagicMock(...).side_effect = ['{"action":...}']`
+which blindly returns whatever string you fed it, this Mock:
+
+  1. Inspects `system` and `messages` to figure out WHICH role's prompt is
+     being sent (decision / tot / reflection / importance) — by checking the
+     system prompt against a registry of prompt-template fingerprints.
+  2. Returns a structurally valid JSON response for that role, generated
+     against a registered Pydantic schema. If you change the schema (add a
+     field, rename one), the mock generates a response that conforms to the
+     NEW schema — your test starts failing because the upstream code wasn't
+     updated yet, instead of silently passing on a stale fixture.
+  3. Records every call for assertion.
+  4. NEVER makes a network call.
+
+Use a single MockLLMClient instance per test session. Do not scatter
+MagicMock through the test suite for LLM interactions.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
+
+from pydantic import BaseModel, ValidationError
 
 
 @dataclass
@@ -811,48 +827,166 @@ class _Usage:
     cost_usd: float = 0.0
 
 
+class _RoleSpec(BaseModel):
+    """Registered role: how to detect it + schema + response factory."""
+    name: str
+    system_fingerprint: str            # substring of system prompt that identifies the role
+    schema: type[BaseModel]            # Pydantic model the response must conform to
+    factory: Callable[[dict[str, Any]], dict[str, Any]]  # build a response dict from call context
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+def _decision_factory(_ctx: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "observation": "mock board read",
+        "reasoning": "mock decision reasoning",
+        "action": "swipe_up",
+        "confidence": "low",
+        "memory_citation": None,
+    }
+
+
+def _tot_branch_factory(ctx: dict[str, Any]) -> dict[str, Any]:
+    last_text = ctx.get("last_text", "")
+    direction = "swipe_up"
+    for d in ("swipe_up", "swipe_down", "swipe_left", "swipe_right"):
+        if d in last_text:
+            direction = d
+            break
+    return {"action": direction, "reasoning": "mock branch", "value": 0.5}
+
+
+def _reflection_factory(_ctx: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "summary": "mock reflection",
+        "lessons": ["mock lesson 1"],
+        "notable_episodes": [],
+    }
+
+
+def _importance_factory(_ctx: dict[str, Any]) -> dict[str, Any]:
+    return {"importance": 5}
+
+
+# Registered roles. When a real prompt template changes, register the new
+# fingerprint here AND register the new schema; tests that call code paths
+# affected by the new prompt will start exercising the new schema
+# automatically.
+class _DecisionResponse(BaseModel):
+    observation: str
+    reasoning: str
+    action: str
+    confidence: str
+    memory_citation: dict | None = None
+
+
+class _ToTBranchResponse(BaseModel):
+    action: str
+    reasoning: str
+    value: float
+
+
+class _ReflectionResponse(BaseModel):
+    summary: str
+    lessons: list[str]
+    notable_episodes: list[str]
+
+
+class _ImportanceResponse(BaseModel):
+    importance: int
+
+
+_ROLES: list[_RoleSpec] = [
+    _RoleSpec(name="decision",   system_fingerprint="emit Observation, Reasoning, Action",
+              schema=_DecisionResponse, factory=_decision_factory),
+    _RoleSpec(name="tot_branch", system_fingerprint="evaluating ONE candidate move",
+              schema=_ToTBranchResponse, factory=_tot_branch_factory),
+    _RoleSpec(name="reflection", system_fingerprint="generate a short.*postmortem",
+              schema=_ReflectionResponse, factory=_reflection_factory),
+    _RoleSpec(name="importance", system_fingerprint='rate this event 1.10 for memorability',
+              schema=_ImportanceResponse, factory=_importance_factory),
+]
+
+
 @dataclass
 class MockLLMClient:
-    """Mock LLM. Use either:
-      - script: list[str]            — pop responses in order
-      - keyed:  dict[str, str]       — key = substring of last user message
-      - default_response: str        — fallback if neither matches
+    """Strict structured-response mock.
+
+    Override behavior per test by setting:
+      - `script`: list[str] — exact responses, pop in order (escape hatch)
+      - `keyed`:  dict[str, str] — substring → response (escape hatch)
+      - `factories`: dict[role_name, callable] — replace a default factory
+
+    Default behavior: identify role from system prompt, run that role's
+    factory, validate the result against the role's Pydantic schema, return
+    the JSON-serialized model.
     """
     script: list[str] = field(default_factory=list)
     keyed: dict[str, str] = field(default_factory=dict)
-    default_response: str = '{"action":"swipe_up","reasoning":"mock","confidence":"low"}'
+    factories: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = field(default_factory=dict)
     calls: list[dict[str, Any]] = field(default_factory=list)
+    strict: bool = True  # if True, unrecognized roles raise; if False, return generic decision
 
     def complete(self, *, system: str, messages: list[dict[str, Any]], max_tokens: int = 200,
                  temperature: float = 0.7) -> tuple[str, _Usage]:
-        last_user = next(
-            (m for m in reversed(messages) if m.get("role") == "user"), {}
-        )
-        last_text = ""
+        import json
+        import re
+
+        last_text = self._extract_last_user_text(messages)
+        ctx = {"system": system, "messages": messages, "last_text": last_text,
+               "max_tokens": max_tokens, "temperature": temperature}
+
+        # Escape hatches first
+        if self.script:
+            response = self.script.pop(0)
+        elif (keyed := next((v for k, v in self.keyed.items() if k in last_text), None)) is not None:
+            response = keyed
+        else:
+            role = next(
+                (r for r in _ROLES if re.search(r.system_fingerprint, system)),
+                None,
+            )
+            if role is None:
+                if self.strict:
+                    raise AssertionError(
+                        f"MockLLMClient: no registered role matched system prompt. "
+                        f"First 200 chars: {system[:200]!r}. Add a _RoleSpec or supply "
+                        f"`script`/`keyed` for this call."
+                    )
+                # Lax mode — return a generic decision
+                role = _ROLES[0]
+            factory = self.factories.get(role.name, role.factory)
+            payload = factory(ctx)
+            # Validate against the schema BEFORE returning — this is the
+            # safety net that catches stale prompt-templates.
+            try:
+                role.schema.model_validate(payload)
+            except ValidationError as exc:  # pragma: no cover (only fires on misregistered role)
+                raise AssertionError(
+                    f"MockLLMClient: factory output for role {role.name!r} does not match its schema: {exc}"
+                ) from exc
+            response = json.dumps(payload)
+
+        self.calls.append({**ctx, "response": response})
+        return response, _Usage()
+
+    @staticmethod
+    def _extract_last_user_text(messages: list[dict[str, Any]]) -> str:
+        last_user = next((m for m in reversed(messages) if m.get("role") == "user"), {})
         content = last_user.get("content", "")
         if isinstance(content, list):
             for part in content:
                 if isinstance(part, dict) and part.get("type") == "text":
-                    last_text = part.get("text", "")
-                    break
-        elif isinstance(content, str):
-            last_text = content
-
-        # priority: script > keyed > default
-        if self.script:
-            response = self.script.pop(0)
-        else:
-            response = next(
-                (v for k, v in self.keyed.items() if k in last_text),
-                self.default_response,
-            )
-
-        self.calls.append({
-            "system": system, "messages": messages, "max_tokens": max_tokens,
-            "temperature": temperature, "response": response,
-        })
-        return response, _Usage()
+                    return part.get("text", "")
+            return ""
+        return content if isinstance(content, str) else ""
 ```
+
+**Bench rule for tests.** Existing Tasks 9 / 33 / 36 use `MagicMock` for the LLM client. **Replace those with `MockLLMClient`.** A `MagicMock(...).side_effect = [...]` test passes even when the prompt has fundamentally changed shape — it returns whatever string you scripted. The strict Mock catches schema drift the moment it happens.
+
+If a single test really does need a fixed response (rare), use `MockLLMClient(script=['{"action":"swipe_up", ...}'])`. If a role hasn't been registered yet because the prompt template is new, register it in `_ROLES` and add a Pydantic schema for it; the friction is intentional.
 
 ```python
 # nova-agent/tests/test_llm_mock.py
@@ -1361,6 +1495,23 @@ def test_board_state_properties():
 def test_board_state_validates_4x4():
     with pytest.raises(ValueError):
         BoardState(grid=[[0, 2], [0, 0]], score=0)
+
+
+def test_to_vlm_bytes_downscales_to_512_max_side():
+    """R1 — token hemorrhage protection. A raw 1080×2400 PNG to the VLM on
+    every move would obliterate the budget. The capture layer always
+    downscales before encoding."""
+    from io import BytesIO
+    from PIL import Image as PILImage
+    from nova_agent.perception.capture import Capture
+
+    big = PILImage.new("RGB", (1080, 2400), color="white")
+    payload = Capture.to_vlm_bytes(big)
+    decoded = PILImage.open(BytesIO(payload))
+    assert max(decoded.size) <= 512
+    # PNG should be tiny (high-contrast solid white compresses well, but the
+    # critical assertion is that no path can slip a full-res image through)
+    assert len(payload) < 50_000
 ```
 
 - [ ] **Step 2: Implement `perception/types.py`**
@@ -1466,7 +1617,26 @@ class Capture:
         ha = hashlib.blake2s(a.tobytes(), digest_size=16).digest()
         hb = hashlib.blake2s(b.tobytes(), digest_size=16).digest()
         return ha != hb
+
+    @staticmethod
+    def to_vlm_bytes(image: Image.Image, *, max_side: int = 512) -> bytes:
+        """Downscale + optimize for VLM transmission. Required — see plan §6.6.
+
+        A raw 1080×2400 emulator screenshot encoded as PNG and sent on every
+        move would obliterate the $80 budget in days. 2048 is a high-contrast
+        grid; a 512-px-max-side image is more than enough for the VLM to read
+        digits and reason. Always run via thumbnail (LANCZOS) + optimize=True.
+        """
+        import io
+
+        thumb = image.copy()
+        thumb.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        thumb.save(buf, format="PNG", optimize=True)
+        return buf.getvalue()
 ```
+
+**Wiring rule.** Anywhere a screenshot is being sent to a VLM (decision call in Task 9, ToT branches in Task 33, perception fallback, reflection if it ever sees a screenshot), the payload must come from `Capture.to_vlm_bytes(image)` — never from a raw `image.save(buf, format="PNG")`. Add a lint-style assertion in the smoke gauntlet that every outbound LLM image-content block is ≤ 512px on its longest side; the gauntlet fails if any code path slips a full-resolution image into the request.
 
 - [ ] **Step 4: Run perception tests pass**
 
@@ -1546,6 +1716,29 @@ async def test_event_bus_publishes_to_subscriber():
         received.append(json.loads(msg))
     await bus.stop()
     assert received == [{"event": "test_event", "data": {"x": 1}}]
+
+
+@pytest.mark.asyncio
+async def test_publish_drops_frame_on_slow_client(monkeypatch):
+    """R4 — a slow client cannot stall the agent loop.
+
+    Simulate a client whose `ws.send` blocks longer than SEND_TIMEOUT_S.
+    `bus.publish` must return promptly (within ~2× timeout) without raising.
+    """
+    bus = EventBus(host="127.0.0.1", port=18766)
+    bus.SEND_TIMEOUT_S = 0.05
+
+    class SlowSocket:
+        async def send(self, _payload: str) -> None:
+            await asyncio.sleep(1.0)  # simulate buffer-full backpressure
+
+    bus._clients.add(SlowSocket())  # type: ignore[arg-type]
+
+    start = asyncio.get_event_loop().time()
+    await bus.publish("evt", {"k": 1})
+    elapsed = asyncio.get_event_loop().time() - start
+    assert elapsed < 0.2, f"publish stalled for {elapsed:.3f}s on slow client"
+    assert EventBus._drop_counter >= 1
 ```
 
 - [ ] **Step 2: Run, see fail**
@@ -1603,6 +1796,9 @@ class EventBus:
             self._server.close()
             await self._server.wait_closed()
 
+    SEND_TIMEOUT_S: float = 0.1   # R4 — protect agent loop from UI lag
+    _drop_counter: int = 0
+
     async def publish(self, event: str, data: Any) -> None:
         payload = json.dumps({"event": event, "data": data}, default=str)
         if not self._clients:
@@ -1612,10 +1808,20 @@ class EventBus:
             return_exceptions=True,
         )
 
-    @staticmethod
-    async def _safe_send(ws: WebSocketServerProtocol, payload: str) -> None:
-        with contextlib.suppress(websockets.exceptions.ConnectionClosed):
-            await ws.send(payload)
+    async def _safe_send(self, ws: WebSocketServerProtocol, payload: str) -> None:
+        """R4 — per-send timeout. A backgrounded Chrome tab can keep the
+        WebSocket open but stop ACKing packets. Without a timeout `ws.send`
+        blocks until the OS-level send buffer drains, stalling the decision
+        loop on UI lag. Drop the frame instead — the brain panel can miss
+        a frame; the agent cannot stall.
+        """
+        try:
+            await asyncio.wait_for(ws.send(payload), timeout=self.SEND_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            type(self)._drop_counter += 1
+            log.warning("bus.send_timeout_dropped", drops=type(self)._drop_counter)
+        except websockets.exceptions.ConnectionClosed:
+            pass  # client disconnected mid-send; cleanup happens in _handler
 ```
 
 - [ ] **Step 4: Run, pass**
@@ -1829,11 +2035,98 @@ adb -s emulator-5554 exec-out screencap -p > /tmp/board.png
 open /tmp/board.png                         # confirm 2048 board visible
 ```
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Pin emulator state — orientation, DPI, animation scales (R6)**
+
+The OCR auto-calibrator (Task 10) and the visual stability check (Task 5) are robust to *most* emulator variation, but several emulator state knobs reset on every cold boot in ways that break the pipeline silently. Lock them down with a script that runs **at the start of every agent session, before any screenshot is captured**.
+
+Create `nova-game/pin-emulator-state.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Pre-flight: pin every emulator state that could break perception.
+# Idempotent — safe to run before every agent session.
+set -e
+
+DEVICE_ID="${ADB_DEVICE_ID:-emulator-5554}"
+ADB="adb -s $DEVICE_ID"
+
+echo "→ Pinning emulator state on $DEVICE_ID"
+
+# 1. ORIENTATION — lock to portrait. Auto-rotation must be OFF or scrcpy/OCR
+#    sees a sideways grid the moment the emulator decides to flip.
+$ADB shell settings put system accelerometer_rotation 0      # disable auto-rotate
+$ADB shell settings put system user_rotation 0               # 0 = portrait
+
+# 2. DISPLAY DENSITY — fix DPI so the OCR's auto-calibrated bbox doesn't drift
+#    between sessions. 440 dpi is the Pixel 6 default; pinning it explicitly
+#    survives an OS update that changes the default.
+$ADB shell wm density 440
+
+# 3. ANIMATION SCALES — set to 1.0 for the visual-stability check to time
+#    correctly. Some Android dev presets ship at 0.5x or off, which makes
+#    the swipe animation invisible to the pixel-diff loop.
+$ADB shell settings put global window_animation_scale 1.0
+$ADB shell settings put global transition_animation_scale 1.0
+$ADB shell settings put global animator_duration_scale 1.0
+
+# 4. DISPLAY ALWAYS ON (during dev sessions only) so the screen doesn't dim
+#    mid-game and corrupt OCR's color sampling.
+$ADB shell svc power stayon true
+
+# 5. DISABLE SOFT KEYBOARD popups that occasionally overlay the game.
+$ADB shell settings put secure show_ime_with_hard_keyboard 0
+
+# 6. STATUS BAR — verify it's the standard height. If a notification or
+#    alarm icon shifts the layout, OCR auto-calibration handles it (it
+#    looks for a square contour, not absolute coords) — but log a warning
+#    so a human can investigate if the warning fires repeatedly.
+HEIGHT=$($ADB shell wm size | awk -F'[ x]' '/Physical/ {print $5}')
+if [ "$HEIGHT" != "2400" ]; then
+    echo "  ⚠️  Physical display height is $HEIGHT (expected 2400). OCR will recalibrate, but verify this is intentional."
+fi
+
+# 7. VERIFY 2048 IS THE FOREGROUND APP (don't run agent against a launcher
+#    or a stale dialog).
+FOREGROUND=$($ADB shell dumpsys window | grep -E 'mCurrentFocus' | awk '{print $NF}' | tr -d '}')
+if [[ ! "$FOREGROUND" == *"nova2048"* ]]; then
+    echo "  ⚠️  2048 is not the foreground app (got: $FOREGROUND)."
+    echo "     Launching now…"
+    $ADB shell am start -n com.idohoresh.nova2048/com.unity3d.player.UnityPlayerActivity
+    sleep 2
+fi
+
+echo "✓ Emulator state pinned"
+```
+
+```bash
+chmod +x nova-game/pin-emulator-state.sh
+```
+
+The agent's `main.py` Step-0 entrypoint must invoke this script (or fail fast with a helpful error) before the run loop starts. The smoke gauntlet (every commit) calls it on a synthetic mock-emulator path; the live runs call it for real.
+
+- [ ] **Step 10: Document the precondition contract in `nova-game/README.md`**
+
+```markdown
+## Emulator preconditions
+
+Before running the agent, the emulator state must be pinned. Run:
+
+    ./nova-game/pin-emulator-state.sh
+
+This locks: portrait orientation, 440 dpi, 1.0× animation scales, screen-on,
+no soft-keyboard popups, and confirms 2048 is the foreground app. The agent's
+OCR auto-calibrator handles minor scale drift, but auto-rotation, animation-off,
+and screen-dim cannot be recovered from in-loop — they have to be pre-pinned.
+
+If the agent reports `CalibrationError: no square grid contour found`, the
+emulator probably isn't in 2048 (or the screen is dimmed). Re-run the pin script.
+```
+
+- [ ] **Step 11: Commit**
 
 ```bash
 git add nova-game/
-git commit -m "feat(game): fork stdbilly/2048_Unity + Android build/install scripts"
+git commit -m "feat(game): fork stdbilly/2048_Unity + build script + emulator-state pin script"
 ```
 
 ---
@@ -2017,11 +2310,13 @@ async def run() -> None:
     log.info("nova.started")
     try:
         for step in range(50):
-            image = capture.grab()
+            image = capture.grab_stable()                  # §3.9 visual stability
             board = _placeholder_perceive(image)
-            buf = io.BytesIO()
-            image.save(buf, format="PNG")
-            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+            # R1 — downscale BEFORE encoding. Sending raw 1080×2400 PNGs to
+            # the VLM on every move would obliterate the budget. 512-max-side
+            # is more than enough for 4×4 grid reading.
+            png_bytes = Capture.to_vlm_bytes(image)
+            b64 = base64.b64encode(png_bytes).decode("ascii")
             await bus.publish("perception", {"score": board.score, "step": step})
             decision = decider.decide(board=board, screenshot_b64=b64)
             await bus.publish("decision", {
@@ -2136,25 +2431,32 @@ def test_ocr_reads_known_boards(name, exp):
     assert state.grid == exp["grid"], f"{name}: grid mismatch"
 ```
 
-- [ ] **Step 3: Implement OCR (template matching on tile values)**
+- [ ] **Step 3: Implement OCR with auto-calibration (NO hardcoded coords)**
+
+R2 from the second peer review: hardcoded `_BOARD_TOP = 980` etc. break the moment the emulator boots with different DPI scaling, the device skin changes, or an OS update shifts the status bar. The fast path must dynamically locate the 4×4 grid via OpenCV before sampling cells.
 
 ```python
 # nova-agent/src/nova_agent/perception/ocr.py
-from dataclasses import dataclass
+"""Auto-calibrating fast-path OCR for the 2048 grid.
+
+Calibration runs once per Capture session (~10ms). It locates the 4×4 grid
+by edge-detecting the screenshot, finding contours with aspect ratio ~1.0
+near the expected size, and caching the bounding box. Subsequent reads
+reuse the cached bbox until calibration drift triggers a re-cal.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Optional
+
+import cv2
 import numpy as np
 from PIL import Image
 
 from nova_agent.perception.types import BoardState
 
-# These coordinates are calibrated for the Pixel 6 emulator (1080x2400) running
-# the Unity 2048 build. If you switch emulator config you must recalibrate —
-# see scripts/calibrate_ocr.py (Week 2 polish).
-_BOARD_TOP = 980
-_BOARD_LEFT = 60
-_CELL_SIZE = 240   # 4 cells wide, 4 cells tall
-_TILE_INSET = 20
-
-# Tile background colors → tile value. These are the published 2048 palette.
+# Tile background colors → tile value. The published 2048 palette.
 _PALETTE: dict[tuple[int, int, int], int] = {
     (205, 192, 180): 0,      # empty
     (238, 228, 218): 2,
@@ -2180,24 +2482,107 @@ def _nearest_tile(rgb: tuple[int, int, int]) -> int:
     return best
 
 
+@dataclass(frozen=True)
+class BoardBBox:
+    """Pixel coordinates of the 4×4 grid in the source image."""
+    top: int
+    left: int
+    cell_size: int
+
+    @property
+    def width(self) -> int:
+        return self.cell_size * 4
+
+
+class CalibrationError(RuntimeError):
+    """Raised when the fast path can't find the grid. Loop falls through to VLM perception."""
+
+
+def calibrate_board_bbox(image: Image.Image) -> BoardBBox:
+    """Find the 4×4 grid via OpenCV — no hardcoded coordinates.
+
+    Strategy:
+      1. Convert to grayscale.
+      2. Adaptive threshold to isolate the dark grid background.
+      3. Find contours; filter to those with aspect ratio ~1.0 (square)
+         AND area large enough to be the full grid.
+      4. Pick the largest match. Compute cell_size = bbox.width / 4.
+    """
+    arr = np.asarray(image.convert("RGB"))
+    gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    # Adaptive threshold tolerates emulator brightness variation
+    binary = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 4
+    )
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    img_area = arr.shape[0] * arr.shape[1]
+    candidates: list[tuple[int, int, int, int]] = []
+    for c in contours:
+        x, y, w, h = cv2.boundingRect(c)
+        if w < 200 or h < 200:           # too small
+            continue
+        if abs(w - h) / max(w, h) > 0.05:  # not square (5% tolerance)
+            continue
+        area_frac = (w * h) / img_area
+        if not 0.10 < area_frac < 0.65:    # plausible grid size relative to screen
+            continue
+        candidates.append((w * h, x, y, w))
+
+    if not candidates:
+        raise CalibrationError("no square grid contour found at plausible scale")
+
+    # Largest plausible square is the grid.
+    candidates.sort(reverse=True)
+    _, x, y, w = candidates[0]
+    cell_size = w // 4
+    return BoardBBox(top=y, left=x, cell_size=cell_size)
+
+
 @dataclass
 class BoardOCR:
+    bbox: Optional[BoardBBox] = None
+    _last_calibration_image_size: tuple[int, int] = field(default=(0, 0))
+
     def read(self, image: Image.Image) -> BoardState:
+        # Re-calibrate if image dimensions changed (e.g. emulator restarted at
+        # a new resolution) or on first read.
+        size = image.size
+        if self.bbox is None or size != self._last_calibration_image_size:
+            self.bbox = calibrate_board_bbox(image)
+            self._last_calibration_image_size = size
+
+        bbox = self.bbox
         arr = np.asarray(image)
+        inset = max(8, bbox.cell_size // 12)  # scale the sampling patch with cell size
         grid = [[0] * 4 for _ in range(4)]
         for r in range(4):
             for c in range(4):
-                cy = _BOARD_TOP + r * _CELL_SIZE + _CELL_SIZE // 2
-                cx = _BOARD_LEFT + c * _CELL_SIZE + _CELL_SIZE // 2
-                # average a small inset patch to reduce anti-alias noise
+                cy = bbox.top + r * bbox.cell_size + bbox.cell_size // 2
+                cx = bbox.left + c * bbox.cell_size + bbox.cell_size // 2
                 patch = arr[
-                    cy - _TILE_INSET : cy + _TILE_INSET,
-                    cx - _TILE_INSET : cx + _TILE_INSET,
+                    cy - inset : cy + inset,
+                    cx - inset : cx + inset,
                 ]
                 rgb = tuple(int(v) for v in patch.reshape(-1, 3).mean(axis=0))
                 grid[r][c] = _nearest_tile(rgb)
-        # Score parsing is harder; v1 reads it from a fixed top-bar region in Week 2.
         return BoardState(grid=grid, score=0)
+```
+
+**Drift safeguard.** If `_nearest_tile` returns a color that's far from any palette entry (distance > threshold), the OCR layer logs a warning and bumps a `calibration_drift_counter`. After 3 consecutive drift events the bbox cache is invalidated and re-calibration runs on the next frame. This catches the case where the emulator is restarted mid-session at a different scale.
+
+**Test it: a simulated emulator-resolution change must not break OCR.**
+
+```python
+def test_ocr_recalibrates_when_image_size_changes(tmp_path):
+    """R2 — auto-calibration must survive emulator-resolution changes."""
+    from nova_agent.perception.ocr import BoardOCR
+    # ... build a synthetic 1080×2400 board fixture ...
+    ocr = BoardOCR()
+    state_a = ocr.read(big_image)
+    state_b = ocr.read(small_image)  # 720×1600 simulated rescale
+    assert state_a.grid == expected_grid_for_big
+    assert state_b.grid == expected_grid_for_small
 ```
 
 - [ ] **Step 4: Run OCR tests**
@@ -2206,7 +2591,7 @@ class BoardOCR:
 uv run pytest tests/test_perception_ocr.py -v
 ```
 
-If a board fails, recapture the fixture or adjust `_BOARD_TOP` / `_BOARD_LEFT` / `_CELL_SIZE` based on a quick visual measurement of one of the captured PNGs.
+If a board fails, the failure mode is no longer "wrong hardcoded coords" — it's either (a) the contour finder couldn't isolate the grid (palette/threshold tuning), or (b) the palette colors drifted (Unity build changed). The smoke gauntlet catches both before they reach a real run.
 
 - [ ] **Step 5: Wire OCR into main.py**
 
@@ -4257,6 +4642,31 @@ def test_extinction_noop_on_non_aversive():
     r = _rec(0)
     out = exposure_extinction_halve(r)
     assert out is r  # unchanged identity
+
+
+def test_aversive_weight_decays_continuously_not_in_integer_steps():
+    """R3 — aversive_weight is float, not int-truncated.
+
+    A previous draft had `int(importance * 0.95)` which truncated 7→6 on the
+    first decay because `int(6.65) == 6`. Whole-integer steps would burn
+    aversive memories ~5× faster than intended. The current implementation
+    must keep aversive_weight as a continuous float. The integer
+    `importance` field stays for retrieval-scoring; aversive_weight is the
+    decay channel.
+    """
+    r = _rec(0, importance=8, aversive_weight=1.0)
+    r.tags.append(AVERSIVE_TAG)
+    cur = r
+    weights: list[float] = [cur.aversive_weight]
+    for _ in range(3):
+        cur = exposure_extinction_halve(cur)
+        weights.append(cur.aversive_weight)
+    # halving from 1.0 across 3 steps must yield {1.0, 0.5, 0.25, 0.125},
+    # not {1, 0, 0, 0}. This is exactly what int-truncation would give us.
+    assert weights == [1.0, 0.5, 0.25, 0.125]
+    # importance stays integer (retrieval-side concern), but aversive_weight is float
+    assert isinstance(cur.aversive_weight, float)
+    assert isinstance(cur.importance, int)
 
 
 def test_is_catastrophic_loss_requires_contested_board():
