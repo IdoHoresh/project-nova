@@ -584,7 +584,14 @@ Claude Design requires a Claude Pro / Max / Team / Enterprise subscription. Conf
 | Layer | Choice | Reason |
 | --- | --- | --- |
 | Agent language | Python 3.11+ | Standard for LLM/CV work; library ecosystem |
-| VLM provider | Anthropic Claude (Opus or Sonnet) | Strong vision + structured outputs; provider-agnostic interface so swap is config-only |
+| VLM provider — primary | Google AI (Gemini family) | Strong vision + JSON output at significantly lower per-token cost than Anthropic for the high-volume tasks |
+| VLM provider — secondary | Anthropic Claude | Used where Anthropic's long-form structured output advantage matters (reflection) and for the polished demo recording |
+| Model — default decisions (90% of moves) | `gemini-2.5-flash` | $0.30 / $2.50 per 1M tokens; MMMU 79.7 — comfortably above the bar for 4×4 grid reasoning |
+| Model — Tree-of-Thoughts deliberation | `gemini-2.5-pro` | $1.25 / $10 per 1M; best step-wise reasoning per dollar |
+| Model — OCR fallback + cheap classification | `gemini-2.5-flash-lite` | $0.10 / $0.40 per 1M; trivially cheap for "read these digits" / "rate 1–10" |
+| Model — post-game reflection | `claude-sonnet-4-6` | $3 / $15 per 1M; Anthropic's strength is long-form structured prose |
+| Model — Week 6 demo recording | `claude-opus-4-7` | $5 / $25 per 1M; flagship name recognition for the LinkedIn demo |
+| Realistic 6-week dev cost | **~$110–130** | ~$76 dev + ~$50 demo recording. Pricing verified against provider pricing pages May 2026. |
 | Vector DB | LanceDB | Local, file-backed, no server, fast Rust core |
 | Structured store | SQLite | Local, zero-config, fits the data volume |
 | Emulator capture | scrcpy + ADB | Open source, mature, mirrors device cleanly |

@@ -196,6 +196,7 @@ description = "Project Nova — brain-inspired VLM agent that plays mobile games
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.39.0",
+    "google-genai>=0.3.0",
     "python-dotenv>=1.0.1",
     "pydantic>=2.7.0",
     "pydantic-settings>=2.3.0",
@@ -357,19 +358,33 @@ import pytest
 from nova_agent.config import Settings
 
 def test_settings_loads_from_env(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-real-looking-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-real-looking-key")
     monkeypatch.setenv("NOVA_WS_PORT", "9999")
     s = Settings()
+    assert s.google_api_key == "AIzaSy-real-looking-key"
     assert s.anthropic_api_key == "sk-ant-real-looking-key"
     assert s.ws_port == 9999
 
-def test_settings_fails_without_api_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+def test_settings_fails_without_google_key(monkeypatch):
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     with pytest.raises(Exception) as exc:
         Settings()
-    assert "ANTHROPIC_API_KEY" in str(exc.value)
+    assert "GOOGLE_API_KEY" in str(exc.value)
+
+def test_settings_default_models(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    s = Settings()
+    assert s.decision_model == "gemini-2.5-flash"
+    assert s.deliberation_model == "gemini-2.5-pro"
+    assert s.cheap_vision_model == "gemini-2.5-flash-lite"
+    assert s.reflection_model == "claude-sonnet-4-6"
+    assert s.demo_model == "claude-opus-4-7"
 
 def test_settings_default_paths(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-test")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     s = Settings()
     assert str(s.sqlite_path).endswith("nova.db")
@@ -400,13 +415,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Required secrets
+    # Required secrets — TWO providers
+    google_api_key: str = Field(..., alias="GOOGLE_API_KEY")
     anthropic_api_key: str = Field(..., alias="ANTHROPIC_API_KEY")
 
-    # Models
-    claude_model: str = Field("claude-opus-4-7", alias="CLAUDE_MODEL")
-    claude_vision_model: str = Field("claude-opus-4-7", alias="CLAUDE_VISION_MODEL")
-    embedding_model: str = Field("voyage-3-large", alias="EMBEDDING_MODEL")
+    # Per-task model selection (see spec §6 tech stack table)
+    decision_model: str = Field("gemini-2.5-flash", alias="NOVA_DECISION_MODEL")
+    deliberation_model: str = Field("gemini-2.5-pro", alias="NOVA_DELIBERATION_MODEL")
+    cheap_vision_model: str = Field("gemini-2.5-flash-lite", alias="NOVA_CHEAP_VISION_MODEL")
+    reflection_model: str = Field("claude-sonnet-4-6", alias="NOVA_REFLECTION_MODEL")
+    demo_model: str = Field("claude-opus-4-7", alias="NOVA_DEMO_MODEL")
 
     # Storage paths
     sqlite_path: Path = Field(Path("./data/nova.db"), alias="NOVA_SQLITE_PATH")
@@ -459,15 +477,23 @@ git commit -m "feat(agent): config module + gitleaks pre-commit hook"
 
 ---
 
-## Task 3: Anthropic LLM client + budget guard
+## Task 3: Multi-provider LLM client + budget guard
+
+**Provider-agnostic LLM interface with TWO adapters: Google AI (Gemini) for default decisions / ToT / cheap classification, Anthropic (Claude) for reflection + demo recording. See spec §6 tech stack table for the per-task model selection.**
 
 **Files:**
 - Create: `nova-agent/src/nova_agent/budget.py`
 - Create: `nova-agent/src/nova_agent/llm/__init__.py`
-- Create: `nova-agent/src/nova_agent/llm/client.py`
+- Create: `nova-agent/src/nova_agent/llm/protocol.py`
+- Create: `nova-agent/src/nova_agent/llm/anthropic_client.py`
+- Create: `nova-agent/src/nova_agent/llm/gemini_client.py`
+- Create: `nova-agent/src/nova_agent/llm/factory.py`
 - Create: `nova-agent/src/nova_agent/llm/structured.py`
-- Create: `nova-agent/tests/test_llm_client.py`
+- Create: `nova-agent/tests/test_llm_anthropic.py`
+- Create: `nova-agent/tests/test_llm_gemini.py`
+- Create: `nova-agent/tests/test_llm_factory.py`
 - Create: `nova-agent/tests/test_budget.py`
+- Modify: `nova-agent/pyproject.toml` (add `google-genai>=0.3.0` to dependencies)
 
 - [ ] **Step 1: Write failing budget test**
 
@@ -535,16 +561,16 @@ class BudgetGuard:
         self.spent_today += amount_usd
 ```
 
-- [ ] **Step 4: Write failing client test**
+- [ ] **Step 4: Write failing tests for both adapters + the factory**
 
 ```python
-# nova-agent/tests/test_llm_client.py
+# nova-agent/tests/test_llm_anthropic.py
 from unittest.mock import MagicMock, patch
-from nova_agent.llm.client import NovaLLM
+from nova_agent.llm.anthropic_client import AnthropicLLM
 
 
-@patch("nova_agent.llm.client.Anthropic")
-def test_client_calls_anthropic(mock_cls):
+@patch("nova_agent.llm.anthropic_client.Anthropic")
+def test_anthropic_adapter_calls_messages_create(mock_cls):
     fake_client = MagicMock()
     fake_resp = MagicMock()
     fake_resp.content = [MagicMock(text='{"action":"swipe_up"}', type="text")]
@@ -553,10 +579,53 @@ def test_client_calls_anthropic(mock_cls):
     fake_client.messages.create.return_value = fake_resp
     mock_cls.return_value = fake_client
 
-    llm = NovaLLM(api_key="sk-ant-test", model="claude-opus-4-7", daily_cap_usd=0)
+    llm = AnthropicLLM(api_key="sk-ant-test", model="claude-sonnet-4-6", daily_cap_usd=0)
     out, usage = llm.complete(system="be brief", messages=[{"role": "user", "content": "hi"}])
     assert "swipe_up" in out
     assert usage.input_tokens == 1000
+```
+
+```python
+# nova-agent/tests/test_llm_gemini.py
+from unittest.mock import MagicMock, patch
+from nova_agent.llm.gemini_client import GeminiLLM
+
+
+@patch("nova_agent.llm.gemini_client.genai.Client")
+def test_gemini_adapter_calls_generate(mock_cls):
+    fake_client = MagicMock()
+    fake_resp = MagicMock()
+    fake_resp.text = '{"action":"swipe_left"}'
+    fake_resp.usage_metadata.prompt_token_count = 1200
+    fake_resp.usage_metadata.candidates_token_count = 40
+    fake_client.models.generate_content.return_value = fake_resp
+    mock_cls.return_value = fake_client
+
+    llm = GeminiLLM(api_key="AIzaSy-test", model="gemini-2.5-flash", daily_cap_usd=0)
+    out, usage = llm.complete(system="be brief", messages=[{"role": "user", "content": "hi"}])
+    assert "swipe_left" in out
+    assert usage.input_tokens == 1200
+```
+
+```python
+# nova-agent/tests/test_llm_factory.py
+from nova_agent.llm.factory import build_llm
+
+
+def test_factory_gemini_for_gemini_model():
+    llm = build_llm(model="gemini-2.5-flash", google_api_key="AIzaSy-test", anthropic_api_key="", daily_cap_usd=0)
+    assert llm.__class__.__name__ == "GeminiLLM"
+
+
+def test_factory_anthropic_for_claude_model():
+    llm = build_llm(model="claude-sonnet-4-6", google_api_key="", anthropic_api_key="sk-ant-test", daily_cap_usd=0)
+    assert llm.__class__.__name__ == "AnthropicLLM"
+
+
+def test_factory_raises_on_unknown_model():
+    import pytest
+    with pytest.raises(ValueError):
+        build_llm(model="gpt-9000", google_api_key="x", anthropic_api_key="y", daily_cap_usd=0)
 ```
 
 - [ ] **Step 5: Run, see fail**
@@ -565,44 +634,79 @@ def test_client_calls_anthropic(mock_cls):
 uv run pytest tests/test_llm_client.py -v
 ```
 
-- [ ] **Step 6: Implement `llm/client.py`**
+- [ ] **Step 6: Implement the LLM protocol + per-provider pricing**
 
 ```python
 # nova-agent/src/nova_agent/llm/__init__.py
-from nova_agent.llm.client import NovaLLM, Usage  # re-exports
+from nova_agent.llm.protocol import LLM, Usage
+from nova_agent.llm.factory import build_llm
 ```
 
 ```python
-# nova-agent/src/nova_agent/llm/client.py
+# nova-agent/src/nova_agent/llm/protocol.py
 from dataclasses import dataclass
-from typing import Any
-from anthropic import Anthropic
-from tenacity import retry, stop_after_attempt, wait_exponential
-import structlog
+from typing import Any, Protocol
 
-from nova_agent.budget import BudgetGuard
 
-log = structlog.get_logger()
-
-# Approximate Opus 4.7 pricing in USD per 1M tokens (verify in Anthropic console).
-INPUT_USD_PER_MTOK = 15.0
-OUTPUT_USD_PER_MTOK = 75.0
+# Per-1M-token pricing in USD. Verified against provider pricing pages May 2026.
+# Update if providers change pricing — the budget guard relies on these.
+PRICING: dict[str, tuple[float, float]] = {
+    # (input_usd_per_mtok, output_usd_per_mtok)
+    "claude-opus-4-7": (5.0, 25.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+    "gemini-2.5-pro": (1.25, 10.0),     # tier <=200K input tokens
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
+}
 
 
 @dataclass(frozen=True)
 class Usage:
     input_tokens: int
     output_tokens: int
+    model: str
 
     @property
     def cost_usd(self) -> float:
+        in_rate, out_rate = PRICING.get(self.model, (5.0, 25.0))  # conservative default
         return (
-            self.input_tokens * INPUT_USD_PER_MTOK / 1_000_000
-            + self.output_tokens * OUTPUT_USD_PER_MTOK / 1_000_000
+            self.input_tokens * in_rate / 1_000_000
+            + self.output_tokens * out_rate / 1_000_000
         )
 
 
-class NovaLLM:
+class LLM(Protocol):
+    """Provider-agnostic LLM interface used by every cognitive module."""
+
+    model: str
+
+    def complete(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> tuple[str, Usage]: ...
+```
+
+- [ ] **Step 7: Implement the Anthropic adapter**
+
+```python
+# nova-agent/src/nova_agent/llm/anthropic_client.py
+from typing import Any
+from anthropic import Anthropic
+from tenacity import retry, stop_after_attempt, wait_exponential
+import structlog
+
+from nova_agent.budget import BudgetGuard
+from nova_agent.llm.protocol import Usage
+
+log = structlog.get_logger()
+
+
+class AnthropicLLM:
     def __init__(self, *, api_key: str, model: str, daily_cap_usd: float):
         self._client = Anthropic(api_key=api_key)
         self.model = model
@@ -628,13 +732,118 @@ class NovaLLM:
         usage = Usage(
             input_tokens=resp.usage.input_tokens,
             output_tokens=resp.usage.output_tokens,
+            model=self.model,
         )
         self.budget.charge(usage.cost_usd)
-        log.info("llm.complete", tokens_in=usage.input_tokens, tokens_out=usage.output_tokens, cost=usage.cost_usd)
+        log.info("llm.anthropic", model=self.model, tokens_in=usage.input_tokens, tokens_out=usage.output_tokens, cost=usage.cost_usd)
         return text, usage
 ```
 
-- [ ] **Step 7: Implement `llm/structured.py`**
+- [ ] **Step 8: Implement the Gemini adapter**
+
+```python
+# nova-agent/src/nova_agent/llm/gemini_client.py
+import base64
+from typing import Any
+from google import genai
+from google.genai import types
+from tenacity import retry, stop_after_attempt, wait_exponential
+import structlog
+
+from nova_agent.budget import BudgetGuard
+from nova_agent.llm.protocol import Usage
+
+log = structlog.get_logger()
+
+
+def _to_gemini_content(messages: list[dict[str, Any]]) -> list[types.Content]:
+    """Convert Anthropic-style messages to Gemini Content list.
+
+    The Anthropic shape is `[{"role": "user", "content": [{"type": "image", "source": {...}}, {"type": "text", "text": "..."}]}]`.
+    Gemini accepts a flatter list of Parts.
+    """
+    contents: list[types.Content] = []
+    for msg in messages:
+        role = "user" if msg["role"] == "user" else "model"
+        parts: list[types.Part] = []
+        content = msg["content"]
+        if isinstance(content, str):
+            parts.append(types.Part.from_text(content))
+        else:
+            for item in content:
+                if item.get("type") == "text":
+                    parts.append(types.Part.from_text(item["text"]))
+                elif item.get("type") == "image":
+                    src = item["source"]
+                    if src["type"] == "base64":
+                        raw = base64.b64decode(src["data"])
+                        parts.append(types.Part.from_bytes(data=raw, mime_type=src["media_type"]))
+        contents.append(types.Content(role=role, parts=parts))
+    return contents
+
+
+class GeminiLLM:
+    def __init__(self, *, api_key: str, model: str, daily_cap_usd: float):
+        self._client = genai.Client(api_key=api_key)
+        self.model = model
+        self.budget = BudgetGuard(daily_cap_usd=daily_cap_usd)
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
+    def complete(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> tuple[str, Usage]:
+        contents = _to_gemini_content(messages)
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+            response_mime_type="application/json",  # request strict JSON
+        )
+        resp = self._client.models.generate_content(
+            model=self.model,
+            contents=contents,
+            config=config,
+        )
+        text = resp.text or ""
+        usage = Usage(
+            input_tokens=resp.usage_metadata.prompt_token_count,
+            output_tokens=resp.usage_metadata.candidates_token_count,
+            model=self.model,
+        )
+        self.budget.charge(usage.cost_usd)
+        log.info("llm.gemini", model=self.model, tokens_in=usage.input_tokens, tokens_out=usage.output_tokens, cost=usage.cost_usd)
+        return text, usage
+```
+
+- [ ] **Step 9: Implement the factory**
+
+```python
+# nova-agent/src/nova_agent/llm/factory.py
+from nova_agent.llm.protocol import LLM
+from nova_agent.llm.anthropic_client import AnthropicLLM
+from nova_agent.llm.gemini_client import GeminiLLM
+
+
+def build_llm(*, model: str, google_api_key: str, anthropic_api_key: str, daily_cap_usd: float) -> LLM:
+    """Construct the right adapter for a given model name.
+
+    Routing:
+      - gemini-* → GeminiLLM (uses GOOGLE_API_KEY)
+      - claude-* → AnthropicLLM (uses ANTHROPIC_API_KEY)
+    """
+    if model.startswith("gemini-"):
+        return GeminiLLM(api_key=google_api_key, model=model, daily_cap_usd=daily_cap_usd)
+    if model.startswith("claude-"):
+        return AnthropicLLM(api_key=anthropic_api_key, model=model, daily_cap_usd=daily_cap_usd)
+    raise ValueError(f"Unknown model family: {model!r}")
+```
+
+- [ ] **Step 10: Implement `llm/structured.py`**
 
 ```python
 # nova-agent/src/nova_agent/llm/structured.py
@@ -669,17 +878,21 @@ def parse_json(text: str, model: Type[T]) -> T:
         raise StructuredOutputError(f"Schema mismatch: {e}; raw={raw[:200]!r}") from e
 ```
 
-- [ ] **Step 8: Run all tests pass**
+- [ ] **Step 11: Verify `google-genai` is in pyproject.toml dependencies**
+
+(Already added in Task 1 — confirm `uv sync` brought it in.)
+
+- [ ] **Step 12: Run all tests pass**
 
 ```bash
 uv run pytest -v
 ```
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
 git add nova-agent/
-git commit -m "feat(agent): LLM client + budget guard + structured output parsing"
+git commit -m "feat(agent): multi-provider LLM (Gemini + Anthropic) + budget guard + structured output"
 ```
 
 ---
@@ -1341,7 +1554,7 @@ from dataclasses import dataclass
 from typing import Literal
 from pydantic import BaseModel, Field
 
-from nova_agent.llm.client import NovaLLM
+from nova_agent.llm.protocol import LLM
 from nova_agent.llm.structured import parse_json
 from nova_agent.perception.types import BoardState
 from nova_agent.decision.prompts import SYSTEM_PROMPT_V1, build_user_prompt
@@ -1363,7 +1576,7 @@ class Decision:
 
 
 class ReactDecider:
-    def __init__(self, *, llm: NovaLLM):
+    def __init__(self, *, llm: LLM):
         self.llm = llm
 
     def decide(self, *, board: BoardState, screenshot_b64: str) -> Decision:
@@ -1407,7 +1620,7 @@ from nova_agent.action.adb import ADB, SwipeDirection
 from nova_agent.bus.websocket import EventBus
 from nova_agent.config import get_settings
 from nova_agent.decision.react import ReactDecider
-from nova_agent.llm.client import NovaLLM
+from nova_agent.llm.factory import build_llm
 from nova_agent.perception.capture import Capture
 from nova_agent.perception.types import BoardState
 
@@ -1430,8 +1643,15 @@ async def run() -> None:
 
     capture = Capture(adb_path=s.adb_path, device_id=s.adb_device_id)
     adb = ADB(adb_path=s.adb_path, device_id=s.adb_device_id, screen_w=1080, screen_h=2400)
-    llm = NovaLLM(api_key=s.anthropic_api_key, model=s.claude_vision_model, daily_cap_usd=s.daily_budget_usd)
-    decider = ReactDecider(llm=llm)
+    # Default decisions go through Gemini Flash (cheap, fast). Other modules
+    # build their own LLM via the factory using the right per-task model.
+    decision_llm = build_llm(
+        model=s.decision_model,
+        google_api_key=s.google_api_key,
+        anthropic_api_key=s.anthropic_api_key,
+        daily_cap_usd=s.daily_budget_usd,
+    )
+    decider = ReactDecider(llm=decision_llm)
 
     log.info("nova.started")
     try:
@@ -3506,7 +3726,7 @@ from dataclasses import dataclass
 from typing import Literal
 from pydantic import BaseModel, Field
 
-from nova_agent.llm.client import NovaLLM
+from nova_agent.llm.protocol import LLM
 from nova_agent.llm.structured import parse_json
 from nova_agent.perception.types import BoardState
 from nova_agent.decision.react import Decision
@@ -3531,7 +3751,7 @@ Respond as strict JSON:
 
 
 class ToTDecider:
-    def __init__(self, *, llm: NovaLLM):
+    def __init__(self, *, llm: LLM):
         self.llm = llm
 
     def decide(
@@ -3631,8 +3851,21 @@ from nova_agent.decision.arbiter import should_use_tot
 from nova_agent.decision.tot import ToTDecider
 
 # init both deciders
-react_decider = ReactDecider(llm=llm)
-tot_decider = ToTDecider(llm=llm)
+# ReAct uses the cheap default model (Gemini Flash); ToT uses the strong
+# deliberation model (Gemini Pro). Each gets its own LLM instance via the
+# factory so the budget-guard accounting is correct per-model.
+react_decider = ReactDecider(llm=build_llm(
+    model=s.decision_model,
+    google_api_key=s.google_api_key,
+    anthropic_api_key=s.anthropic_api_key,
+    daily_cap_usd=s.daily_budget_usd,
+))
+tot_decider = ToTDecider(llm=build_llm(
+    model=s.deliberation_model,
+    google_api_key=s.google_api_key,
+    anthropic_api_key=s.anthropic_api_key,
+    daily_cap_usd=s.daily_budget_usd,
+))
 
 # in loop:
 mode = "tot" if should_use_tot(board=board, affect=affect.vector) else "react"
@@ -3844,7 +4077,7 @@ class SemanticStore:
 from typing import Any
 from pydantic import BaseModel
 
-from nova_agent.llm.client import NovaLLM
+from nova_agent.llm.protocol import LLM
 from nova_agent.llm.structured import parse_json
 
 
@@ -3864,7 +4097,7 @@ You are reflecting on a completed 2048 game. Be specific. Output strict JSON:
 """
 
 
-def run_reflection(*, llm: NovaLLM, last_30_moves_summary: str, prior_lessons: list[str]) -> dict[str, Any]:
+def run_reflection(*, llm: LLM, last_30_moves_summary: str, prior_lessons: list[str]) -> dict[str, Any]:
     prior = "\n".join(f"- {l}" for l in prior_lessons[-3:]) or "(none)"
     user = (
         f"Recent moves summary:\n{last_30_moves_summary}\n\n"
@@ -3878,7 +4111,19 @@ def run_reflection(*, llm: NovaLLM, last_30_moves_summary: str, prior_lessons: l
 
 - [ ] **Step 4: Wire into main.py**
 
-When game-over is detected (an empty-cells == 0 board where no swipe changes anything), run reflection, write semantic rules, write trauma tags, restart the game, continue.
+When game-over is detected (an empty-cells == 0 board where no swipe changes anything), run reflection (via a dedicated LLM built from the factory using `s.reflection_model` — Claude Sonnet 4.6 by default), write semantic rules, write trauma tags, restart the game, continue.
+
+```python
+# in main.py, alongside the other LLM constructions:
+reflection_llm = build_llm(
+    model=s.reflection_model,
+    google_api_key=s.google_api_key,
+    anthropic_api_key=s.anthropic_api_key,
+    daily_cap_usd=s.daily_budget_usd,
+)
+# on game over:
+result = run_reflection(llm=reflection_llm, last_30_moves_summary=summary, prior_lessons=prior)
+```
 
 - [ ] **Step 5: Pass + commit**
 

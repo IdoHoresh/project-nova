@@ -10,8 +10,9 @@ This document defines how secrets are handled, the layers of defense in place, a
 
 Anything that grants access to a paid service, a private resource, or your identity. For Project Nova specifically:
 
-- **Anthropic API key** (`sk-ant-...`) — primary risk; grants access to your paid Claude account
-- **Other VLM provider keys** (OpenAI, Google) if used
+- **Google AI Studio API key** (`AIzaSy...`) — primary risk; grants access to your paid Gemini quota (used for default decisions, ToT deliberation, OCR fallback in v1)
+- **Anthropic API key** (`sk-ant-...`) — secondary risk; grants access to your paid Claude account (used for reflection + demo recording in v1)
+- **Other VLM provider keys** (OpenAI) if used
 - **Personal access tokens** (GitHub, Vercel, etc.)
 - **Service-account JSON files**
 - **Database connection strings with embedded passwords**
@@ -129,6 +130,7 @@ If a secret has been committed to git (whether or not it has been pushed yet):
 
 Do this BEFORE anything else. Do not wait, do not try to "fix it with git rebase first." A leaked key is compromised the moment it touches a public repo, even if you push-force-deleted it seconds later — automated scanners pick up keys in <60 seconds.
 
+- **Google AI Studio key:** https://aistudio.google.com/apikey → revoke the leaked key, generate a new one
 - **Anthropic key:** https://console.anthropic.com/ → revoke the leaked key, generate a new one
 - **GitHub token:** https://github.com/settings/tokens → revoke
 - **Other providers:** equivalent action in their console
