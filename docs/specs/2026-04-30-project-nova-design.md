@@ -512,6 +512,69 @@ Single window, two columns:
 
 This UI is the demo. Allocate at least one full week of focused work after the agent works end-to-end. Animations, color theory, typography all matter. Consider commissioning a small design review from a designer friend — non-negotiable for a portfolio piece.
 
+### 5.5 Design language and tooling
+
+#### Aesthetic principles
+
+| Decision | Value |
+| --- | --- |
+| Vibe | Warm minimalist — calm, content-first, "neural / introspective" |
+| Background | Deep warm dark (e.g., `#1a1614`) — the brain panel reads as quiet thought |
+| Primary accent | Cyan (`#4FD1C5`) or violet (`#8B5CF6`) — synaptic/neural feel; deliberately distinct from Anthropic orange to give Nova her own identity |
+| Reward / dopamine color | Bright cyan pulse — energy without harshness |
+| Trauma / threat color | Muted dark red — slow pulse, never shouts |
+| Mood gauge | Smooth gradient across the valence × arousal disk |
+| Typography | One serif (display, gauge labels) + one sans (body, reasoning). E.g., Fraunces + Inter |
+| Motion library | Framer Motion. Spring-based, no sharp easings. Dopamine spike is the only "punchy" animation; everything else flows. |
+| Layout | Generous whitespace, subtle 1px borders, single-column right side stacked tightly |
+
+#### Tooling — Claude Design
+
+The project uses **Claude Design** (Anthropic Labs, research preview, launched 2026-04-17) for the static-visual phase of the brain panel build. Why:
+
+- The author is not a designer. The brain panel is the demo. Polish gap is the largest single risk to the project.
+- Claude Design's codebase-aware design-system feature keeps every component visually consistent without manual drift management.
+- Cuts the static-layout phase from ~5 days hand-written to ~2 days assisted. Time saved goes into motion polish.
+
+**Workflow split — what Claude Design does vs what stays hand-coded:**
+
+| Phase | Tool | Output |
+| --- | --- | --- |
+| Visual identity exploration | Claude Design | 3–5 alternate brain-panel directions; pick one |
+| Static layout — all panel states | Claude Design | Mockups of: calm Nova, anxious Nova, dopamine spike, trauma glow active, ToT mode, game over |
+| Component code scaffolding | Claude Design export → React + Tailwind | Initial `nova-viewer/app/components/*.tsx` skeletons |
+| Design-system enforcement | Claude Design (codebase-aware) | Consistent colors/typography/components across all panels |
+| Motion / animation layer | Hand-coded with Framer Motion | Mood-gauge tween, dopamine pulse, memory feed slide-in, trauma glow, mode badge transition |
+| WebSocket data binding | Hand-coded | All live-data wiring |
+| Iteration on look-and-feel | Claude Design + manual tweaks | Continuous refinement |
+
+#### When to use Claude Design — timeline anchors
+
+Claude Design is invoked at three specific moments in the v1 build:
+
+| Week | Trigger | What you do in Claude Design |
+| --- | --- | --- |
+| **Week 1, day 2–3** | After repo and emulator are running, before any UI code is written | **Direction exploration.** Generate 3–5 alternate brain-panel layouts from the same prompt (the Aesthetic Principles table above + the §5 element list). Pick one direction. Save mockups in `docs/design/v1/`. This locks the visual identity before any hand-coding. |
+| **Week 5, day 1–3** | After the agent works end-to-end (perception → memory → affect → decision → action all wired) and the brain panel needs to become real UI | **Static states.** Generate one mockup per affect state (calm, anxious, frustrated, dopamine-spike moment, trauma-glow active, ToT mode, game-over screen). Export each as React + Tailwind. Scaffold them into `nova-viewer/app/components/`. |
+| **Week 5, day 4–7** | After scaffolded components exist and the WebSocket is wired, you're tuning look-and-feel | **Iteration.** Use Claude Design to tweak component variants — try alternate mood-gauge styles, alternate memory-card layouts, alternate dopamine-bar shapes. Pull good variants back into the codebase. |
+
+Outside those three windows, don't reach for Claude Design — the work is motion logic, data wiring, or animation tuning, none of which Claude Design covers well as of 2026-04.
+
+#### Honest limits to plan around
+
+Claude Design (research preview, April 2026) is strongest at static layouts and simple interactions. It is weak on:
+
+- Live data-driven animations (dopamine pulse synchronized to RPE events)
+- WebSocket subscription wiring
+- State-machine logic (e.g., mode-badge transition rules)
+- Per-frame motion tuning
+
+These remain hand-coded with Framer Motion + standard React patterns. Plan for them in Week 5, days 4–7 and into Week 6.
+
+#### Subscription requirement
+
+Claude Design requires a Claude Pro / Max / Team / Enterprise subscription. Confirm the user has one before Week 1.
+
 ---
 
 ## 6. Tech stack and repository layout
@@ -529,6 +592,7 @@ This UI is the demo. Allocate at least one full week of focused work after the a
 | Brain panel | Next.js (React + TypeScript) | Animation-friendly, screen-recordable in OBS |
 | Real-time channel | WebSocket (FastAPI on agent side, native ws on viewer side) | Low-latency, broadcast pattern |
 | Demo recording | OBS | Standard for software demos |
+| Visual design tool | Claude Design (Anthropic Labs) | Static brain-panel layouts + design system; see §5.5 for the workflow split |
 
 ### Repository layout
 
