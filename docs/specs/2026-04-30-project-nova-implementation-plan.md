@@ -477,20 +477,26 @@ git commit -m "feat(agent): config module + gitleaks pre-commit hook"
 
 ---
 
-## Task 3: Multi-provider LLM client + budget guard
+## Task 3: Multi-provider LLM client + budget guard + tiers + cache + Mock
 
-**Provider-agnostic LLM interface with TWO adapters: Google AI (Gemini) for default decisions / ToT / cheap classification, Anthropic (Claude) for reflection + demo recording. See spec §6 tech stack table for the per-task model selection.**
+**Provider-agnostic LLM interface with TWO adapters (Gemini + Anthropic), three model tiers selected by `NOVA_TIER`, a fixture-replay cache keyed on the rendered-prompt hash, and a `MockLLMClient` for plumbing tests. Implements §6.6 cost discipline and §6.7 test layers.**
 
 **Files:**
 - Create: `nova-agent/src/nova_agent/budget.py`
 - Create: `nova-agent/src/nova_agent/llm/__init__.py`
 - Create: `nova-agent/src/nova_agent/llm/protocol.py`
+- Create: `nova-agent/src/nova_agent/llm/tiers.py`             # §6.6
 - Create: `nova-agent/src/nova_agent/llm/anthropic_client.py`
 - Create: `nova-agent/src/nova_agent/llm/gemini_client.py`
+- Create: `nova-agent/src/nova_agent/llm/cache.py`             # §6.6 lever L1
+- Create: `nova-agent/src/nova_agent/llm/mock.py`              # §6.7 Layer 1
 - Create: `nova-agent/src/nova_agent/llm/factory.py`
 - Create: `nova-agent/src/nova_agent/llm/structured.py`
 - Create: `nova-agent/tests/test_llm_anthropic.py`
 - Create: `nova-agent/tests/test_llm_gemini.py`
+- Create: `nova-agent/tests/test_llm_tiers.py`
+- Create: `nova-agent/tests/test_llm_cache.py`
+- Create: `nova-agent/tests/test_llm_mock.py`
 - Create: `nova-agent/tests/test_llm_factory.py`
 - Create: `nova-agent/tests/test_budget.py`
 - Modify: `nova-agent/pyproject.toml` (add `google-genai>=0.3.0` to dependencies)
@@ -561,7 +567,319 @@ class BudgetGuard:
         self.spent_today += amount_usd
 ```
 
-- [ ] **Step 4: Write failing tests for both adapters + the factory**
+**Per-run cap (additional):**
+
+```python
+# nova-agent/src/nova_agent/budget.py — extend
+class RunBudget:
+    """Per-run cap (§6.6 lever L5). Default $0.50; envvar NOVA_PER_RUN_CAP_USD."""
+    def __init__(self, cap_usd: float = 0.50):
+        self.cap_usd = cap_usd
+        self.spent = 0.0
+
+    def charge(self, amount_usd: float) -> None:
+        if self.cap_usd > 0 and self.spent + amount_usd > self.cap_usd:
+            raise BudgetExceeded(
+                f"Per-run charge of ${amount_usd:.4f} would exceed run cap "
+                f"${self.cap_usd:.2f} (already spent ${self.spent:.4f})."
+            )
+        self.spent += amount_usd
+```
+
+The factory's LLM clients hold both a process-wide `BudgetGuard` (daily cap) and a `RunBudget` (per-run cap). Both are charged on every call; either tripping raises `BudgetExceeded` and the loop terminates with a clean error.
+
+- [ ] **Step 4 (NEW): Implement model tiers (`NOVA_TIER`)**
+
+Implements §6.6. One env var, three tiers (`dev`, `production`, `demo`). Default `dev`. The factory reads `NOVA_TIER` and dispatches to the right model.
+
+```python
+# nova-agent/src/nova_agent/llm/tiers.py
+"""Three model tiers selected by NOVA_TIER (§6.6). Default `dev`.
+
+  dev        — daily Flash-everywhere (Flash-Lite is rejected for decisions
+               due to documented JSON reliability issues; kept for
+               importance_rating only).
+  production — Week 5–6 §8 acceptance: Flash + Pro + Sonnet 4.6.
+  demo       — Week 6 LinkedIn recording: Sonnet 4.6 everywhere.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Literal, TypedDict
+
+TierName = Literal["dev", "production", "demo"]
+
+
+class TierConfig(TypedDict):
+    decision: str
+    tot: str
+    tot_branches: int
+    reflection: str
+    perception_fallback: str
+    importance_rating: str
+
+
+TIERS: dict[TierName, TierConfig] = {
+    "dev": {
+        "decision":            "gemini-2.5-flash",
+        "tot":                 "gemini-2.5-flash",
+        "tot_branches":        3,
+        "reflection":          "gemini-2.5-flash",
+        "perception_fallback": "gemini-2.5-flash",
+        "importance_rating":   "gemini-2.5-flash-lite",
+    },
+    "production": {
+        "decision":            "gemini-2.5-flash",
+        "tot":                 "gemini-2.5-pro",
+        "tot_branches":        4,
+        "reflection":          "claude-sonnet-4-6",
+        "perception_fallback": "gemini-2.5-flash",
+        "importance_rating":   "gemini-2.5-flash-lite",
+    },
+    "demo": {
+        "decision":            "claude-sonnet-4-6",
+        "tot":                 "claude-sonnet-4-6",
+        "tot_branches":        4,
+        "reflection":          "claude-sonnet-4-6",
+        "perception_fallback": "claude-sonnet-4-6",
+        "importance_rating":   "gemini-2.5-flash-lite",
+    },
+}
+
+
+def current_tier() -> TierName:
+    val = os.environ.get("NOVA_TIER", "dev")
+    if val not in TIERS:
+        raise ValueError(f"NOVA_TIER must be one of {list(TIERS)}, got {val!r}")
+    return val  # type: ignore[return-value]
+
+
+def model_for(role: str) -> str:
+    cfg = TIERS[current_tier()]
+    if role not in cfg:
+        raise KeyError(f"unknown role {role!r}; valid: {list(cfg)}")
+    return cfg[role]  # type: ignore[return-value]
+```
+
+```python
+# nova-agent/tests/test_llm_tiers.py
+import pytest
+from nova_agent.llm import tiers
+
+
+def test_default_is_dev(monkeypatch):
+    monkeypatch.delenv("NOVA_TIER", raising=False)
+    assert tiers.current_tier() == "dev"
+
+
+def test_invalid_raises(monkeypatch):
+    monkeypatch.setenv("NOVA_TIER", "moonshot")
+    with pytest.raises(ValueError):
+        tiers.current_tier()
+
+
+def test_dev_uses_flash_for_decision(monkeypatch):
+    monkeypatch.setenv("NOVA_TIER", "dev")
+    assert tiers.model_for("decision") == "gemini-2.5-flash"
+
+
+def test_production_uses_pro_for_tot(monkeypatch):
+    monkeypatch.setenv("NOVA_TIER", "production")
+    assert tiers.model_for("tot") == "gemini-2.5-pro"
+
+
+def test_demo_is_sonnet_only_for_decisions(monkeypatch):
+    monkeypatch.setenv("NOVA_TIER", "demo")
+    assert tiers.model_for("decision") == "claude-sonnet-4-6"
+```
+
+- [ ] **Step 5 (NEW): Implement fixture-replay cache (rendered-prompt hash)**
+
+§6.6 lever L1. **Critical: cache key is the cryptographic hash of the rendered prompt string + model + temperature + response-schema hash.** Per the peer-review fix: keying on `prompt_template_version` would cause stale-template cache hits and is forbidden.
+
+```python
+# nova-agent/src/nova_agent/llm/cache.py
+"""Fixture-replay LLM cache (§6.6 L1).
+
+Cache key = sha256(rendered_prompt_string + model + temperature + response_schema_hash).
+Writes are gated on smoke-pass — buggy build cannot pollute future runs.
+NOVA_CACHE controls behavior: "off" disables; "replay" reads only; default
+"record" reads + writes (gated by `mark_smoke_pass()`).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+CACHE_DIR = Path(os.environ.get("NOVA_CACHE_DIR", ".cache/llm"))
+CACHE_MODE = os.environ.get("NOVA_CACHE", "record")  # off | replay | record
+
+_smoke_passed = False
+
+
+def mark_smoke_pass() -> None:
+    """Called by the smoke gauntlet after every assertion passes.
+    Cache writes only happen when this flag is set in the current process.
+    """
+    global _smoke_passed
+    _smoke_passed = True
+
+
+def _hash_key(*, rendered_prompt: str, model: str, temperature: float, schema_hash: str) -> str:
+    payload = json.dumps({
+        "p": rendered_prompt,
+        "m": model,
+        "t": round(temperature, 4),
+        "s": schema_hash,
+    }, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+@dataclass
+class CacheHit:
+    response_text: str
+    cached_at: float
+    key: str
+
+
+def _key_path(key: str) -> Path:
+    return CACHE_DIR / f"{key[:2]}" / f"{key}.json"
+
+
+def get(*, rendered_prompt: str, model: str, temperature: float, schema_hash: str = "") -> CacheHit | None:
+    if CACHE_MODE == "off":
+        return None
+    key = _hash_key(rendered_prompt=rendered_prompt, model=model,
+                    temperature=temperature, schema_hash=schema_hash)
+    p = _key_path(key)
+    if not p.exists():
+        return None
+    data = json.loads(p.read_text())
+    return CacheHit(response_text=data["response_text"], cached_at=data["cached_at"], key=key)
+
+
+def put(*, rendered_prompt: str, model: str, temperature: float, response_text: str,
+        schema_hash: str = "") -> None:
+    if CACHE_MODE in ("off", "replay"):
+        return
+    if not _smoke_passed:
+        # writes gated on smoke-pass — protects against poisoning the cache
+        return
+    key = _hash_key(rendered_prompt=rendered_prompt, model=model,
+                    temperature=temperature, schema_hash=schema_hash)
+    p = _key_path(key)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({
+        "response_text": response_text,
+        "cached_at": time.time(),
+        "model": model,
+        "temperature": temperature,
+    }))
+```
+
+The LLM adapters (Anthropic + Gemini) are modified in their `complete()` to call `cache.get(...)` before issuing a request and `cache.put(...)` after a successful response. Every call logs `cache_hit=true|false` with the key composition. The brain panel surfaces a hit-rate dashboard in the stats footer (§5).
+
+- [ ] **Step 6 (NEW): Implement `MockLLMClient` for L1 plumbing tests**
+
+§6.7 Layer 1. Default for all unit + integration tests. Real LLM is opt-in via `NOVA_LLM_REAL=1`.
+
+```python
+# nova-agent/src/nova_agent/llm/mock.py
+"""Deterministic LLM client for plumbing tests (§6.7 L1).
+
+Returns scripted responses keyed off the rendered prompt or a free-form key.
+Records every call for assertion. NEVER makes a network call.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class _Usage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+
+
+@dataclass
+class MockLLMClient:
+    """Mock LLM. Use either:
+      - script: list[str]            — pop responses in order
+      - keyed:  dict[str, str]       — key = substring of last user message
+      - default_response: str        — fallback if neither matches
+    """
+    script: list[str] = field(default_factory=list)
+    keyed: dict[str, str] = field(default_factory=dict)
+    default_response: str = '{"action":"swipe_up","reasoning":"mock","confidence":"low"}'
+    calls: list[dict[str, Any]] = field(default_factory=list)
+
+    def complete(self, *, system: str, messages: list[dict[str, Any]], max_tokens: int = 200,
+                 temperature: float = 0.7) -> tuple[str, _Usage]:
+        last_user = next(
+            (m for m in reversed(messages) if m.get("role") == "user"), {}
+        )
+        last_text = ""
+        content = last_user.get("content", "")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    last_text = part.get("text", "")
+                    break
+        elif isinstance(content, str):
+            last_text = content
+
+        # priority: script > keyed > default
+        if self.script:
+            response = self.script.pop(0)
+        else:
+            response = next(
+                (v for k, v in self.keyed.items() if k in last_text),
+                self.default_response,
+            )
+
+        self.calls.append({
+            "system": system, "messages": messages, "max_tokens": max_tokens,
+            "temperature": temperature, "response": response,
+        })
+        return response, _Usage()
+```
+
+```python
+# nova-agent/tests/test_llm_mock.py
+from nova_agent.llm.mock import MockLLMClient
+
+
+def test_script_returns_in_order():
+    m = MockLLMClient(script=['{"action":"swipe_up"}', '{"action":"swipe_down"}'])
+    a, _ = m.complete(system="x", messages=[{"role": "user", "content": "go"}])
+    b, _ = m.complete(system="x", messages=[{"role": "user", "content": "go"}])
+    assert a == '{"action":"swipe_up"}'
+    assert b == '{"action":"swipe_down"}'
+
+
+def test_keyed_matches_substring():
+    m = MockLLMClient(keyed={"trauma": '{"action":"swipe_left"}'})
+    out, _ = m.complete(system="x", messages=[{"role": "user", "content": "you remember a trauma board"}])
+    assert out == '{"action":"swipe_left"}'
+
+
+def test_calls_recorded():
+    m = MockLLMClient()
+    m.complete(system="x", messages=[{"role": "user", "content": "hi"}])
+    assert len(m.calls) == 1
+```
+
+- [ ] **Step 7: Write failing tests for both adapters + the factory**
 
 ```python
 # nova-agent/tests/test_llm_anthropic.py
@@ -628,13 +946,13 @@ def test_factory_raises_on_unknown_model():
         build_llm(model="gpt-9000", google_api_key="x", anthropic_api_key="y", daily_cap_usd=0)
 ```
 
-- [ ] **Step 5: Run, see fail**
+- [ ] **Step 8: Run, see fail**
 
 ```bash
 uv run pytest tests/test_llm_client.py -v
 ```
 
-- [ ] **Step 6: Implement the LLM protocol + per-provider pricing**
+- [ ] **Step 9: Implement the LLM protocol + per-provider pricing**
 
 ```python
 # nova-agent/src/nova_agent/llm/__init__.py
@@ -691,7 +1009,7 @@ class LLM(Protocol):
     ) -> tuple[str, Usage]: ...
 ```
 
-- [ ] **Step 7: Implement the Anthropic adapter**
+- [ ] **Step 10: Implement the Anthropic adapter**
 
 ```python
 # nova-agent/src/nova_agent/llm/anthropic_client.py
@@ -739,7 +1057,7 @@ class AnthropicLLM:
         return text, usage
 ```
 
-- [ ] **Step 8: Implement the Gemini adapter**
+- [ ] **Step 11: Implement the Gemini adapter**
 
 ```python
 # nova-agent/src/nova_agent/llm/gemini_client.py
@@ -820,7 +1138,7 @@ class GeminiLLM:
         return text, usage
 ```
 
-- [ ] **Step 9: Implement the factory**
+- [ ] **Step 12: Implement the factory**
 
 ```python
 # nova-agent/src/nova_agent/llm/factory.py
@@ -843,7 +1161,7 @@ def build_llm(*, model: str, google_api_key: str, anthropic_api_key: str, daily_
     raise ValueError(f"Unknown model family: {model!r}")
 ```
 
-- [ ] **Step 10: Implement `llm/structured.py`**
+- [ ] **Step 13: Implement `llm/structured.py`**
 
 ```python
 # nova-agent/src/nova_agent/llm/structured.py
@@ -878,17 +1196,17 @@ def parse_json(text: str, model: Type[T]) -> T:
         raise StructuredOutputError(f"Schema mismatch: {e}; raw={raw[:200]!r}") from e
 ```
 
-- [ ] **Step 11: Verify `google-genai` is in pyproject.toml dependencies**
+- [ ] **Step 14: Verify `google-genai` is in pyproject.toml dependencies**
 
 (Already added in Task 1 — confirm `uv sync` brought it in.)
 
-- [ ] **Step 12: Run all tests pass**
+- [ ] **Step 15: Run all tests pass**
 
 ```bash
 uv run pytest -v
 ```
 
-- [ ] **Step 13: Commit**
+- [ ] **Step 16: Commit**
 
 ```bash
 git add nova-agent/
@@ -1105,6 +1423,49 @@ class Capture:
         if result.returncode != 0:
             raise RuntimeError(f"adb screencap failed: {result.stderr!r}")
         return Image.open(io.BytesIO(result.stdout)).convert("RGB")
+
+    def grab_stable(
+        self,
+        *,
+        poll_interval_s: float = 0.05,
+        timeout_s: float = 0.6,
+    ) -> Image.Image:
+        """Capture once the screen is visually static (§3.9 visual stability check).
+
+        Replaces the prior hardcoded ~300ms post-swipe wait. Loop captures
+        50ms apart, exits when two consecutive frames are pixel-identical
+        (or near-identical via byte hash). Hard cap at timeout_s, then
+        force-read + log — better to OCR a slightly-moving frame than to
+        block forever on emulator lag.
+        """
+        import hashlib
+        import time
+
+        prev_hash: str | None = None
+        deadline = time.monotonic() + timeout_s
+        last_img: Image.Image | None = None
+
+        while time.monotonic() < deadline:
+            img = self.grab()
+            h = hashlib.blake2s(img.tobytes(), digest_size=16).hexdigest()
+            if prev_hash is not None and h == prev_hash:
+                return img
+            prev_hash = h
+            last_img = img
+            time.sleep(poll_interval_s)
+
+        log.warning("capture.grab_stable.timeout", timeout_s=timeout_s)
+        assert last_img is not None
+        return last_img
+
+    @staticmethod
+    def boards_differ(a: Image.Image, b: Image.Image) -> bool:
+        """Cheap pixel-diff used by the action executor for no-op detection (§3.9)."""
+        import hashlib
+
+        ha = hashlib.blake2s(a.tobytes(), digest_size=16).digest()
+        hb = hashlib.blake2s(b.tobytes(), digest_size=16).digest()
+        return ha != hb
 ```
 
 - [ ] **Step 4: Run perception tests pass**
@@ -3146,77 +3507,344 @@ git commit -m "feat(affect): verbalize affect vector into prompt sentence"
 
 ---
 
-## Task 22: Outcome evaluator (RPE + value function V)
+## Task 22: Outcome evaluator — online TD(0) value function with analytic prior
+
+Implements §3.7 of the design spec: linear function approximator V on 6 hand-engineered features, online TD(0) update with γ=0.99 / α=0.01, analytic prior `V₀` so RPE is meaningful from move 1.
 
 **Files:**
+- Create: `nova-agent/src/nova_agent/affect/features.py`
+- Create: `nova-agent/src/nova_agent/affect/value_fn.py`
 - Create: `nova-agent/src/nova_agent/affect/rpe.py`
+- Create: `nova-agent/tests/test_affect_features.py`
+- Create: `nova-agent/tests/test_affect_value_fn.py`
 - Create: `nova-agent/tests/test_affect_rpe.py`
 
-- [ ] **Step 1: Failing test**
+- [ ] **Step 1: Failing tests — features**
 
 ```python
-# nova-agent/tests/test_affect_rpe.py
-from nova_agent.affect.rpe import value_heuristic, rpe
+# nova-agent/tests/test_affect_features.py
+from nova_agent.affect.features import compute_features
 from nova_agent.perception.types import BoardState
 
 
-def test_value_heuristic_higher_for_more_pairs():
+def test_features_dim_is_six():
+    b = BoardState(grid=[[0]*4]*4, score=0)
+    phi = compute_features(b)
+    assert len(phi) == 6
+
+
+def test_adjacent_pairs_higher_for_pair_board():
     no_pairs = BoardState(grid=[[2,4,8,16]] * 4, score=0)
     with_pairs = BoardState(grid=[[2,2,4,4],[4,4,8,8],[0]*4,[0]*4], score=0)
-    assert value_heuristic(with_pairs) > value_heuristic(no_pairs)
+    phi_no = compute_features(no_pairs)
+    phi_yes = compute_features(with_pairs)
+    # index 1 = adjacent_pairs
+    assert phi_yes[1] > phi_no[1]
 
 
-def test_rpe_positive_when_actual_exceeds_expected():
-    b = BoardState(grid=[[2,2,0,0]] + [[0]*4]*3, score=0)
-    delta = rpe(actual_score_delta=8, board_before=b)
-    # heuristic predicted ~4; actual was 8; rpe should be positive
-    assert delta > 0
+def test_features_in_unit_range():
+    b = BoardState(grid=[[2,4,8,16],[32,64,128,256],[512,1024,2048,4096],[8192,16384,32768,65536]], score=0)
+    phi = compute_features(b)
+    for v in phi:
+        assert 0.0 <= v <= 1.0
 ```
 
-- [ ] **Step 2: Implement**
+- [ ] **Step 2: Failing tests — value function**
 
 ```python
-# nova-agent/src/nova_agent/affect/rpe.py
+# nova-agent/tests/test_affect_value_fn.py
+import numpy as np
+from nova_agent.affect.value_fn import LinearValueFunction
 from nova_agent.perception.types import BoardState
 
 
-def value_heuristic(board: BoardState) -> float:
-    """Predict expected score gain from the current board.
+def test_v0_prior_nonzero_on_realistic_board():
+    V = LinearValueFunction.with_analytic_prior()
+    b = BoardState(grid=[[2,2,0,0]] + [[0]*4]*3, score=0)
+    assert V(b) > 0.0
 
-    Cheap heuristic: count adjacent equal-value pairs and value them by tile.
-    """
-    grid = board.grid
-    expected = 0.0
+
+def test_td0_update_reduces_error_on_repeated_visits():
+    V = LinearValueFunction.with_analytic_prior()
+    b1 = BoardState(grid=[[2,2,0,0]] + [[0]*4]*3, score=0)
+    b2 = BoardState(grid=[[4,0,0,0]] + [[0]*4]*3, score=4)
+    # repeatedly observe r=4 transitioning b1 → b2 with V(b2)=0 (terminal-ish for test)
+    V_before = V(b1)
+    for _ in range(200):
+        V.td_update(s_t=b1, r_t=4, s_tplus1=b2, terminal=True)
+    V_after = V(b1)
+    # V(b1) should move toward r_t (γ=0.99 · 0 + 4 = 4)
+    assert abs(V_after - 4.0) < abs(V_before - 4.0)
+```
+
+- [ ] **Step 3: Implement features**
+
+```python
+# nova-agent/src/nova_agent/affect/features.py
+"""Six hand-engineered features for the linear value function V (§3.7)."""
+
+from __future__ import annotations
+
+import math
+from nova_agent.perception.types import BoardState
+
+FEATURE_NAMES = (
+    "empty",
+    "adjacent_pairs",
+    "mono",
+    "smooth",
+    "maxcorner",
+    "logmax",
+)
+FEATURE_DIM = 6
+
+
+def _empty_count(grid: list[list[int]]) -> int:
+    return sum(1 for r in range(4) for c in range(4) if grid[r][c] == 0)
+
+
+def _adjacent_pairs(grid: list[list[int]]) -> int:
+    count = 0
     for r in range(4):
         for c in range(4):
             v = grid[r][c]
             if v == 0:
                 continue
             if c + 1 < 4 and grid[r][c + 1] == v:
-                expected += v * 0.5
+                count += 1
             if r + 1 < 4 and grid[r + 1][c] == v:
-                expected += v * 0.5
-    return expected
+                count += 1
+    return count
 
 
-def rpe(*, actual_score_delta: int, board_before: BoardState) -> float:
-    """Reward Prediction Error, normalized roughly to [-1, 1].
+def _monotonicity(grid: list[list[int]]) -> float:
+    """Sum of monotonic runs along rows + columns. Higher = more monotonic."""
+    score = 0.0
+    for r in range(4):
+        score += _row_monotonic(grid[r])
+    for c in range(4):
+        col = [grid[r][c] for r in range(4)]
+        score += _row_monotonic(col)
+    return score
 
-    δ = (actual − expected) / scale
-    scale grows with board's max tile so big plays don't permanently saturate
+
+def _row_monotonic(row: list[int]) -> float:
+    inc = dec = 0.0
+    for i in range(3):
+        a, b = row[i], row[i + 1]
+        if a == 0 or b == 0:
+            continue
+        if a >= b:
+            dec += math.log2(a) - math.log2(b)
+        if a <= b:
+            inc += math.log2(b) - math.log2(a)
+    return max(inc, dec)
+
+
+def _smoothness(grid: list[list[int]]) -> float:
+    """1 − Σ |log2(a) − log2(b)| / norm over adjacent non-zero pairs."""
+    diff = 0.0
+    pairs = 0
+    for r in range(4):
+        for c in range(4):
+            v = grid[r][c]
+            if v == 0:
+                continue
+            for dr, dc in ((0, 1), (1, 0)):
+                nr, nc = r + dr, c + dc
+                if nr < 4 and nc < 4 and grid[nr][nc] != 0:
+                    diff += abs(math.log2(v) - math.log2(grid[nr][nc]))
+                    pairs += 1
+    if pairs == 0:
+        return 1.0
+    norm = pairs * 17.0  # max log2 diff across reasonable tile range
+    return max(0.0, 1.0 - diff / norm)
+
+
+def _max_in_corner(grid: list[list[int]]) -> int:
+    max_tile = max(grid[r][c] for r in range(4) for c in range(4))
+    if max_tile == 0:
+        return 0
+    corners = (grid[0][0], grid[0][3], grid[3][0], grid[3][3])
+    return 1 if max_tile in corners else 0
+
+
+def compute_features(board: BoardState) -> list[float]:
+    """Return φ(s) ∈ [0,1]^6.
+
+    Order: [empty, adjacent_pairs, mono, smooth, maxcorner, logmax].
     """
-    expected = value_heuristic(board_before)
-    diff = actual_score_delta - expected
-    scale = max(8, board_before.max_tile)
-    return max(-1.0, min(1.0, diff / scale))
+    g = board.grid
+    max_tile = max(g[r][c] for r in range(4) for c in range(4))
+    max_mono = 4 * 17.0  # rough bound on _monotonicity on a full board
+
+    return [
+        _empty_count(g) / 16.0,
+        _adjacent_pairs(g) / 24.0,                  # 24 = max possible adjacent pairs
+        _monotonicity(g) / max_mono,
+        _smoothness(g),
+        float(_max_in_corner(g)),
+        (math.log2(max_tile) / 17.0) if max_tile > 0 else 0.0,
+    ]
 ```
 
-- [ ] **Step 3: Pass + commit**
+- [ ] **Step 4: Implement linear value function with TD(0) update**
+
+```python
+# nova-agent/src/nova_agent/affect/value_fn.py
+"""Linear function approximator V(s) for online TD(0) learning (§3.7).
+
+V(s) = wᵀ φ(s) · score_scale.
+Update: w ← w + α · δ_t · φ(s_t)  where δ_t = r_t + γ · V(s_{t+1}) − V(s_t).
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from nova_agent.affect.features import FEATURE_DIM, compute_features
+from nova_agent.perception.types import BoardState
+
+GAMMA: float = 0.99           # 2048 horizon is long; half-life ~69 moves
+ALPHA: float = 0.01           # in [0.005, 0.02] per §3.7
+SCORE_SCALE: float = 50.0     # typical per-move score-delta scale
+
+# Analytic prior weights (§3.7). adjacent_pairs weighted highest.
+W_PRIOR: tuple[float, ...] = (4.0, 5.0, 3.0, 2.0, 2.0, 1.5)
+
+
+@dataclass
+class LinearValueFunction:
+    weights: list[float] = field(default_factory=lambda: list(W_PRIOR))
+    gamma: float = GAMMA
+    alpha: float = ALPHA
+    score_scale: float = SCORE_SCALE
+
+    @classmethod
+    def with_analytic_prior(cls) -> "LinearValueFunction":
+        return cls(weights=list(W_PRIOR))
+
+    def __call__(self, board: BoardState, terminal: bool = False) -> float:
+        if terminal:
+            return 0.0
+        phi = compute_features(board)
+        return sum(w * f for w, f in zip(self.weights, phi)) * self.score_scale
+
+    def td_update(
+        self,
+        *,
+        s_t: BoardState,
+        r_t: float,
+        s_tplus1: BoardState,
+        terminal: bool,
+    ) -> float:
+        """One TD(0) update. Returns δ_t (the prediction error)."""
+        v_t = self(s_t)
+        v_tp1 = 0.0 if terminal else self(s_tplus1)
+        delta = r_t + self.gamma * v_tp1 - v_t
+
+        # gradient update on linear approximator: w ← w + α · δ · φ(s_t) / scale
+        phi = compute_features(s_t)
+        for i in range(FEATURE_DIM):
+            self.weights[i] += self.alpha * delta * phi[i] / self.score_scale
+        return delta
+
+    def save(self, path: Path) -> None:
+        path.write_text(json.dumps({"weights": self.weights, "gamma": self.gamma, "alpha": self.alpha}))
+
+    @classmethod
+    def load(cls, path: Path) -> "LinearValueFunction":
+        data = json.loads(path.read_text())
+        return cls(**data)
+```
+
+- [ ] **Step 5: Implement RPE wrapper + RPE_norm**
+
+```python
+# nova-agent/src/nova_agent/affect/rpe.py
+"""Reward Prediction Error wrapper — TD(0)-based, with running σ for normalization."""
+
+from __future__ import annotations
+
+from collections import deque
+from dataclasses import dataclass, field
+
+from nova_agent.affect.value_fn import LinearValueFunction
+from nova_agent.perception.types import BoardState
+
+
+@dataclass
+class RPETracker:
+    V: LinearValueFunction = field(default_factory=LinearValueFunction.with_analytic_prior)
+    recent_abs_deltas: deque[float] = field(default_factory=lambda: deque(maxlen=100))
+
+    def step(
+        self,
+        *,
+        s_t: BoardState,
+        r_t: float,
+        s_tplus1: BoardState,
+        terminal: bool,
+    ) -> tuple[float, float]:
+        """Return (δ_t raw, RPE_norm clipped to [-1, +1])."""
+        delta = self.V.td_update(s_t=s_t, r_t=r_t, s_tplus1=s_tplus1, terminal=terminal)
+        self.recent_abs_deltas.append(abs(delta))
+
+        sigma = max(1e-6, sum(self.recent_abs_deltas) / max(1, len(self.recent_abs_deltas)))
+        rpe_norm = max(-1.0, min(1.0, delta / sigma))
+        return delta, rpe_norm
+```
+
+- [ ] **Step 6: Failing test — RPE pipeline integration**
+
+```python
+# nova-agent/tests/test_affect_rpe.py
+from nova_agent.affect.rpe import RPETracker
+from nova_agent.perception.types import BoardState
+
+
+def test_rpe_norm_in_unit_range_after_history():
+    tracker = RPETracker()
+    b = BoardState(grid=[[2,2,0,0]] + [[0]*4]*3, score=0)
+    b2 = BoardState(grid=[[4,0,0,0]] + [[0]*4]*3, score=4)
+    # warm up running σ
+    for _ in range(50):
+        _, _ = tracker.step(s_t=b, r_t=4.0, s_tplus1=b2, terminal=False)
+    delta, rpe_norm = tracker.step(s_t=b, r_t=4.0, s_tplus1=b2, terminal=False)
+    assert -1.0 <= rpe_norm <= 1.0
+
+
+def test_v_converges_across_repeated_episodes():
+    """§8.5 acceptance: per-game mean(|δ|) shrinks across games 1→50."""
+    tracker = RPETracker()
+    b = BoardState(grid=[[2,2,0,0]] + [[0]*4]*3, score=0)
+    b2 = BoardState(grid=[[4,0,0,0]] + [[0]*4]*3, score=4)
+
+    means = []
+    for game in range(20):
+        deltas = []
+        for _ in range(100):
+            d, _ = tracker.step(s_t=b, r_t=4.0, s_tplus1=b2, terminal=False)
+            deltas.append(abs(d))
+        means.append(sum(deltas) / len(deltas))
+
+    # final-game mean should be substantially below first-game mean
+    assert means[-1] < means[0] * 0.5
+```
+
+- [ ] **Step 7: Pass + commit**
 
 ```bash
 git add nova-agent/
-git commit -m "feat(affect): RPE outcome evaluator + V heuristic"
+git commit -m "feat(affect): online TD(0) value function with analytic prior + 6-feature linear V"
 ```
+
+**Notes for §8 acceptance:**
+- The convergence test (Step 6 second test) is the §8.5 V-convergence acceptance criterion expressed as a unit test.
+- `RPETracker.recent_abs_deltas` becomes the running σ_δ used for `RPE_norm` in §3.5 affect updates (Task 20/23).
+- Persisting `LinearValueFunction.weights` to disk between sessions is optional in v1 — fresh `with_analytic_prior()` per session is fine; tier-switched runs may want fresh weights to avoid cross-tier contamination of V.
 
 ---
 
@@ -3565,171 +4193,373 @@ git push origin main --tags
 
 ---
 
-## Task 31: Trauma tagging (post-game-over)
+## Task 31: Aversive Memory Tag (post-game-over) — informally "trauma"
+
+Implements §3.6 of the design spec. Naming convention: code uses `aversive_*`; UI label uses "Trauma" (kept punchy for the demo). All four spiral defenses (active-tag cap, exposure-extinction halving, semantic override, cross-game reset) are wired here or hooked from here.
 
 **Files:**
-- Create: `nova-agent/src/nova_agent/memory/trauma.py`
-- Create: `nova-agent/tests/test_memory_trauma.py`
+- Create: `nova-agent/src/nova_agent/memory/aversive.py`
+- Create: `nova-agent/tests/test_memory_aversive.py`
 
-- [ ] **Step 1: Failing test**
+- [ ] **Step 1: Failing tests**
 
 ```python
-# nova-agent/tests/test_memory_trauma.py
+# nova-agent/tests/test_memory_aversive.py
 from datetime import datetime, timezone, timedelta
-from nova_agent.memory.trauma import tag_trauma
+from nova_agent.memory.aversive import (
+    is_catastrophic_loss, tag_aversive, exposure_extinction_halve, AVERSIVE_TAG,
+)
 from nova_agent.memory.types import MemoryRecord
 from nova_agent.perception.types import BoardState
 
 
-def make_rec(score=0, importance=3) -> MemoryRecord:
-    b = BoardState(grid=[[0]*4]*4, score=score)
+def _rec(i: int = 0, *, importance: int = 3, aversive_weight: float | None = None) -> MemoryRecord:
+    b = BoardState(grid=[[0]*4]*4, score=0)
+    extras = {}
+    if aversive_weight is not None:
+        extras["aversive_weight"] = aversive_weight
     return MemoryRecord(
-        id=f"r_{score}",
-        timestamp=datetime.now(timezone.utc) - timedelta(seconds=10 - score),
+        id=f"r_{i}",
+        timestamp=datetime.now(timezone.utc) - timedelta(seconds=10 - i),
         board_before=b, board_after=b,
         action="swipe_right", score_delta=0, rpe=0.0,
         importance=importance, tags=[], embedding=[0.0]*8,
+        **extras,
     )
 
 
-def test_tag_trauma_after_catastrophic_loss():
-    last_5 = [make_rec(score=i) for i in range(5)]
-    tagged = tag_trauma(last_5_moves=last_5, final_score=200, was_catastrophic=True)
-    assert all("trauma" in r.tags for r in tagged)
+def test_tag_aversive_after_catastrophic_loss():
+    last_5 = [_rec(i) for i in range(5)]
+    tagged = tag_aversive(precondition_records=last_5, was_catastrophic=True)
+    assert all(AVERSIVE_TAG in r.tags for r in tagged)
     assert all(r.importance >= 7 for r in tagged)
+    assert all(r.aversive_weight == 1.0 for r in tagged)
+
+
+def test_exposure_extinction_halves_weight():
+    """§3.6 defense B — primary deterministic spiral guarantee."""
+    r = _rec(0, importance=8, aversive_weight=1.0)
+    r.tags.append(AVERSIVE_TAG)
+    after_one = exposure_extinction_halve(r)
+    assert after_one.aversive_weight == 0.5
+    after_two = exposure_extinction_halve(after_one)
+    assert after_two.aversive_weight == 0.25
+    # After ~6 survivals, weight is < 0.02 — effectively inert
+    weights = [r.aversive_weight]
+    cur = r
+    for _ in range(6):
+        cur = exposure_extinction_halve(cur)
+        weights.append(cur.aversive_weight)
+    assert weights[-1] < 0.02
+
+
+def test_extinction_noop_on_non_aversive():
+    r = _rec(0)
+    out = exposure_extinction_halve(r)
+    assert out is r  # unchanged identity
+
+
+def test_is_catastrophic_loss_requires_contested_board():
+    # tight board + low score for max_tile = catastrophic
+    assert is_catastrophic_loss(final_score=200, max_tile_reached=64, last_empty_cells=1)
+    # roomy board = NOT catastrophic
+    assert not is_catastrophic_loss(final_score=200, max_tile_reached=64, last_empty_cells=8)
 ```
 
-- [ ] **Step 2: Implement**
+- [ ] **Step 2: Implement aversive tagging + extinction halving**
 
 ```python
-# nova-agent/src/nova_agent/memory/trauma.py
+# nova-agent/src/nova_agent/memory/aversive.py
+"""Aversive Memory Tag (informal: 'trauma').
+
+§3.6 defenses A, B implemented here. Defense C (semantic override) hooks
+from Task 36 reflection. Defense D (cross-game affect reset) hooks from
+Task 23 / Task 36 game-start handler. UI label is "Trauma" — see
+`nova-viewer/app/components/TraumaIndicator.tsx`. Code surface is
+`aversive_*` to keep marketing copy separate from engineering.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
 from nova_agent.memory.types import MemoryRecord
 
+AVERSIVE_TAG = "aversive"  # was "trauma" — see §3.6 naming convention
+AVERSIVE_INITIAL_WEIGHT = 1.0
+AVERSIVE_INERT_THRESHOLD = 0.02  # below this, retrieval skips the boost
 
-def is_catastrophic(*, final_score: int, max_tile_reached: int, last_empty_cells: int) -> bool:
-    """A loss is catastrophic if score is low relative to the max tile achieved
-    AND the board was contested (few empty cells) before death.
+
+def is_catastrophic_loss(*, final_score: int, max_tile_reached: int, last_empty_cells: int) -> bool:
+    """A loss is catastrophic iff the board was contested (few empty cells)
+    AND the score under-performed relative to the max tile achieved.
     """
-    return last_empty_cells <= 2 and max_tile_reached >= 64 and final_score < max_tile_reached * 4
+    return (
+        last_empty_cells <= 2
+        and max_tile_reached >= 64
+        and final_score < max_tile_reached * 4
+    )
 
 
-def tag_trauma(*, last_5_moves: list[MemoryRecord], final_score: int, was_catastrophic: bool) -> list[MemoryRecord]:
+def tag_aversive(*, precondition_records: list[MemoryRecord], was_catastrophic: bool) -> list[MemoryRecord]:
+    """Mark the (t-5) → (t-1) precondition boards as aversive after a catastrophic loss.
+
+    Importance += 3 (capped at 10), tag added, aversive_weight = 1.0.
+    """
     if not was_catastrophic:
-        return last_5_moves
+        return precondition_records
+
     tagged: list[MemoryRecord] = []
-    for r in last_5_moves:
-        new_tags = list(set(r.tags + ["trauma", "loss_precondition"]))
-        new_importance = min(10, max(r.importance, 7) + 2)
-        tagged.append(
-            MemoryRecord(
-                id=r.id,
-                timestamp=r.timestamp,
-                board_before=r.board_before,
-                board_after=r.board_after,
-                action=r.action,
-                score_delta=r.score_delta,
-                rpe=r.rpe,
-                importance=new_importance,
-                tags=new_tags,
-                embedding=r.embedding,
-                last_accessed=r.last_accessed,
-                source_reasoning=r.source_reasoning,
-                affect=r.affect,
-            )
-        )
+    for r in precondition_records:
+        new_tags = list(dict.fromkeys(r.tags + [AVERSIVE_TAG, "loss_precondition"]))
+        new_importance = min(10, r.importance + 3)
+        tagged.append(replace(
+            r,
+            tags=new_tags,
+            importance=new_importance,
+            aversive_weight=AVERSIVE_INITIAL_WEIGHT,
+        ))
     return tagged
 
 
-def trauma_decay(record: MemoryRecord, decay: float = 0.95) -> MemoryRecord:
-    """Soft-decay trauma weight after a successful avoidance."""
-    if "trauma" not in record.tags:
+def exposure_extinction_halve(record: MemoryRecord) -> MemoryRecord:
+    """Defense B (primary, deterministic): halve aversive_weight on each survival.
+
+    Called from the retrieval pipeline AFTER a successful (non-loss) move on
+    a board within `aversive_radius` of an aversive memory. After ~6 survivals
+    the weight is < 0.02 and effectively inert — the spiral terminates
+    mathematically, not via LLM cooperation.
+    """
+    if AVERSIVE_TAG not in record.tags:
         return record
-    new_importance = max(4, int(record.importance * decay))
-    return MemoryRecord(
-        **{**record.__dict__, "importance": new_importance}
-    )
+    new_weight = max(0.0, record.aversive_weight * 0.5)
+    return replace(record, aversive_weight=new_weight)
+
+
+def is_inert(record: MemoryRecord) -> bool:
+    """An aversive record below the threshold contributes no anxiety boost."""
+    return AVERSIVE_TAG in record.tags and record.aversive_weight < AVERSIVE_INERT_THRESHOLD
 ```
 
-- [ ] **Step 3: Pass + commit**
+- [ ] **Step 3: Update `MemoryRecord` to carry `aversive_weight`**
+
+In `nova-agent/src/nova_agent/memory/types.py` add the field with a default of `0.0` (non-aversive records). All extant constructors keep working.
+
+```python
+@dataclass(frozen=True)
+class MemoryRecord:
+    # ... existing fields ...
+    aversive_weight: float = 0.0  # 0.0 if non-aversive; 1.0 fresh, halved on each survival
+```
+
+Add a SQLite ALTER (or one-time migration) to add the `aversive_weight REAL DEFAULT 0.0` column.
+
+- [ ] **Step 4: Wire defenses A & D**
+
+- **Defense A (active-tag cap, max-1 surfaced):** modify the retrieval pipeline (Task 32) to keep at most one aversive record in the returned top-k — the one with the highest `aversive_weight` × `relevance` score. Drop the rest from the prompt.
+- **Defense D (cross-game reset):** in the run loop (Task 36 / game-start hook), on `game_start` event reset `affect.anxiety = 0`, `affect.frustration = 0`, `affect.dopamine = 0`. Retain `valence ← 0.3 · valence` (slow variable; partial carry-over by design). Defense D is logged as a hygiene step, not a load-bearing defense.
+
+- [ ] **Step 5: Pass + commit**
 
 ```bash
+uv run pytest tests/test_memory_aversive.py -v
 git add nova-agent/
-git commit -m "feat(memory): trauma tagging + decay"
+git commit -m "feat(memory): aversive memory tag with extinction halving (informally: trauma, §3.6 spiral defenses A+B+D)"
 ```
+
+**Notes:**
+- Defense C (semantic override via `trauma_outdated` rule) is intentionally NOT implemented in this task — it depends on Task 36 reflection. Defenses A and B alone are sufficient to terminate the spiral; C is best-effort.
+- §8.2 acceptance: aversive replication test runs across N=30 paired episodes; convergence-to-baseline after ~6 survivals is the operational test of defense B.
 
 ---
 
-## Task 32: Trauma retrieval radius widening
+## Task 32: Aversive retrieval radius widening + max-1 surfaced cap + last_accessed write-back
+
+Implements §3.4 retrieval changes: aversive radius widening, defense-A active-tag cap (max 1 aversive record surfaced per move), and `last_accessed` write-back on every returned record (recency decay was previously a no-op).
 
 **Files:**
 - Modify: `nova-agent/src/nova_agent/memory/retrieval.py`
 - Modify: `nova-agent/tests/test_memory_retrieval.py`
 
-- [ ] **Step 1: Extend `retrieve_top_k` to widen the relevance threshold for trauma-tagged memories**
+- [ ] **Step 1: Extend `retrieve_top_k` to widen the relevance threshold for aversive memories**
 
 ```python
-# In retrieval.py — extend combined_score branch for trauma
-def retrieve_top_k(... existing args ..., trauma_relevance_floor: float = 0.4) -> list[RetrievedMemory]:
-    # ... existing ...
+# In retrieval.py
+from nova_agent.memory.aversive import AVERSIVE_TAG, is_inert
+
+def retrieve_top_k(
+    ... existing args ...,
+    aversive_relevance_floor: float = 0.4,
+) -> list[RetrievedMemory]:
+    # ... existing scoring ...
     for rec in candidates:
+        if is_inert(rec):
+            continue  # below extinction threshold; skip the boost
         rec_relevance = cosine(query_embedding, rec.embedding)
-        if "trauma" in rec.tags and rec_relevance > trauma_relevance_floor:
-            rec_relevance = max(rec_relevance, 0.7)  # boost
+        if AVERSIVE_TAG in rec.tags and rec_relevance > aversive_relevance_floor:
+            rec_relevance = max(rec_relevance, 0.7)  # widen radius
+            rec_relevance *= rec.aversive_weight  # decayed memories surface less
         # ... rest of scoring ...
 ```
 
-- [ ] **Step 2: Test with synthetic memories**
+- [ ] **Step 2: Apply defense A — active-tag cap (max 1 aversive surfaced per move)**
 
-- [ ] **Step 3: Pass + commit**
+After scoring all candidates, **before** truncating to top-k, drop all but the single highest-scoring aversive record. The remaining slots in top-k go to non-aversive memories. This is the deterministic guarantee that Nova never reads two aversive memories simultaneously and panic-stacks.
+
+```python
+def _enforce_aversive_cap(scored: list[RetrievedMemory]) -> list[RetrievedMemory]:
+    """Defense A from §3.6 — at most one aversive record returned per move."""
+    aversive = [m for m in scored if AVERSIVE_TAG in m.record.tags]
+    non_aversive = [m for m in scored if AVERSIVE_TAG not in m.record.tags]
+    if len(aversive) <= 1:
+        return scored
+    aversive.sort(key=lambda m: m.score, reverse=True)
+    return [aversive[0]] + non_aversive
+```
+
+- [ ] **Step 3: Write `last_accessed` back on every returned record**
+
+§3.4 recency decay depends on `last_accessed`. Without write-back, surfaced records stay "old" forever and recency degrades into a no-op. After scoring + cap-enforcement, before returning, batch-update `last_accessed = now()` for every returned record's id in SQLite.
+
+```python
+def retrieve_top_k(...) -> list[RetrievedMemory]:
+    # ... compute scored, enforce cap, truncate to top-k ...
+    returned = _enforce_aversive_cap(scored)[:k]
+    now = datetime.now(timezone.utc)
+    sqlite_store.batch_update_last_accessed([m.record.id for m in returned], now)
+    return returned
+```
+
+- [ ] **Step 4: Lost-in-the-Middle prompt-position rule**
+
+When the prompt builder (Task 16 / Task 23) inserts retrieved memories into the active context, place them at the **top OR bottom** of the active section, never in the middle. Per §3.4 + §8.2 Method 3. The simplest implementation: top-of-active-context, after rules and before board state.
+
+- [ ] **Step 5: Test with synthetic memories**
+
+```python
+# tests/test_memory_retrieval.py — additions
+def test_max_one_aversive_returned():
+    """Defense A — active-tag cap."""
+    # ... build store with 3 aversive + 5 non-aversive at similar relevance ...
+    out = retrieve_top_k(query=q, k=5, ...)
+    aversive_count = sum(1 for m in out if AVERSIVE_TAG in m.record.tags)
+    assert aversive_count <= 1
+
+
+def test_inert_aversive_not_returned():
+    """An aversive record with weight < 0.02 doesn't surface."""
+    # ... build store with one aversive at weight=0.01 ...
+    out = retrieve_top_k(query=q, k=5, ...)
+    assert all(m.record.id != "inert_one" for m in out)
+
+
+def test_last_accessed_written_back():
+    """Recency decay actually resets after retrieval."""
+    # ... record stored at t-100s; retrieve; check last_accessed updated ...
+    pre = sqlite_store.get_last_accessed("rec_1")
+    _ = retrieve_top_k(query=q, k=5, ...)
+    post = sqlite_store.get_last_accessed("rec_1")
+    assert post > pre
+```
+
+- [ ] **Step 6: Pass + commit**
 
 ```bash
+uv run pytest tests/test_memory_retrieval.py -v
 git add nova-agent/
-git commit -m "feat(memory): trauma retrieval boosts relevance for loosely-similar boards"
+git commit -m "feat(memory): aversive radius widening + defense-A cap + last_accessed write-back"
 ```
 
 ---
 
-## Task 33: Tree-of-Thoughts deliberation
+## Task 33: Tree-of-Thoughts deliberation — branches stream to brain panel, read-only memory
+
+Implements §3.8 of the design spec. Two new behaviors vs the prior draft: (1) each branch's evaluation publishes a `tot_branch` event to the bus as it completes, so the brain panel renders System-2 thinking on screen instead of a 4-second freeze; (2) branch evaluators are **read-only** with respect to memory (no writes from inside a branch — §3.4 concurrency rule).
 
 **Files:**
 - Create: `nova-agent/src/nova_agent/decision/tot.py`
 - Create: `nova-agent/tests/test_decision_tot.py`
 
-- [ ] **Step 1: Failing test**
+- [ ] **Step 1: Failing tests**
 
 ```python
 # nova-agent/tests/test_decision_tot.py
-from unittest.mock import MagicMock
+import asyncio
+from unittest.mock import MagicMock, AsyncMock
 from nova_agent.decision.tot import ToTDecider
 from nova_agent.perception.types import BoardState
 
 
-def test_tot_returns_best_branch():
-    fake_llm = MagicMock()
-    # Each call generates a candidate + its value estimate
-    fake_llm.complete.side_effect = [
-        ('{"action":"swipe_up","reasoning":"good","value":0.7}', MagicMock(input_tokens=100, output_tokens=20, cost_usd=0.01)),
-        ('{"action":"swipe_down","reasoning":"bad","value":0.1}', MagicMock(input_tokens=100, output_tokens=20, cost_usd=0.01)),
-        ('{"action":"swipe_left","reasoning":"meh","value":0.4}', MagicMock(input_tokens=100, output_tokens=20, cost_usd=0.01)),
+def _llm_with_branches(values: list[float]) -> MagicMock:
+    fake = MagicMock()
+    fake.complete.side_effect = [
+        (f'{{"action":"swipe_{d}","reasoning":"r","value":{v}}}',
+         MagicMock(input_tokens=100, output_tokens=20, cost_usd=0.01))
+        for d, v in zip(["up","down","left","right"], values)
     ]
-    decider = ToTDecider(llm=fake_llm)
+    return fake
+
+
+def test_tot_returns_best_branch():
+    fake_llm = _llm_with_branches([0.7, 0.1, 0.4])
+    bus = MagicMock(); bus.publish = AsyncMock()
+    decider = ToTDecider(llm=fake_llm, bus=bus)
     board = BoardState(grid=[[0,2,0,0]] + [[0]*4]*3, score=0)
-    decision = decider.decide(board=board, screenshot_b64="ignored", num_branches=3)
+    decision = asyncio.run(decider.decide(board=board, screenshot_b64="x", num_branches=3))
     assert decision.action == "swipe_up"
+
+
+def test_tot_publishes_branch_event_per_candidate():
+    """§3.8 — branches stream to brain panel as they evaluate."""
+    fake_llm = _llm_with_branches([0.5, 0.6, 0.4])
+    bus = MagicMock(); bus.publish = AsyncMock()
+    decider = ToTDecider(llm=fake_llm, bus=bus)
+    board = BoardState(grid=[[0]*4]*4, score=0)
+    asyncio.run(decider.decide(board=board, screenshot_b64="x", num_branches=3))
+
+    # one event per branch + one final selection event
+    branch_calls = [c for c in bus.publish.await_args_list if c.args[0] == "tot_branch"]
+    select_calls = [c for c in bus.publish.await_args_list if c.args[0] == "tot_selected"]
+    assert len(branch_calls) == 3
+    assert len(select_calls) == 1
+
+
+def test_tot_branch_evaluator_does_not_write_memory():
+    """§3.4 read-only constraint — branches must never call memory.write_*."""
+    from nova_agent.decision import tot as tot_module
+    src = (tot_module.__file__ or "")
+    # crude but effective: inspect source for forbidden writes inside branch fn
+    code = open(src).read()
+    # branch evaluator fn must not contain memory writes
+    assert "memory.write_move" not in code
+    assert "memory.write_reflection" not in code
+    assert "memory.tag_aversive" not in code
 ```
 
-- [ ] **Step 2: Implement**
+- [ ] **Step 2: Implement — async branch evaluator with bus streaming and read-only memory**
 
 ```python
 # nova-agent/src/nova_agent/decision/tot.py
-from dataclasses import dataclass
+"""Tree-of-Thoughts deliberation (System 2, §3.8).
+
+Branch evaluators run in parallel via asyncio.gather, stream results to the
+event bus as they complete (so the brain panel renders thinking, not a freeze),
+and are READ-ONLY with respect to long-term memory — branches may QUERY but
+must never WRITE. Writes happen on the single decision-loop thread after the
+chosen branch is committed (§3.4 concurrency rule).
+"""
+
+from __future__ import annotations
+
+import asyncio
 from typing import Literal
+
 from pydantic import BaseModel, Field
 
+from nova_agent.bus.protocol import EventBus
+from nova_agent.decision.react import Decision
 from nova_agent.llm.protocol import LLM
 from nova_agent.llm.structured import parse_json
 from nova_agent.perception.types import BoardState
-from nova_agent.decision.react import Decision
 
 
 class _ToTBranch(BaseModel):
@@ -3739,9 +4569,10 @@ class _ToTBranch(BaseModel):
 
 
 _TOT_SYSTEM = """\
-You are evaluating one candidate move for a 2048 game. Imagine the board after
+You are evaluating ONE candidate move for a 2048 game. Imagine the board after
 swiping in the proposed direction; rate the resulting position from 0 (terrible,
-near-loss) to 1 (excellent, opens many merges). Be honest.
+near-loss) to 1 (excellent, opens many merges). Be honest. You are not selecting
+the move — you are scoring this single candidate.
 
 Respond as strict JSON:
 {"action": "swipe_up|swipe_down|swipe_left|swipe_right",
@@ -3751,54 +4582,105 @@ Respond as strict JSON:
 
 
 class ToTDecider:
-    def __init__(self, *, llm: LLM):
+    def __init__(self, *, llm: LLM, bus: EventBus, branch_temperature: float = 0.3):
         self.llm = llm
+        self.bus = bus
+        self.branch_temperature = branch_temperature
 
-    def decide(
+    async def decide(
         self,
         *,
         board: BoardState,
         screenshot_b64: str,
         num_branches: int = 4,
+        game_id: str | None = None,
+        move_idx: int | None = None,
     ) -> Decision:
-        candidates: list[_ToTBranch] = []
         directions = ["swipe_up", "swipe_down", "swipe_left", "swipe_right"][:num_branches]
-        for direction in directions:
-            user = (
-                f"Board:\n{board.grid}\nScore: {board.score}\n\n"
-                f"Evaluate the move: {direction}"
-            )
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": screenshot_b64}},
-                        {"type": "text", "text": user},
-                    ],
-                }
-            ]
-            text, _ = self.llm.complete(system=_TOT_SYSTEM, messages=messages, max_tokens=200, temperature=0.5)
-            try:
-                candidates.append(parse_json(text, _ToTBranch))
-            except Exception:
-                continue
+        # parallel branch evaluation; each branch is read-only
+        tasks = [
+            self._evaluate_one(board, screenshot_b64, direction, game_id, move_idx)
+            for direction in directions
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        candidates = [r for r in results if isinstance(r, _ToTBranch)]
         if not candidates:
             raise RuntimeError("ToT produced no valid candidates")
+
         best = max(candidates, key=lambda c: c.value)
+        await self.bus.publish("tot_selected", {
+            "game_id": game_id,
+            "move_idx": move_idx,
+            "chosen_action": best.action,
+            "chosen_value": best.value,
+            "branch_values": {c.action: c.value for c in candidates},
+        })
         return Decision(
             action=best.action,
             observation=f"ToT considered {len(candidates)} candidates",
             reasoning=best.reasoning,
             confidence="medium",
         )
+
+    async def _evaluate_one(
+        self,
+        board: BoardState,
+        screenshot_b64: str,
+        direction: str,
+        game_id: str | None,
+        move_idx: int | None,
+    ) -> _ToTBranch | Exception:
+        """Evaluate ONE branch. READ-ONLY: must never call memory.write_*.
+
+        On completion, publish `tot_branch` so the brain panel can render
+        the branch card incrementally.
+        """
+        user = (
+            f"Board:\n{board.grid}\nScore: {board.score}\n\n"
+            f"Evaluate the move: {direction}"
+        )
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": screenshot_b64}},
+                {"type": "text", "text": user},
+            ],
+        }]
+        # the LLM call is sync — run in a thread so the bus can serve the viewer
+        text, _ = await asyncio.to_thread(
+            self.llm.complete,
+            system=_TOT_SYSTEM,
+            messages=messages,
+            max_tokens=200,
+            temperature=self.branch_temperature,
+        )
+        try:
+            branch = parse_json(text, _ToTBranch)
+        except Exception as exc:
+            await self.bus.publish("tot_branch", {
+                "game_id": game_id, "move_idx": move_idx,
+                "direction": direction, "status": "parse_error", "error": str(exc),
+            })
+            return exc
+        await self.bus.publish("tot_branch", {
+            "game_id": game_id, "move_idx": move_idx,
+            "direction": branch.action, "value": branch.value,
+            "reasoning": branch.reasoning, "status": "complete",
+        })
+        return branch
 ```
 
 - [ ] **Step 3: Pass + commit**
 
 ```bash
+uv run pytest tests/test_decision_tot.py -v
 git add nova-agent/
-git commit -m "feat(decision): Tree-of-Thoughts deliberation"
+git commit -m "feat(decision): ToT with parallel read-only branches streamed to brain panel (§3.8)"
 ```
+
+**Notes:**
+- The `tot_branch` event schema must be added to the typed event contract (Task 17 / event-schema task). Fields: `game_id`, `move_idx`, `direction`, `value` (optional, present when `status=complete`), `reasoning` (optional), `status` ∈ `{complete, parse_error}`.
+- `tot_selected` event marks the end of the deliberation; the viewer's `ToTBranchPanel` highlights the chosen card on this event and greys the rest.
 
 ---
 
@@ -4411,13 +5293,16 @@ git commit -m "polish(viewer): TraumaIndicator + ModeBadge transitions"
 
 ---
 
-## Task 47: ReasoningText typewriter + ActionArrow
+## Task 47: ReasoningText + ToTBranchPanel + ActionArrow
+
+ReasoningText handles single-block System-1 reasoning. **ToTBranchPanel** is the new component required by §3.8 + §5: it renders branch cards as `tot_branch` events arrive on the bus, greys rejected branches on `tot_selected`, and highlights the chosen branch. Without this component, ToT mode renders as a 2–4 second freeze on screen.
 
 **Files:**
 - Create: `nova-viewer/app/components/ReasoningText.tsx`
+- Create: `nova-viewer/app/components/ToTBranchPanel.tsx`
 - Create: `nova-viewer/app/components/ActionArrow.tsx`
 
-- [ ] **Step 1: ReasoningText** — accept the `reasoning` string; render with a typewriter effect (one char per ~20ms).
+- [ ] **Step 1: ReasoningText** — System 1 path. Accept the `reasoning` string; render with a typewriter effect.
 
 ```tsx
 // nova-viewer/app/components/ReasoningText.tsx
@@ -4435,7 +5320,74 @@ export function ReasoningText({ text }: { text: string }) {
 }
 ```
 
-- [ ] **Step 2: ActionArrow** — directional arrow with a brief slide-in animation.
+- [ ] **Step 2: ToTBranchPanel** — System 2 path. Vertical stack of branch cards; cards stream in on `tot_branch` events and grey/highlight on `tot_selected`.
+
+```tsx
+// nova-viewer/app/components/ToTBranchPanel.tsx
+"use client";
+import { motion, AnimatePresence } from "framer-motion";
+
+export interface ToTBranch {
+  direction: "swipe_up" | "swipe_down" | "swipe_left" | "swipe_right";
+  value?: number;
+  reasoning?: string;
+  status: "pending" | "complete" | "parse_error";
+}
+
+interface Props {
+  branches: ToTBranch[];               // ordered by arrival
+  chosenDirection: ToTBranch["direction"] | null;
+}
+
+const ARROW = { swipe_up: "↑", swipe_down: "↓", swipe_left: "←", swipe_right: "→" } as const;
+
+export function ToTBranchPanel({ branches, chosenDirection }: Props) {
+  return (
+    <section>
+      <h3 className="text-sm uppercase tracking-wider text-zinc-500 mb-2">
+        Deliberation (System 2)
+      </h3>
+      <div className="flex flex-col gap-2">
+        <AnimatePresence>
+          {branches.map((b) => {
+            const decided = chosenDirection !== null;
+            const chosen = decided && b.direction === chosenDirection;
+            const rejected = decided && !chosen;
+            return (
+              <motion.div
+                key={b.direction}
+                layout
+                initial={{ opacity: 0, x: -8 }}
+                animate={{
+                  opacity: rejected ? 0.35 : 1,
+                  x: 0,
+                  borderColor: chosen ? "#4FD1C5" : "#3f3f46",
+                }}
+                transition={{ type: "spring", stiffness: 220, damping: 24 }}
+                className={`rounded-md border px-3 py-2 ${chosen ? "bg-cyan-950/30" : "bg-zinc-900/40"}`}
+              >
+                <div className="flex items-baseline gap-3">
+                  <span className="text-2xl text-cyan-300">{ARROW[b.direction]}</span>
+                  <span className="text-xs text-zinc-500 uppercase tracking-wider">
+                    {b.status === "complete" ? `value ${b.value?.toFixed(2)}` : b.status}
+                  </span>
+                </div>
+                {b.reasoning && (
+                  <p className="font-serif text-sm text-zinc-300 mt-1 leading-snug">
+                    {b.reasoning}
+                  </p>
+                )}
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
+    </section>
+  );
+}
+```
+
+- [ ] **Step 3: ActionArrow** — directional arrow with a brief slide-in animation (unchanged).
 
 ```tsx
 // nova-viewer/app/components/ActionArrow.tsx
@@ -4459,12 +5411,18 @@ export function ActionArrow({ action }: { action: keyof typeof ARROW }) {
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Wire `tot_branch` + `tot_selected` events through `page.tsx`** (extends Task 27/29). The page maintains a `branches: ToTBranch[]` state and a `chosenDirection` state; it appends on `tot_branch` events and sets `chosenDirection` on `tot_selected`. Reset both on `mode=DEFAULT` transitions so the next ToT episode starts clean.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add nova-viewer/
-git commit -m "feat(viewer): ReasoningText typewriter + ActionArrow component"
+git commit -m "feat(viewer): ToTBranchPanel streams branch cards + ReasoningText + ActionArrow"
 ```
+
+**Notes:**
+- The branch panel **replaces** the ReasoningText panel when `mode=DELIBERATION`; both must not render simultaneously.
+- Claude Design (Task 41) needs a static mockup of this panel — add to its scope.
 
 ---
 

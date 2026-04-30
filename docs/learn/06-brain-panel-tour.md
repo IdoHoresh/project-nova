@@ -140,20 +140,30 @@ A single visual indicator of which decision path Nova just took:
 
 **Animation.** When the mode flips, a snappy transition (fade-and-slide). The badge stays visible while the move is being made.
 
-**Why this matters.** This visualizes the dual-process aspect of the architecture without committing to overclaiming "System 1 / System 2." Viewers see Nova switch from fast to deliberate mode on hard boards. Watchable proof that her behavior actually changes with situation difficulty.
+**Why this matters.** This visualizes the dual-process aspect of the architecture (Kahneman's System 1 / System 2 mapping). Viewers see Nova switch from fast to deliberate mode on hard boards. Watchable proof that her behavior actually changes with situation difficulty.
 
-### 6. Reasoning text
+### 6. Reasoning text (System 1 / INTUITION mode)
 
-The raw `reasoning` field from the VLM's output, displayed live.
+The raw `reasoning` field from the VLM's output, displayed live, on the default (System 1) path.
 
 Examples:
 > *"Trauma move was DOWN. Going UP — merge the 16s, stay safe."*
 >
 > *"Easy opener. Two 2s on the right, swipe right to merge. Low risk."*
 
-**Animation.** Streaming text — appears character-by-character as the VLM generates it. Like a typewriter. (If streaming is too expensive, instant text with a fade-in works too.)
+**Animation.** Streaming text — appears character-by-character as the VLM generates it. Like a typewriter.
 
-**Why this matters.** This is the literal "watch the AI think" payoff. Viewers see the words form as Nova reasons. It's the most direct possible visualization of an LLM thinking.
+### 6b. ToT branch panel (System 2 / DELIBERATING mode)
+
+When the mode badge flips to DELIBERATING, the Reasoning Text view is replaced by the **ToT branch panel** — a vertical stack of branch cards. One card appears for each candidate move as the VLM finishes evaluating it (parallel branches stream in over 2–4 seconds, in any order). Each card shows:
+
+- The direction arrow (↑ ↓ ← →)
+- The estimated value (0.00–1.00)
+- A 1–2 sentence justification
+
+When all branches complete, the **chosen branch highlights with a cyan border**; the rejected branches grey out (~35% opacity). The viewer sees Nova explicitly reject the bad futures and pick the best one — the deliberation reads as visible thinking, not as a frozen UI.
+
+**Why this matters.** This is the literal "watch the AI deliberate" payoff. Without per-branch streaming, ToT mode would look like a 3-second crash. With it, ToT is the most compelling visualization in the whole demo — and the most direct possible answer to "but is this just one big API call?" (No: you can see the branches.)
 
 ### 7. Action arrow
 
@@ -165,9 +175,9 @@ A large directional arrow that animates each time Nova commits to a move.
 
 ### 8. Trauma indicator (active state)
 
-When a trauma-tagged memory is currently active in working memory, a subtle red glow appears around the right column.
+When an aversive-tagged memory is currently active in working memory, a subtle red glow appears around the right column. (The technical name is "Aversive Memory Tag" — see [03-memory-explained.md](03-memory-explained.md). The UI keeps the punchier "Trauma" label.)
 
-**Animation.** Slow pulse. Fades when the trauma memory drops out of working memory.
+**Animation.** Slow pulse. Fades when the aversive memory drops out of working memory (either by extinction-halving below the inert threshold, or by simply not being retrieved next move).
 
 **Why this matters.** Adds an emotional weight to the demo. A viewer sees the red glow appear, looks at the memory feed, sees the trauma card, and connects: *"oh, she's playing under the shadow of a past loss right now."* Powerful demo moment.
 

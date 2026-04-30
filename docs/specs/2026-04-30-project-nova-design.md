@@ -40,6 +40,8 @@ The intended public framing is:
 
 This framing is defensible to a senior reviewer with relevant background. Claims to be avoided: "models human cognition," "implements consciousness," "neuroscience-grounded," "actual brain simulation." These overclaims invite warranted criticism and damage credibility.
 
+**Differentiation against the closest prior art (Webb et al. 2025, Modular Agentic Planner / MAP).** MAP is brain-inspired modular planning for LLMs — also a structured cognitive architecture with module-level decomposition. Nova differs in three concrete ways: (1) Nova adds **session-persistent affect** as a slow variable that modulates reasoning across hundreds of moves; MAP is planning-only and stateless across episodes. (2) Nova adds **episodic memory + reflection-distilled semantic memory** (Park 2023 + Shinn 2023 lineage); MAP does not retain experience. (3) Nova adds **a transparent real-time brain-panel UI** that makes internal state legible to a human viewer; MAP is evaluated on benchmark scores, not introspective UX. Pre-empts the "this is just MAP with mood" line.
+
 ### Goals for v1
 
 In priority order:
@@ -87,7 +89,7 @@ The full scope ships all eight cognitive modules from the architecture diagram, 
 | --- | --- | --- |
 | 1 | Perception | Screen capture from emulator → board state extraction |
 | 2 | Working memory | Current board, recent moves, retrieved context, current affect |
-| 3 | Long-term memory | Episodic event log + semantic rules + trauma tags (Park 2023, Tulving 1972, LeDoux 1996) |
+| 3 | Long-term memory | Episodic event log + semantic rules + aversive memory tags / informal "trauma" (Park 2023, Tulving 1972, LeDoux 1996) |
 | 4 | Affective state | Valence × arousal (Russell 1980) + dopamine + frustration + anxiety |
 | 5 | Outcome evaluation | TD-error / RPE (Schultz 1997) — drives dopamine and emotion updates |
 | 6 | Decision module | VLM call with appraisal + memory retrieval + optional ToT lookahead |
@@ -273,7 +275,7 @@ The v3 sweet spot is the same as v1's — **casual / puzzle / merge / menu-drive
   "rpe": 0.07,
   "affect_snapshot": {"valence": -0.1, "arousal": 0.7, ...},
   "importance": 7,
-  "tags": ["trauma_pre", "tight_board"],
+  "tags": ["aversive", "loss_precondition", "tight_board"],
   "embedding": [0.12, -0.04, ...],
   "source_reasoning": "..."
 }
@@ -307,7 +309,11 @@ score(memory_i) = α_recency · recency_i
 
 Initial weights `α = 1.0` each, tuned during evaluation.
 
-**Trauma-tagged memories** get a wider similarity threshold and a multiplier on relevance (so they surface on loosely-similar boards). Capped to prevent pathological over-avoidance — see §3.6.
+**Side effect on retrieval.** Every returned record has its `last_accessed` field written back to `now()` so recency decay actually resets. Without this write-back, memories surfaced repeatedly remain "old" forever and the recency term degrades into a no-op.
+
+**Aversive Memory Tag (informal: "trauma") records** get a wider similarity threshold and a multiplier on relevance (so they surface on loosely-similar boards). Capped to prevent pathological over-avoidance — see §3.6. Per the Lost-in-the-Middle phenomenon (Liu et al. 2023), retrieved memories are inserted at the **top OR bottom** of the active context section of the prompt, never in the middle.
+
+**Concurrency.** Tree-of-Thoughts spawns N parallel branch evaluators (§3.8). Branches are **read-only** with respect to memory: they query, they never write. All memory writes (move records, importance updates, `last_accessed` write-back, aversive-tag updates) happen on the single decision-loop thread after the chosen branch executes. SQLite uses WAL journaling (`PRAGMA journal_mode=WAL`) for non-blocking concurrent reads.
 
 **Top-k.** Default k=5. Returned memories are appended to working memory as natural-language summaries plus the original board snapshot.
 
@@ -325,78 +331,154 @@ Initial weights `α = 1.0` each, tuned during evaluation.
 | `arousal` | [0, 1] | Empty-cell count, board volatility | "alert" / "calm" |
 | `dopamine` | [0, 1] | Single-step RPE spikes (decays fast) | "just felt a hit" |
 | `frustration` | [0, 1] | Streaks of low/negative RPE | "impatient", "wants a big play" |
-| `anxiety` | [0, 1] | Game-over proximity, trauma triggers | "nervous", "wants to play safe" |
+| `anxiety` | [0, 1] | Game-over proximity, aversive memory surfaced (`aversive_triggered`) | "nervous", "wants to play safe" |
 | `confidence` | [0, 1] | Recent success rate vs expectation | "sure" / "hesitant" |
 
-**Update rule sketch** (full code in implementation phase):
-
+**Update rules.** All variables share one form:
 ```
-δ_valence    = +0.7 · normalized_RPE − 0.05 · time
-δ_arousal    = +0.6 · (1 − empty_cells/16) + 0.2 · |RPE|
-δ_dopamine   = +1.0 · max(0, RPE)        ; fast decay
-δ_frustration += +0.3 · max(0, −RPE)     ; reset on positive RPE
-δ_anxiety    = +0.5 · (game_over_proximity) + 0.3 · trauma_triggered
-δ_confidence = +0.4 · sign(RPE) · |RPE|^0.5
+x ← clip(decay · x + δ_x, range)              (per move-step)
 ```
+Per-move-step decay rates (units: per move, NOT per second):
 
-**Translation to natural language for the VLM prompt.** A small templating function turns the vector into a sentence: *"You feel anxious and frustrated. Last few moves disappointed you. The board is tight."*
+| Variable | decay (1 − λ) | λ | Notes |
+| --- | --- | --- | --- |
+| dopamine | 0.6 | 0.4 | Fast — dopamine is a phasic spike |
+| valence | 0.95 | 0.05 | Slow — valence is the session-persistent slow variable |
+| arousal | 0.90 | 0.10 | Medium |
+| anxiety | 0.85 | 0.15 | Medium — drains as boards loosen |
+| frustration | 0.90 | 0.10 | Medium — accumulates across low-RPE streaks |
+| confidence | 0.95 | 0.05 | Slow |
 
-This is the **appraisal step** from Croissant et al. (2024) Chain-of-Emotion: emotion is computed, then verbalized into the prompt.
+`δ_x` deltas, computed each move:
+```
+RPE_norm     = clip(δ_t / σ_δ, −1, +1)               where σ_δ is running stdev of |δ_t| over last 100 moves; σ_δ ← max(σ_δ, ε)
+δ_valence    = +0.7  · RPE_norm
+δ_arousal    = +0.6  · (1 − empty_cells/16) + 0.2 · |RPE_norm|
+δ_dopamine   = +1.0  · max(0, RPE_norm)
+δ_frustration = +0.3 · max(0, −RPE_norm)
+δ_anxiety    = +0.5  · game_over_proximity + 0.3 · aversive_triggered
+δ_confidence = +0.4  · sign(RPE_norm) · |RPE_norm|^0.5
+```
+Ranges: `valence ∈ [−1, +1]`; `arousal, dopamine, frustration, anxiety, confidence ∈ [0, 1]`.
 
-**Citations.** Russell (1980) circumplex; Schultz, Dayan, Montague (1997) RPE; Croissant et al. (2024) appraisal-driven affective LLM game agents; Forgas (1995) affect-infusion model; Eysenck et al. (2007) attentional control theory for the anxiety variable.
+**Frustration cap.** `frustration ≤ 0.8` enforced after the clip step. Engineering hack to prevent runaway-spiral feedback (negative RPE → frustration → riskier action → more negative RPE). Acknowledged as a hack; load-bearing for stability.
 
-#### 3.6 Trauma tagging
+**Stylized, not human-fit.** All coefficients above are **illustrative / tuned for demo legibility**. They are not fit to human-subject data and make no claim of replicating affective dynamics. The *form* (linear update with exponential decay) is grounded in computational-affect modeling (Bach & Dayan 2017); the *constants* are engineering choices.
 
-**Responsibility.** After a catastrophic loss, identify the *precondition* boards (3–5 moves before death) and tag them as traumatic.
+**Translation to natural language for the VLM prompt.** A small templating function turns the vector into a sentence: *"You feel anxious and frustrated. Last few moves disappointed you. The board is tight."* This is the **appraisal step** from Croissant et al. (2024) Chain-of-Emotion (with cognitive-appraisal grounds in Lazarus 1991 and Scherer's 2001 Component Process Model): emotion is computed, then verbalized into the prompt.
 
-**Tagging rule.** When a game ends with score < expected and the loss was on a contested board (e.g., empty_cells <= 2 for several moves before death), the boards from move (t-5) to (t-1) are written back to episodic memory with:
+**Convergence monitoring.** Per-game `mean(|δ_t|)` is logged to the brain-panel stats footer. Across games 1→50 it should shrink (V is learning, RPE is no longer pure noise). If it does not shrink, V is not learning and the entire RPE/Schultz-grounded claim is empirically broken — that is the test, not a vibe.
+
+**Citations.** Russell (1980) circumplex; Schultz, Dayan, Montague (1997) RPE; Sutton & Barto (2018) TD-learning algorithm anchor; Croissant et al. (2024) appraisal-driven affective LLM game agents; Lazarus (1991), Scherer (2001) appraisal theory; Forgas (1995) affect-infusion model; Bach & Dayan (2017) for the form of linear-with-decay affect dynamics; Eysenck et al. (2007) and Derakshan & Eysenck (2009) Attentional Control Theory for the anxiety variable's gating role on System 2 (§3.8).
+
+#### 3.6 Aversive Memory Tag (informal: "trauma")
+
+**Naming convention.** Throughout the codebase and technical documentation the term is **Aversive Memory Tag** (`aversive_*` identifiers in code: `aversive_radius`, `aversive_decay`, `aversive_tag`). The brain-panel UI label, LinkedIn post copy, and demo narration use the punchier "Trauma" — that is a marketing surface, not the technical surface. This split keeps the engineering rigorous and the demo watchable.
+
+**Ethical hedge.** "Trauma" here is engineering shorthand for an importance-weighted memory of a catastrophic in-game outcome. It is **not** a model of clinical PTSD, fear conditioning, or any human pathology.
+
+**Responsibility.** After a catastrophic loss, identify the *precondition* boards (3–5 moves before death) and tag them as aversive.
+
+**Tagging rule.** When a game ends with `final_score < expected` and the loss was on a contested board (e.g., `empty_cells ≤ 2` for several moves before death), the boards from move `(t−5)` to `(t−1)` are written back to episodic memory with:
 
 - `importance += 3` (capped at 10)
-- `tags += ["trauma"]`
-- `trauma_radius`: an embedding-similarity threshold that's looser than normal retrieval
+- `aversive_tag = True`
+- `aversive_radius`: an embedding-similarity threshold looser than normal retrieval
+- `aversive_weight = 1.0` (initial — decays via extinction; see below)
 
-**Effect at retrieval.** Trauma-tagged memories surface on boards within `trauma_radius` (vs. normal `relevance_threshold`). When surfaced, they boost `anxiety` and bias the appraisal prompt: *"You remember losing on a board like this."*
+**Effect at retrieval.** Aversive-tagged memories surface on boards within `aversive_radius` (vs. normal `relevance_threshold`). When surfaced, they boost `anxiety` (`aversive_triggered = 1` in §3.5) and bias the appraisal prompt: *"You remember losing on a board like this."* This pre-deliberative bias is the engineering analogue of Damasio's somatic-marker hypothesis (Damasio 1994; Bechara et al. 1994) — emotional memories shape choice *before* explicit reasoning runs (and before §3.8's optional ToT branch evaluation begins).
 
-**Regulatory cap.** To prevent pathological over-avoidance (which would make Nova never play boldly), the system imposes a `trauma_decay` term: each retrieval slightly reduces the trauma weight, and reflective semantic-memory rules can override trauma in specific contexts.
+**Spiral defenses.** Four-layer defense against the trauma-death-spiral failure mode (the "Nova panics on every board" pathology):
 
-**Citation.** LeDoux (1996) fear memory; McGaugh (2013) emotional tagging in consolidation; Phelps & LeDoux (2005). Honest hedge: trauma generalization circuits are debated — frame as design metaphor inspired by, not modeled on, fear-conditioning literature.
+| # | Defense | Mechanism | Load-bearing? |
+| --- | --- | --- | --- |
+| A | **Active-tag cap** | Maximum **1** aversive memory surfaced per move (the highest-`aversive_weight` match). | Yes |
+| B | **Exposure-extinction halving** | Each survival on an aversive-radius-similar board: `aversive_weight ← aversive_weight · 0.5`. After ~6 survivals the memory's aversive contribution is < 0.02 and effectively inert. | **Yes — primary deterministic guarantee.** Defense B alone bounds the spiral mathematically. |
+| C | Semantic override | Reflection (§3.11) may write a `trauma_outdated` semantic-memory rule after N successful traversals. | **Best-effort, NOT load-bearing.** LLMs reliably underweight abstract textual rules against dominant visual context (the current tight-board screenshot). Treat as a nice-to-have. |
+| D | Cross-game affect reset | On `game_start`: anxiety, frustration, dopamine reset to baseline. Valence retains 30% (slow-variable design). Prevents game N+1 starting in saturated-anxiety state. | Guardrail, not a defense |
+
+The architecture relies on **A and B** for correctness. C is best-effort. D is hygiene. This is intentional: deterministic mechanisms first, LLM-mediated mechanisms as a bonus.
+
+**Honest theoretical hedges.** This module is **engineering-inspired** by amygdala-modulated emotional memory consolidation (LeDoux 1996; Phelps & LeDoux 2005; Phelps 2004; McGaugh 2013); it makes **no claim of replicating the underlying circuit**. The implementation does not include reconsolidation, time-based extinction, context-dependent retrieval, or fear generalization gradients. Trauma generalization circuits in the actual literature are debated; frame this entire module as a stylized design metaphor.
+
+**Citations.** LeDoux (1996); Phelps & LeDoux (2005); Phelps (2004) for amygdala-modulated emotional memory and the wider-similarity retrieval radius; McGaugh (2013) for emotional tagging during consolidation; Damasio (1994) and Bechara et al. (1994) for the somatic-marker rationale that motivates pre-deliberative biasing of the prompt.
 
 #### 3.7 Outcome evaluator (TD-error / RPE)
 
 **Responsibility.** Compute the prediction-error signal that drives dopamine and emotion updates.
 
-**Equation.**
+**Update rule — TD(0) with online learning.**
 
 ```
-δ = (actual_score_delta) − V(board_before)
+δ_t   = r_t + γ · V(s_{t+1}) − V(s_t)              (TD error)
+V(s_t) ← V(s_t) + α · δ_t                          (online linear update)
+V(s_terminal) ≡ 0
+r_t   = score(s_{t+1}) − score(s_t)                (raw 2048 score gain)
 ```
 
-where `V` is a **simple scalar value head** estimating expected score gain from a board state. v1 implements V as either:
-- a hand-tuned heuristic (sum of expected merges given current pairs), or
-- a tiny gradient-boosted regressor trained on a few hundred recorded games.
+Constants:
 
-Either is fine; the choice is empirical.
+- **`γ = 0.99`** — 2048 has a long horizon (winning games run 1000+ moves); γ = 0.99 gives an effective half-life of ~69 moves, correctly valuing early-game setup. (γ = 0.95 was rejected — half-life of 14 moves undervalues setup.)
+- **`α ∈ [0.005, 0.02]`** — start at 0.01; the longer-credit window from γ = 0.99 motivates the lower α range.
 
-**Mapping δ → affect update.** See §3.5 update rules.
+This is **proper TD(0), not bandit-baseline.** Earlier drafts used `δ = actual_score_delta − V(board_before)`, which collapses RPE to "did this move merge well?" and severs the temporal-credit-assignment claim that justifies citing Schultz/Dayan/Montague (1997) and Sutton & Barto (2018).
 
-**Citation.** Schultz, Dayan, Montague (1997). This is the most replicated finding in the entire stack — the safest claim in the project.
+**Function approximator — linear, on 6 hand-engineered features.**
+
+```
+φ_empty          = empty_cells / 16
+φ_adjacent_pairs = adjacent_identical_tile_count / 24    # immediate merge potential
+φ_mono           = monotonicity_score / max_mono         # row+column monotonicity
+φ_smooth         = 1 − Σ_{adj a,b} |log₂(a) − log₂(b)| / norm
+φ_maxcorner      = 1 if max_tile in any corner else 0
+φ_logmax         = log₂(max_tile) / 17
+
+V(s) = wᵀ φ(s) · score_scale            (score_scale ≈ 50)
+```
+
+`φ_adjacent_pairs` is the dominant short-term-value feature for 2048 — without it, V cannot distinguish a "ready-to-merge" board from a "frozen" board of equal sparsity.
+
+**Bootstrapping prior `V₀`** (solves the move-1 game-1 question — RPE is meaningful from the first action):
+
+```
+w₀ = [4.0, 5.0, 3.0, 2.0, 2.0, 1.5]
+     [empty, adjacent_pairs, mono, smooth, maxcorner, logmax]
+```
+
+`adjacent_pairs` carries the highest weight because it's the most predictive of immediate score gain.
+
+**Why linear, not GBT.** Spec earlier offered "tiny gradient-boosted regressor" as an alternative. **Rejected.** GBT (xgboost/lightgbm) is batch-trained, not online; there is no incremental leaf update that preserves TD semantics. Linear function approximation has standard convergence guarantees under on-policy sampling (Sutton & Barto 2018, ch. 9), runs in O(d) per update, is interpretable for the brain panel ("which feature drove that prediction?"), and adds no tuning overhead at this feature dimension (d = 6).
+
+**Per-move flow.**
+
+1. Before action: compute `V(s_t) = wᵀ φ(s_t) · score_scale`. Save it.
+2. After action: read new score; compute `r_t`, `V(s_{t+1})`.
+3. Compute `δ_t`, update `w ← w + α · δ_t · φ(s_t)`.
+4. Pass `δ_t` (and its normalized form `RPE_norm`, see §3.5) to the affect module.
+
+**Convergence test.** Per-game `mean(|δ_t|)` is logged. Across games 1→50 it should monotonically shrink (V is learning the true value). If it doesn't, V has bug or feature-set is inadequate, and the RPE/dopamine claim is empirically broken — see §8 acceptance.
+
+**Citations.** Schultz, Dayan, Montague (1997) — neuroscience anchor for dopamine = RPE. Sutton (1988) and Sutton & Barto (2018) — algorithm anchor for TD-learning and linear function approximation; pairs with Schultz '97 to ground both the *what* (dopamine encodes prediction error) and the *how* (TD-learning is the computational mechanism). Wu (2014) for the 2048 monotonicity heuristic in `φ_mono`.
 
 #### 3.8 Decision module — appraisal, retrieval, deliberation
 
 **Responsibility.** Given the current board, decide which way to swipe.
 
+**Dual-process framing.** The default-vs-ToT switch maps onto Kahneman's dual-process theory (Kahneman 2011): default ReAct = System 1 (fast intuition, "cognitive ease"); Tree-of-Thoughts = System 2 (slow deliberation, "cognitive strain"). The **arbiter** module (`decision/arbiter.py`) is the explicit System-1/System-2 selector. High anxiety lowers cognitive ease (Eysenck et al. 2007 Attentional Control Theory; Derakshan & Eysenck 2009) and forces the switch to System 2.
+
 **Loop per move:**
 
 1. **Appraise.** Compute current affect from §3.5. Translate to natural-language description.
-2. **Retrieve.** Query long-term memory with current board → top-5 relevant memories (§3.4).
+2. **Retrieve.** Query long-term memory with current board → top-5 relevant memories (§3.4). Update `last_accessed` on each returned record. Memories inserted into the prompt at top OR bottom of active context, never middle (Liu et al. 2023 Lost-in-the-Middle mitigation).
 3. **Build prompt.** Compose: board state + recent moves + retrieved memories + affect description + sub-goal if any.
-4. **Decide.**
-   - **Default path (low uncertainty):** single ReAct call. VLM emits `Observation`, `Reasoning`, `Action`, `Confidence`. Parse and validate.
-   - **Deliberate path (high uncertainty / high anxiety / high stakes):** Tree-of-Thoughts. Generate 3–4 candidate moves, evaluate each ("imagine the board after this move; rate the position"), pick highest-value branch.
+4. **Arbiter — System 1 or System 2?**
+   - **Default path (System 1, low uncertainty):** single ReAct call. VLM emits `Observation`, `Reasoning`, `Action`, `Confidence`, `memory_citation` (see §8). Parse and validate.
+   - **Deliberate path (System 2, high uncertainty / high anxiety / high stakes):** Tree-of-Thoughts. Generate 3–4 candidate moves; evaluate each in **parallel read-only branches** ("imagine the board after this move; rate the position"); pick highest-value branch.
    - **Trigger for ToT:** `anxiety > 0.6` AND (`max_tile >= 256` OR `empty_cells <= 3`). Tunable.
-5. **Validate output.** Action must be one of {swipe_up, swipe_down, swipe_left, swipe_right}. If parse fails, retry once with stricter format prompt; on second failure, fallback to a heuristic (Take-The-Best, §3.10).
+5. **Branch streaming (ToT only).** Each branch's evaluation streams to the brain-panel's Reasoning panel as it completes — candidate move + estimated value + brief justification. Rejected branches grey out; the chosen branch highlights. The 2–4 second deliberation reads on screen as visible thinking, not a freeze. Branches are **read-only** with respect to memory (§3.4 concurrency); they query, never write.
+6. **Validate output.** Action must be one of `{swipe_up, swipe_down, swipe_left, swipe_right}`. If parse fails: retry once with a stricter format prompt; on second failure, fall through to the heuristic policy (Take-The-Best, §3.10). This retry-then-fallback chain is **wired into the decider entrypoint** — not just spec text. Every decision returns a valid action or raises a logged exception that the loop catches and falls back from.
 
-**Citations.** Yao et al. (2022) ReAct; Yao et al. (2023) Tree of Thoughts; Sumers et al. (2024) CoALA.
+**Citations.** Yao et al. (2022, ICLR 2023) ReAct; Yao et al. (2023) Tree of Thoughts; Sumers et al. (2024) CoALA; Kahneman (2011) for the System 1 / System 2 framing of the arbiter; Eysenck et al. (2007) and Derakshan & Eysenck (2009) Attentional Control Theory for the anxiety→System-2 trigger; Liu et al. (2023) Lost-in-the-Middle for the prompt-position rule.
 
 #### 3.9 Action executor
 
@@ -405,8 +487,10 @@ Either is fine; the choice is empirical.
 **Implementation.** `adb shell input swipe x1 y1 x2 y2 duration_ms`. Coordinates calibrated once per emulator config.
 
 **Reliability concerns.** ADB swipe latency varies 50–200ms; occasional drops. Mitigation:
-- Wait for tile-slide animation to complete (~300ms) before next perception cycle.
-- Verify board changed after swipe; if not, retry once.
+
+- **Visual stability check (replaces hardcoded 300ms wait).** After issuing a swipe, take screenshots in a 50ms-interval pixel-diff loop until two consecutive frames are identical (board is static), with a hard cap of ~600ms then force-read + log. Hardcoded waits break on emulator frame drops; the stability loop is robust to lag.
+- **No-op detection and dead-board handling.** If the post-stability pixel-diff against the pre-swipe screenshot shows no change, retry the swipe once. If the second attempt also shows no change AND all four swipe directions have been tried with no change in this position, fire `game_over` (the board is dead). Without this rule the loop can record phantom moves and burn budget swiping at a finished game.
+- **Concurrency.** The decider's VLM call (§3.8) is a sync, blocking call wrapped in `asyncio.to_thread` so the event bus can continue serving the brain panel during the 500ms–2s decision window. Without this wrap the viewer freezes on every move.
 
 #### 3.10 Heuristic fallback (Take-The-Best for v1)
 
@@ -454,7 +538,7 @@ This section walks through Nova's processing of a single move, in plain language
 
 **Step 2 — Retrieval.** The current board's embedding is computed and queried against episodic memory. Top result is a trauma-tagged memory from two games ago: *"Lost the game on a similar tight board after swiping down."* Importance 9/10.
 
-**Step 3 — Appraisal.** Affect updates: anxiety rises (game-over proximity + trauma triggered) to 0.7. Valence drops slightly. Frustration is at 0.4 from a streak of low-RPE moves. The state is verbalized: *"You feel anxious. The board is tight. You remember losing on a board like this."*
+**Step 3 — Appraisal.** Affect updates: anxiety rises (game-over proximity + `aversive_triggered=1`) to 0.7. Valence drops slightly. Frustration is at 0.4 from a streak of low-RPE moves. The state is verbalized: *"You feel anxious. The board is tight. You remember losing on a board like this."*
 
 **Step 4 — Decide.** Anxiety + max-tile-256 trigger ToT. Three candidate moves are generated; each is mentally simulated and scored. Swipe-down scores worst (matches trauma pattern). Swipe-up scores best (clears two 16s, frees a cell). Final action: swipe-up.
 
@@ -462,7 +546,7 @@ This section walks through Nova's processing of a single move, in plain language
 
 **Step 6 — Outcome evaluation.** Expected gain from V(board_before) was ~28. Actual was +32. RPE δ = +0.07. Dopamine ticks up. Anxiety slightly relaxes.
 
-**Step 7 — Memory write.** Importance score: programmatic = 6 (saved from a tight board), LLM rating = 7. Stored with `tags=["trauma_avoided"]`. The trauma weight on the original tagged memory is slightly reduced (regulatory decay).
+**Step 7 — Memory write.** Importance score: programmatic = 6 (saved from a tight board), LLM rating = 7. Stored with `tags=["aversive_avoided"]`. The original aversive memory's `aversive_weight` is **halved** by exposure-extinction (§3.6 defense B) — Nova survived a similar board, so that memory's grip on her loosens deterministically.
 
 **Step 8 — Brain panel update.** All of the above is broadcast over WebSocket and rendered in real time on the viewer.
 
@@ -503,10 +587,12 @@ Single window, two columns:
 - **Affect text label.** One-sentence English description, updated each tick (e.g., *"anxious, recalling past loss"*). Driven by §3.5 templating.
 - **Memory feed.** Stack of recently-retrieved memory cards. Each shows: a tiny rendered board snapshot, a one-line summary, an importance badge, a tag list (`trauma`, `success`, etc.).
 - **Reasoning text.** Live-streamed from the VLM as it generates. Typewriter animation if cheap; instant otherwise.
-- **Mode badge.** "INTUITION" (default) or "DELIBERATION" (ToT engaged) with snappy transition animation.
+- **ToT branch panel (System 2 mode only).** When the arbiter switches to Tree-of-Thoughts, this replaces the single-block Reasoning view: a vertical stack of branch cards, one per candidate move, each showing direction + estimated value + brief justification. Cards stream in as branches complete (parallel evaluation). Rejected branches grey out; the chosen branch highlights and persists. Turns the 2–4 second deliberation into visible thinking on screen, not a freeze.
+- **Mode badge.** "INTUITION" (default, System 1) or "DELIBERATION" (ToT engaged, System 2) with snappy transition animation.
 - **Action arrow.** Large directional arrow that animates on swipe. Briefly persistent.
-- **Trauma indicator.** A subtle red border / glow around the screen when a trauma-tagged memory is active in working memory. Fades after a few moves.
-- **Stats footer.** Score, move count, total games played, current mood trajectory sparkline.
+- **Trauma indicator.** A subtle red border / glow around the screen when an aversive-tag memory is active in working memory. Fades after a few moves. (UI label is "Trauma"; technical surface is Aversive Memory Tag — see §3.6.)
+- **Convergence indicator.** Small dot/sparkline in the stats footer showing per-game `mean(|δ_t|)` trend across the session — visual confirmation that V is learning. Required for §8 acceptance.
+- **Stats footer.** Score, move count, total games played, current mood trajectory sparkline, V-convergence indicator, current `NOVA_TIER`.
 
 ### Polish budget
 
@@ -590,8 +676,8 @@ Claude Design requires a Claude Pro / Max / Team / Enterprise subscription. Conf
 | Model — Tree-of-Thoughts deliberation | `gemini-2.5-pro` | $1.25 / $10 per 1M; best step-wise reasoning per dollar |
 | Model — OCR fallback + cheap classification | `gemini-2.5-flash-lite` | $0.10 / $0.40 per 1M; trivially cheap for "read these digits" / "rate 1–10" |
 | Model — post-game reflection | `claude-sonnet-4-6` | $3 / $15 per 1M; Anthropic's strength is long-form structured prose |
-| Model — Week 6 demo recording | `claude-opus-4-7` | $5 / $25 per 1M; flagship name recognition for the LinkedIn demo |
-| Realistic 6-week dev cost | **~$110–130** | ~$76 dev + ~$50 demo recording. Pricing verified against provider pricing pages May 2026. |
+| Model — Week 6 demo recording | `claude-sonnet-4-6` | $3 / $15 per 1M; matches the production-tier reflection model so the demo's memory store is style-consistent. (Opus 4.7 was rejected — same demo-viewer experience, ~5× the cost.) |
+| Realistic 6-week dev cost | **~$80** total ($100 hard cap) | See §6.6 for the full cost rollup and tier-by-tier breakdown. |
 | Vector DB | LanceDB | Local, file-backed, no server, fast Rust core |
 | Structured store | SQLite | Local, zero-config, fits the data volume |
 | Emulator capture | scrcpy + ADB | Open source, mature, mirrors device cleanly |
@@ -707,6 +793,141 @@ When v2 / v3 add a deployed/cloud component, this section gets a follow-up cover
 
 ---
 
+### 6.6 Cost discipline — three model tiers, one env var
+
+Hard total budget for v1: **~$80**. Hard cap: **$100**. Per-run cap: **$0.50**. The strategy is three model tiers selected by a single environment variable, plus seven cost levers, plus a hard distinction between "plumbing tests on Mock LLM (free)" and "behavior tests on real Flash (cheap)" — see §6.7.
+
+#### Three tiers
+
+```python
+# nova-agent/src/nova_agent/llm/tiers.py
+TIERS = {
+    "dev": {                                        # default — daily dev work
+        "decision":            "gemini-2.5-flash",
+        "tot":                 "gemini-2.5-flash",
+        "tot_branches":        3,
+        "reflection":          "gemini-2.5-flash",
+        "perception_fallback": "gemini-2.5-flash",
+        "importance_rating":   "gemini-2.5-flash-lite",
+    },
+    "production": {                                 # Week 5–6 §8 acceptance
+        "decision":            "gemini-2.5-flash",
+        "tot":                 "gemini-2.5-pro",
+        "tot_branches":        4,
+        "reflection":          "claude-sonnet-4-6",
+        "perception_fallback": "gemini-2.5-flash",
+        "importance_rating":   "gemini-2.5-flash-lite",
+    },
+    "demo": {                                       # Week 6 LinkedIn recording (5 games)
+        "decision":            "claude-sonnet-4-6",
+        "tot":                 "claude-sonnet-4-6",
+        "tot_branches":        4,
+        "reflection":          "claude-sonnet-4-6",
+        "perception_fallback": "claude-sonnet-4-6",
+        "importance_rating":   "gemini-2.5-flash-lite",
+    },
+}
+TIER = os.environ.get("NOVA_TIER", "dev")
+```
+
+**Tier rationale:**
+
+- **`dev` uses Flash, not Flash-Lite.** Flash-Lite has documented structured-output reliability problems (malformed JSON, fence-wrapped responses, schema-ordering bugs); using it as the daily-dev decision model would burn days on parser-bug rabbit holes that are actually model bugs. Flash 2.5 has reliable JSON-schema adherence. The minor cost difference is dwarfed by the time saved.
+- **Flash-Lite kept ONLY for `importance_rating`** — single-purpose, simple "rate 1–10" schema, low risk.
+- **`demo` uses Sonnet 4.6, not Opus.** Opus 4.7 was dropped — saves ~$40 with no demo-viewer-visible quality difference. Sonnet 4.6 also matches the production-tier reflection model, so the demo's memory store is internally style-consistent (no canonicalization pass needed across tier boundaries).
+
+#### Seven cost levers
+
+| # | Lever | Mechanism |
+| --- | --- | --- |
+| L1 | **Fixture-replay cache** | Cache key is `sha256(rendered_prompt_string, model_name, temperature, response_schema_hash)`. **Keying on the rendered prompt string itself, not a `prompt_template_version`** — so any change to the board, retrieved memories, affect text, or template structure produces a different hash automatically. Writes gated on smoke-pass (no cache pollution from buggy builds). `NOVA_CACHE=off` debug switch. Hit-rate logged on every call + dashboarded in the brain panel. |
+| L2 | **MockLLMClient default for tests** | Deterministic responses keyed off input. All unit + integration tests use it by default. Real LLM is opt-in via `NOVA_LLM_REAL=1`. See §6.7. |
+| L3 | **Tier downshift via `NOVA_TIER`** | Default `dev`. `production` only Weeks 5–6 + ~3 mid-dev checkpoints. `demo` only Week 6 recording. |
+| L4 | **3-game smokes by default** | Iteration default is 3 games, not 50. Full N-game eval is a manual flag, used 2–3× across the project. |
+| L5 | **Per-run hard cap $0.50** | Replaces per-day cap during dev. A single run cannot exceed this without explicit override. Bounded blast radius. |
+| L6 | **Importance LLM-rating off in dev** | In `dev` tier, importance is programmatic-only. LLM-rating fires only in `production`/`demo` and only when `\|RPE_norm\| > 0.5 OR terminal OR new max-tile`. |
+| L7 | **Headless ADB-recorded perception replay** | A `RecordedRunner` feeds saved (frame, score) tuples through the loop for pure-logic dev sessions (memory/affect/RPE/ToT work). No emulator needed. Cuts cost AND iteration time. |
+
+#### Cost rollup — verified
+
+| Phase | Workload | Cost |
+| --- | --- | --- |
+| Daily `dev` work (Gemini free tier + paid Flash overflow + cache) | Weeks 1–6 | ~$5 |
+| Week-1 Flash-Lite vs Flash diagnostic | one-shot, 100 prompts each | ~$1 |
+| L2 behavior checkpoints × 2 (15 games each on Flash) | Weeks 2 + 3 | ~$15 |
+| Week-4 mini-acceptance (Flash, 10 games) | one-shot | ~$3 |
+| `production` tier acceptance (20 games) | Week 5 | ~$20 |
+| `production` re-run after bug fixes (10 games) | Week 6 | ~$10 |
+| `demo` tier recording (Sonnet 4.6, 5 games) | Week 6 | ~$10 |
+| Buffer | unforeseen re-runs | ~$15 |
+| **Total** | | **~$80** |
+
+Hard cap **$100**. Per-run cap **$0.50** (env-var-overridable). The Anthropic Console daily-spend cap remains the outer ceiling (§6.5).
+
+#### Memory-rule heterogeneity safeguard
+
+When tiers switch (e.g. dev → production), the reflection model changes (Flash → Sonnet 4.6). The two models write semantic-memory rules in different styles. To prevent the memory store from looking mid-run like two different agents wrote it:
+
+- **Every memory rule and reflection record carries `writer_model` on write.**
+- During L3/production runs and demo recordings, retrieval-time filtering excludes records written by other tiers' reflection models.
+- Optional: a one-shot **canonicalization pass** at start of a tier-switched session re-runs the last N reflections through the new tier's model so the store displays consistently in the demo.
+
+---
+
+### 6.7 Three test layers — answering "is it the model or my code?"
+
+The single biggest risk of running daily dev on a cheaper model is **wasted time chasing fake bugs** — failures that look like architecture issues but are actually just the model being weak on a given prompt. The three-layer test strategy makes the answer deterministic.
+
+| Layer | LLM | What it proves | Gates merge for | Cost |
+| --- | --- | --- | --- | --- |
+| **L1 — Plumbing tests** | MockLLMClient (deterministic, scripted) | Wires connect, schemas match, events fire in order, error paths fire | **Plumbing modules only** (perception, bus, memory IO, retrieval, action exec, ADB) | $0 |
+| **L2 — Behavior tests** | Real Gemini Flash | Architecture produces intended signal under real LLM noise | **Behavior modules only** (affect, trauma/aversive, ToT, reflection) — must pass on real Flash before merge | ~$0.50/run |
+| **L3 — Quality runs** | `production` tier (Flash + Pro + Sonnet 4.6) | §8 acceptance numbers | Final gate before demo | ~$1/game |
+
+**Smoke gauntlet** (universal gate): a 30-second canned scenario that runs end-to-end on Mock LLM, asserting every bus event fires in the right order with the right schema. Runs every commit. $0. Catches ~90% of integration regressions.
+
+**The merge gate split is critical.** Behavior modules (affect, aversive-tag, ToT, reflection) **never** rely on Mock-only tests for merge approval. Mock proves the bus event fires; it cannot prove that the ToT branch comparator picks the affect-weighted branch correctly when the affect signal is subtle. Behavior modules merge only after a real-Flash L2 run on a paired-scenario test set. This is the trade — slower merge cycle on behavior code, immunity from "Mock green, prod broken."
+
+**The "is it the model or my code?" decision tree:**
+
+```
+Behavior looks wrong (e.g., Nova doesn't get more cautious when anxious).
+  │
+  ▼
+1. Run L1 plumbing test for that path on Mock.
+     ├─ FAILS  → bug in code. Fix. $0 spent.
+     └─ PASSES → continue.
+
+2. Run L2 behavior test on real Flash.
+     ├─ FAILS  → real architecture issue (coefficients, prompt, ToT trigger).
+     │           Fix, re-run. ~$0.50 each iteration.
+     └─ PASSES → continue.
+
+3. (If concern remains) run on production tier for one game.
+     ├─ Behavior shows up → tier-sensitivity issue. Document in §8 caveats.
+     └─ Still no behavior change → real coupling bug. Back to design.
+```
+
+You **never** debug behavior on dev-tier model output alone. You debug **plumbing** on Mock (model-independent) and **behavior** on real Flash (model strong enough to register the architecture's intended signal).
+
+#### Week-1 diagnostic (cheap immunization)
+
+End of Week 1: 100 identical decision prompts × {Flash-Lite, Flash}. Compare malformed-JSON rate, schema conformance, key-set divergence. Cost ~$0.50. Output: a baseline that lets you tell, for any future weird parser failure, whether it's the model or your code.
+
+#### Mid-dev "tuning" checkpoints
+
+Three real-LLM checkpoints during Weeks 2–4:
+
+| Week | Scenario | Cost |
+| --- | --- | --- |
+| End of Week 2 | Affect coupling — paired anxious-vs-calm Nova, 15 games | ~$15 |
+| End of Week 3 | Aversive-tag retrieval + ToT trigger, 15 games | ~$15 |
+| End of Week 4 | Mini-acceptance on `production` tier, 10 games — surfaces emergent bugs (spiral, drift, memory pollution) before Week-5 final | ~$15 |
+
+This is what catches issues that only emerge across many games (trauma death-spiral, affect drift, semantic-rule pollution). 10-game checkpoints would not be enough; ~30 games across the three checkpoints is the minimum useful sample.
+
+---
+
 ## 7. Hardest problems and time-sinks
 
 Realistic budget for v1-FULL is **5–6 weeks** of focused work. The dangerous time-sinks:
@@ -737,14 +958,57 @@ Realistic budget for v1-FULL is **5–6 weeks** of focused work. The dangerous t
 
 ## 8. Validation plan
 
-Acceptance criteria for "v1-FULL is done":
+Acceptance criteria for "v1-FULL is done." Final acceptance is run on the **`production`** tier (§6.6) over **n=20 games**. n=20 with sign / McNemar's tests at α=0.10 is an **honest budget-bounded constraint** for an industry portfolio piece — not an academic-grade sample. If real budget allows n=30, run n=30; below n=20 is underpowered and will be flagged.
 
-1. **End-to-end run.** Nova can play a complete game from start to game-over without manual intervention, with all eight modules active.
-2. **Visible emotion-decision coupling.** In a curated set of 10 contested boards, high-anxiety Nova picks a more conservative move than low-anxiety Nova ≥7 times. Demonstrates the architecture is doing work, not theatre.
-3. **Visible trauma effect.** Construct a scenario where Nova loses on a specific board pattern, then re-encounters a similar board in a later game. Brain panel shows trauma retrieval; Nova picks a different move. Recorded as a demo segment.
-4. **Reflection produces real semantic rules.** After 5 games, the semantic memory contains at least 5 distinct lessons. Manual review confirms they are sensible.
-5. **Brain panel quality.** A non-technical viewer can watch a 30-second clip and explain what Nova is "feeling" and "remembering" without needing the design doc.
-6. **Demo recording.** A 60–90 second clip suitable for LinkedIn, with on-screen narration / labels where helpful, ready to post.
+### 8.1 End-to-end functionality
+
+1. **Game-over to game-over.** Nova plays a complete game from start to terminal state without manual intervention, with all eight cognitive modules active. No phantom moves on dead boards (no-op detection §3.9). No crashes on DB-write failure (try/except wrap). No viewer freeze during VLM calls (`asyncio.to_thread` wrap §3.9).
+
+### 8.2 Architectural proof — "is the architecture doing work, not theatre?"
+
+2. **Affect ablation.** Same model, same memory store, same starting board seed: Nova-with-affect (full §3.5) vs Nova-with-affect-pinned-to-baseline. McNemar's paired test on **n=20 paired contested boards**, α=0.10. Affect must change the action distribution ≥30% of the time, with high-anxiety Nova selecting the more conservative action significantly more often. If affect ablation shows no behavioral difference, the affect module is theatre and the spec says so.
+
+3. **Aversive-tag (trauma) replication.** Across **N=30 paired episodes** (not curated): Nova loses on a board pattern, the precondition is tagged, and on a future similar board the action distribution differs from the baseline-without-tag run. The exposure-extinction half-life (§3.6 defense B) is verified by the action distribution converging back to baseline after ~6 survivals on aversive-radius-similar boards.
+
+4. **Memory-utilization measurement (Lost-in-the-Middle test).** Three methods, all run:
+
+   **Method 1 — Counterfactual ablation.** Same contested board × {real retrieved memories, random/irrelevant memories drawn from store at low cosine similarity}. Measure action-divergence rate over n=30 paired runs. Targets: divergence ≥30% on contested boards; divergence ≈0% on open boards.
+
+   **Method 2 — Structured citation.** The decision response schema includes `memory_citation: {memory_id, how_it_influenced} | null`. Measure, over n=50 sampled contested moves: citation rate (≥40%), citation validity (must be 100% — IDs must exist in the retrieved set, no hallucinated IDs), and citation grounding (manual audit, mean ≥3.5/5 — does the cited memory actually relate to the cited reasoning?).
+
+   **Method 3 — Position-invariance test.** Same contested board × {memories at top, middle, bottom of context}. If middle-position behavior matches the no-memory baseline, Lost-in-the-Middle (Liu et al. 2023) is biting and the prompt's top-OR-bottom mitigation is justified. n=30 one-shot test, end of Week 4.
+
+   Total memory-utilization measurement budget: ~$2.
+
+### 8.3 Learning-system correctness
+
+5. **V function convergence.** Per-game `mean(|δ_t|)` is logged across the 20-game acceptance run. Trend across games 1→20 must be monotonically decreasing (or flat-from-converged). If it is not, V is not learning, and the Schultz/Sutton RPE claim is empirically broken — fix V before claiming the architecture in the LinkedIn post.
+
+6. **Reflection produces real semantic rules.** After 20 games, the semantic-memory store contains ≥10 distinct lessons. Manual review (1-5 sensibility scale) shows mean ≥3.5/5. Style consistency: all rules in the acceptance run have the same `writer_model` (§6.6 heterogeneity safeguard).
+
+### 8.4 Perception robustness
+
+7. **Fast-OCR FP/FN rates measured, not asserted.** A held-out tile-sprite test set (≥200 frames covering tiles 2–8192 across the game's color schemes). Measure: digit-misread rate (FP), missed-tile rate (FN), VLM-fallback trigger rate. Report numbers, not "near-100%."
+
+### 8.5 Reproducibility
+
+8. **Determinism harness.** Same emulator state + same `NOVA_TIER` + same seeds → identical move trace (within stochastic-tile-spawn limits — see caveat). Required pins:
+   - Gemini decision call: `temperature=0`, `seed` parameter passed through SDK.
+   - ToT branch evaluation: `temperature=0.3` is acknowledged as nondeterministic (multi-branch diversity is intentional). Variance bounded by branch-count cap.
+   - Embedding model + version pinned in `pyproject.toml`; LanceDB schema asserts dimensionality on connect.
+   - 2048 game RNG seed: **punted to v1.x** (forking `stdbilly/2048_Unity` for seed control is non-trivial). Trauma-replication test instead matches by *board state* rather than RNG-replay. Documented as an honest limitation.
+
+### 8.6 Demo and presentation
+
+9. **Brain panel quality.** A non-technical viewer can watch a 30-second clip and explain what Nova is "feeling" and "remembering" without needing the design doc. Tested on 3 non-technical viewers; all 3 pass.
+
+10. **Demo recording.** A 60–90 second clip suitable for LinkedIn, on `demo` tier (Sonnet 4.6), with on-screen narration / labels where helpful. Memory store written entirely by `claude-sonnet-4-6` (style-consistent — see §6.6 heterogeneity safeguard).
+
+11. **VLM faithfulness audit.** Sample n=50 moves from the production-tier acceptance run. For each, check whether the VLM's `reasoning` text predicts the action it actually returns. Faithfulness rate ≥80% is the bar. Lower means the model is rationalizing, not reasoning — disclosed honestly in the post if it fails.
+
+### 8.7 Cost & latency receipts
+
+12. **Per-game token-budget receipts.** The §6.6 ~$80 total budget is verified by logged actual cost from each tier's runs. If actual exceeds budget, the spec is updated to honest numbers — not the budget retroactively justified.
 
 ---
 
@@ -810,7 +1074,8 @@ Ingest recorded human gameplay and derive a Nova persona that imitates that spec
 
 - Tulving, E. (1972). Episodic and Semantic Memory. In Tulving & Donaldson (Eds.), *Organization of Memory* (pp. 381–403).
 - Baddeley, A., & Hitch, G. (1974). Working Memory. In *Recent Advances in Learning and Motivation*, vol. 8.
-- Cowan, N. (2001). The magical number 4 in short-term memory. *Behavioral and Brain Sciences*, 24, 87–185.
+- Cowan, N. (2001). The magical number 4 in short-term memory. *Behavioral and Brain Sciences*, 24, 87–185. *(Note: Cowan's "4" is framed as focus-of-attention capacity, not a hard storage cap. Nova's hard cap is a design simplification, not a literal claim.)*
+- Liu, N. F., Lin, K., Hewitt, J., Paranjape, A., Bevilacqua, M., Petroni, F., & Liang, P. (2023). Lost in the Middle: How Language Models Use Long Contexts. *TACL 2024*. arXiv:2307.03172.
 - Marr, D. (1971). Simple memory: a theory for archicortex. *Philosophical Transactions of the Royal Society of London. B*, 262, 23–81.
 - McClelland, J. L., McNaughton, B. L., & O'Reilly, R. C. (1995). Why there are complementary learning systems in the hippocampus and neocortex. *Psychological Review*, 102(3), 419–457.
 - McGaugh, J. L. (2013). Making lasting memories: Remembering the significant. *PNAS*, 110(Suppl 2), 10402–10407.
@@ -826,8 +1091,19 @@ Ingest recorded human gameplay and derive a Nova persona that imitates that spec
 - Maia, T. V., & McClelland, J. L. (2004). A reexamination of the evidence for the somatic marker hypothesis. *PNAS*, 101(45), 16075–16080.
 - Forgas, J. P. (1995). Mood and judgment: The Affect Infusion Model. *Psychological Bulletin*, 117(1), 39–66.
 - Eysenck, M. W., Derakshan, N., Santos, R., & Calvo, M. G. (2007). Anxiety and cognitive performance: Attentional Control Theory. *Emotion*, 7(2), 336–353.
+- Derakshan, N., & Eysenck, M. W. (2009). Anxiety, processing efficiency, and cognitive performance: New developments from Attentional Control Theory. *European Psychologist*, 14(2), 168–176. **[Tighter cite for the anxiety→System 2 trigger.]**
+- Lazarus, R. S. (1991). *Emotion and Adaptation.* Oxford UP. **[Source theory for cognitive appraisal — verbalization of affect into the prompt (§3.5).]**
+- Scherer, K. R. (2001). Appraisal considered as a process of multilevel sequential checking. In *Appraisal Processes in Emotion: Theory, Methods, Research* (pp. 92–120). Oxford UP. **[Component Process Model — alternative appraisal frame.]**
 - LeDoux, J. (1996). *The Emotional Brain.* Simon & Schuster.
 - Phelps, E. A., & LeDoux, J. E. (2005). Contributions of the amygdala to emotion processing. *Neuron*, 48, 175–187.
+- Phelps, E. A. (2004). Human emotion and memory: interactions of the amygdala and hippocampal complex. *Current Opinion in Neurobiology*, 14(2), 198–202. **[Justifies wider similarity threshold for aversive-tag retrieval (§3.6).]**
+- Bach, D. R., & Dayan, P. (2017). Algorithms for survival: a comparative perspective on emotions. *Nature Reviews Neuroscience*, 18, 311–319. **[Form of linear-with-decay affect dynamics (§3.5).]**
+
+### Reinforcement learning (TD-error and value functions)
+
+- Sutton, R. S. (1988). Learning to predict by the methods of temporal differences. *Machine Learning*, 3, 9–44. **[Algorithm anchor for TD-learning, paired with Schultz et al. 1997 as the neuroscience anchor.]**
+- Sutton, R. S., & Barto, A. G. (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press. **[Standard reference for online linear function approximation; Ch. 9 covers TD(0) convergence under on-policy sampling — the regime Nova's V operates in.]**
+- Wu, K. (2014). 2048 AI — heuristic-based search. *Open-source notes.* **[Source for `φ_mono` (monotonicity) heuristic in V's feature set, §3.7.]**
 
 ### LLM agents
 
@@ -839,7 +1115,7 @@ Ingest recorded human gameplay and derive a Nova persona that imitates that spec
 - Packer, C., Wooders, S., Lin, K., et al. (2023). MemGPT: Towards LLMs as Operating Systems. arXiv:2310.08560.
 - Croissant, M., Frister, M., Schofield, G., & McCall, C. (2024). An Appraisal-Based Chain-of-Emotion Architecture for Affective Language Model Game Agents. *PLOS ONE*. **[Closest prior art for the affect module.]**
 - Li, C., Wang, J., Zhang, Y., et al. (2023). Large Language Models Understand and Can Be Enhanced by Emotional Stimuli (EmotionPrompt). arXiv:2307.11760.
-- Webb, T., Mondal, S., et al. (2025). A brain-inspired agentic architecture to improve planning with LLMs (Modular Agentic Planner). *Nature Communications*, 16. arXiv:2310.00194.
+- Webb, T., Mondal, S., & Momennejad, I. (2025). A brain-inspired agentic architecture to improve planning with LLMs (Modular Agentic Planner). *Nature Communications*, **16:8633**. arXiv:2310.00194. *(Differentiation note: Nova adds affect + episodic memory; MAP is planning-only.)*
 
 ---
 

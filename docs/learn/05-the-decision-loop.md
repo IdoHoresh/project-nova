@@ -144,7 +144,7 @@ adb shell input swipe 900 800 100 800 100
 
 The emulator responds. Tiles slide right. The two 2s merge into a 4. A new tile appears.
 
-After waiting ~300ms for the slide animation, the agent captures another screenshot to see the result.
+Instead of waiting a fixed ~300ms (emulator lag breaks fixed waits), the agent runs a **visual stability loop**: take a screenshot, take another 50ms later, compare pixel hashes. If they match, the board is static — capture the result. If they don't, wait and try again, up to a hard cap of ~600ms. Robust to dropped frames, doesn't waste time when the animation finishes early. The agent also pixel-diffs the result against the pre-swipe frame: if nothing changed, retry the swipe once; if still nothing, and all four directions have been tried with no change, fire `game_over` (the board is dead). Without that no-op detection the loop could record phantom moves and burn budget swiping at a finished game.
 
 ## Step 7 — Evaluate outcome
 
@@ -234,17 +234,21 @@ Anxiety is `0.7` and `max_tile = 256`. The trigger condition for **Tree-of-Thoug
 anxiety > 0.6  AND  (max_tile >= 256  OR  empty_cells <= 3)
 ```
 
-The system enters ToT mode. It generates 4 candidate moves and evaluates each:
+The system enters ToT mode (System 2 — slow, deliberate). It evaluates 4 candidate moves **in parallel**, and each evaluation streams a card to the brain panel as it completes — so the viewer sees Nova's thinking unfold in real time, not a 3-second freeze:
 
-> *"If I swipe up — the bottom-row 16 merges with the row-above 16. Good. The 256 stays stuck. Slight improvement."*
+> *"If I swipe up — the bottom-row 16 merges with the row-above 16. Good. The 256 stays stuck. Slight improvement."* → value 0.62 (card appears, blue border)
 >
-> *"If I swipe down — like last time, like the trauma. The bottom row's 4s and 2s would merge but the 256 sinks deeper. **Bad. Same shape that killed me.**"*
+> *"If I swipe down — like last time, like the trauma. The bottom row's 4s and 2s would merge but the 256 sinks deeper. **Bad. Same shape that killed me.**"* → value 0.18 (card appears, neutral)
 >
-> *"If I swipe left — the right column collapses, I lose access to the 256 from the right. Reduces my options. Bad."*
+> *"If I swipe left — the right column collapses, I lose access to the 256 from the right. Reduces my options. Bad."* → value 0.31 (card appears)
 >
-> *"If I swipe right — small merges, doesn't free the 256 but doesn't make things worse either. Cautious option."*
+> *"If I swipe right — small merges, doesn't free the 256 but doesn't make things worse either. Cautious option."* → value 0.45 (card appears)
 
-Each branch produces a numeric value estimate of the resulting board. The highest is `swipe_up`. ToT takes ~3 seconds total. Final output:
+When all four branches have streamed in, the chosen branch (`swipe_up`, value 0.62) highlights with a cyan border; the rejected three grey out. Each ToT branch is **read-only with respect to memory** — branches query past episodes but never write — so we don't have to worry about race conditions on the SQLite/LanceDB store. Writes happen on the main loop *after* the chosen branch is committed.
+
+Total ToT wall-clock time: ~2–4 seconds. Visually, that reads as deliberation, not as a crash.
+
+Final output:
 
 ```json
 {

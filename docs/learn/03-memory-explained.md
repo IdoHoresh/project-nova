@@ -72,21 +72,33 @@ These get stored as **semantic memory rules** — not tied to a specific game, b
 
 ### Procedural memory
 
-In v1, this is implicit in the VLM's weights and in the heuristic fallback policy (Take-The-Best). In v2 we may add an explicit "skill library" (Voyager-style — Wang et al. 2023) where Nova can write and store named strategies.
+In v1 the procedural-memory role is filled by the **heuristic fallback policy** (Take-The-Best). The VLM itself is *not* procedural memory — its weights are general semantic/linguistic representations, and equating LLM weights with the amygdala/basal-ganglia substrate of human procedural memory is a stretch the spec deliberately avoids. The VLM is the **semantic / working-memory engine**; the heuristic is the procedural fallback. In v2 we may add an explicit "skill library" (Voyager-style — Wang et al. 2023) where Nova can write and store named strategies.
 
-### Trauma tags
+### Aversive memory tags (informally: "trauma")
 
-After Nova loses a game *catastrophically* (low score, on a contested board), the system goes back through the last 3–5 moves and flags those board states as **trauma memories**. They get:
+After Nova loses a game *catastrophically* (low score, on a contested board), the system goes back through the last 3–5 moves and flags those board states as **aversive memories**. They get:
 
 - `importance += 3` (so they survive forgetting longer)
-- `tags += ["trauma"]`
-- A wider similarity threshold for retrieval (so even *loosely* similar boards trigger them)
+- An `aversive` tag
+- A wider similarity threshold for retrieval (so even *loosely* similar boards trigger them) — `aversive_radius`
+- An `aversive_weight` initialized to `1.0`
 
-Effect: next time Nova sees a board that's even somewhat reminiscent of where she died, the trauma memory surfaces, her anxiety rises, and she plays more cautiously.
+Effect: next time Nova sees a board that's even somewhat reminiscent of where she died, the aversive memory surfaces, her anxiety rises, and she plays more cautiously.
 
-There's also a regulator — the trauma weight slowly decays each time it fires, and reflection-derived semantic rules can override it in specific contexts. This prevents pathological over-avoidance.
+**Why not "trauma"?** In code we use "aversive" because "trauma" is a clinical word and overclaiming the metaphor invites pushback. The brain-panel UI still says "Trauma" — that's the marketing surface, kept for the demo. The codebase identifiers (`aversive_tag`, `aversive_weight`, `aversive_radius`) keep the engineering rigorous.
 
-This is metaphor inspired by fear-conditioning research (LeDoux 1996; McGaugh 2013), not a literal model of the amygdala. The science justifies "biased retrieval after high-arousal events." The rest is engineering.
+**Four spiral defenses.** A "trauma death-spiral" — Nova panics on every board, plays badly, loses again, panics more — is a real risk. The architecture has four guards against it:
+
+| | Defense | What it does |
+| --- | --- | --- |
+| A | **Active-tag cap** | At most ONE aversive memory surfaces per move (the highest-`aversive_weight` × relevance match). Nova never reads two aversive memories at once. |
+| B | **Exposure-extinction halving** | Each survival on an aversive-radius-similar board halves that memory's `aversive_weight`. After ~6 survivals the weight is < 0.02 and the memory becomes inert. **This is the primary deterministic guarantee** — the spiral terminates mathematically, not because the LLM cooperates. |
+| C | Semantic override | Reflection can write a `trauma_outdated` rule. Best-effort only — LLMs reliably underweight abstract textual rules against dominant visual context. Not load-bearing. |
+| D | Cross-game affect reset | On `game_start`: anxiety, frustration, dopamine reset to baseline. Valence retains 30% (slow variable, by design). |
+
+The architecture leans on **A and B** for correctness. C is a bonus; D is hygiene. This is intentional: deterministic mechanisms first, LLM-mediated mechanisms second.
+
+This is metaphor inspired by amygdala-modulated emotional memory (LeDoux 1996; Phelps 2004; McGaugh 2013), **not** a literal model of any circuit. We make no claim of replicating reconsolidation, time-extinction, or context-dependent retrieval. The science justifies "biased retrieval after high-arousal events." The rest is engineering.
 
 ## How retrieval works (the important part)
 
@@ -105,6 +117,12 @@ score = α_recency · recency
 - **`relevance`**: how similar is this memory's board to the *current* board? Computed via cosine similarity of embeddings.
 
 All three are normalized to [0,1] and weighted (initially equal weights). Top 5 memories by total score are surfaced.
+
+**Side note on `last_accessed`.** Every retrieved memory has its `last_accessed` field written back to "now" after retrieval. Without that write-back, retrieved memories would stay "old" forever and the recency term would become a no-op.
+
+**Lost-in-the-Middle mitigation.** The retrieved memories are inserted into Nova's prompt at the **top OR bottom** of the active context section, never in the middle. Liu et al. (2023) showed LLMs systematically under-attend to context they encounter mid-prompt; placing memories at the edges sidesteps that.
+
+**Are the memories actually being used?** That's a fair question — the VLM might be solving the board zero-shot and ignoring our retrieved context. We measure this directly in §8 of the spec via three methods: (1) counterfactual ablation (real memories vs random irrelevant memories — does the action change?), (2) structured citation (the response schema requires Nova to cite which memory ID influenced the move), and (3) position-invariance test (top vs middle vs bottom — is middle equivalent to no-memory?). If those tests fail, the memory subsystem is theatre and the spec says so honestly.
 
 ### Worked example
 
@@ -138,8 +156,8 @@ Eventually, very old memories with importance ≤ 1 can be pruned to keep the da
 | --- | --- |
 | Episodic memory | Append-only log of (board, move, outcome) tuples |
 | Semantic memory | Distilled rules from post-game reflection |
-| Procedural memory | Reflexes — implicit in the VLM weights + heuristic fallback |
-| Trauma tags | Markers on episodic memories that bias retrieval and emotion |
+| Procedural memory | Reflexes — Take-The-Best heuristic fallback. The VLM itself is the semantic engine, not procedural memory. |
+| Aversive memory tags (UI: "Trauma") | Markers on episodic memories that bias retrieval and emotion; bounded by extinction-halving so the spiral terminates mathematically |
 | Working memory | What Nova has "in mind" right now (the current prompt) |
 | Importance | 1–10 score on each memory; combination of programmatic + LLM-rated |
 | Retrieval | Top-k by `α·recency + α·importance + α·relevance` |
