@@ -16,8 +16,9 @@
 
 Before starting Task 1, confirm all of the following. Each item is required.
 
-- [ ] **Anthropic account with API key.** Required for the VLM and embeddings. Create at https://console.anthropic.com/. Set a monthly spending limit in the console (recommend $50 for v1 dev).
-- [ ] **Claude Pro / Max / Team / Enterprise subscription.** Required for Claude Design (used Week 1 days 2–3 and Week 5).
+- [ ] **Google AI Studio API key (Gemini).** **REQUIRED NOW** — powers the entire `dev` tier (default). Create at https://aistudio.google.com/apikey. Free tier covers most dev work.
+- [ ] **Anthropic account with API key.** **DEFER until Week 5** — only needed for `production` tier reflection (Sonnet 4.6) and `demo` tier. Create at https://console.anthropic.com/ when you reach Week 5; set $50 monthly cap then. Embeddings are local spatial (16-D), not API-based.
+- [ ] **Claude Pro / Max / Team / Enterprise subscription.** Optional. Needed only if you use Claude Design (Week 1 days 2–3 alternate-layout exploration, Week 5 final polish). Skippable.
 - [ ] **macOS or Linux dev machine.** ADB / scrcpy / Android Studio all work on Windows but the plan assumes a Unix shell.
 - [ ] **Android Studio installed** with at least one emulator AVD configured (recommend Pixel 6 API 34).
 - [ ] **`adb` on PATH.** Verify: `adb version` returns successfully.
@@ -159,7 +160,7 @@ project-nova/
 - [ ] **Step 1: Walk through the pre-flight checklist** at the top of this document. Tick every item.
 - [ ] **Step 2: Run `gitleaks detect --redact`** at repo root. Expected: clean (no findings).
 - [ ] **Step 3: Run `gh api repos/IdoHoresh/project-nova --jq '.security_and_analysis'`** and confirm `secret_scanning`, `secret_scanning_push_protection`, and `dependabot_security_updates` all show `enabled`.
-- [ ] **Step 4: Visit** https://github.com/IdoHoresh/project-nova/settings/security_analysis and toggle "Scan for non-provider patterns" + "Validity checks" to enabled (one-time UI step that the API does not accept).
+- [ ] **Step 4: Non-provider patterns + validity checks** at https://github.com/IdoHoresh/project-nova/settings/security_analysis. As of GitHub's 2025 split these two toggles require the paid **Secret Protection** SKU; on free public repos they are unavailable and the API silently rejects PATCH attempts. **Coverage substitute:** the `gitleaks` pre-commit hook (Task 2) scans for non-provider patterns locally before push. Mark this step done if you confirmed the toggles are not exposed in the UI; revisit only if the org later enables Secret Protection.
 - [ ] **Step 5: Confirm `.env` exists locally and is NOT tracked.** Run `git ls-files | grep -i env`. Expected output: `.env.example` only.
 
 If any check fails, stop and remediate before Task 1.
