@@ -111,6 +111,51 @@ Plus a post-game **reflection** subsystem (Reflexion-style) that writes back int
 
 Realistic budget: **5–6 weeks of focused work.** Plus 1 week of brain-panel polish on top. See section 7 for the time-sink breakdown.
 
+### Portability — game-agnostic vs 2048-specific
+
+v1 ships on 2048 only, but the architecture is deliberately designed so most of Nova ports cleanly to other games. This section makes that boundary explicit, so v3 ("Nova plays any casual mobile game") has a clear blueprint and so the repo signals architectural foresight to any reader.
+
+**Game-agnostic in v1 (~80% of the code).** These modules work on any game without modification:
+
+- Working memory (structured prompt assembly)
+- Long-term memory + retrieval (embeddings + recency/importance/relevance)
+- Affective state (valence, arousal, dopamine, frustration, anxiety, confidence)
+- Outcome → affect mapping (the affect update rules don't care what the game is)
+- Reflection (post-game verbal postmortem)
+- Decision module (VLM call, ToT lookahead) — the prompt template is parametric on a game description
+- Brain panel UI (mood gauges, memory feed, reasoning text — same regardless of game)
+- WebSocket bus, SQLite, LanceDB, Anthropic SDK adapter, OBS recording
+
+**2048-specific in v1 (~20% of the code).** These three modules need a per-game replacement to support a new game:
+
+| Module | 2048 implementation | What changes for a new game |
+| --- | --- | --- |
+| **Perception fast path** | OpenCV template-matching tile digits on a 4×4 grid | Drop fast path; rely on VLM perception only. Cost rises (extra VLM call per frame); reliability drops slightly. |
+| **Action vocabulary** | 4 swipes only (`swipe_up/down/left/right`) | Generalize to primitives: `tap(x,y)`, `swipe(x1,y1,x2,y2,duration)`, `drag(x1,y1,x2,y2,duration)`, `tap_and_hold(x,y,duration)`. ADB handles all four natively. |
+| **Outcome evaluator** | Numeric `score_delta` from a known on-screen region | VLM-extracted reward signal per frame ("did things improve and by how much?"). Less precise but works on games without a numeric score. |
+
+Plus minor game-specific items:
+- Game-end detection (currently "no legal merge possible"; in v3 becomes a VLM classification of the screen)
+- Heuristic fallback policy (currently Take-The-Best for 2048; in v3 either omit or replace with a game-specific heuristic only when one is cheap to write)
+
+**Cost and reliability trade-offs for v3:**
+
+| Dimension | v1 (2048) | v3 (any casual game) |
+| --- | --- | --- |
+| VLM calls per move | ~1 (decision only) | ~3–10 (perception + decision + outcome eval) |
+| Cost per game (frontier model) | ~$1–5 | ~$15–100 |
+| Perception accuracy | ~99.9% (template matching) | ~90–98% (VLM perception) |
+| Game variety | one | broad — any casual mobile game |
+
+**Migration path from v1 to v3.** The repo's `nova-agent/src/nova_agent/perception/` and `.../action/` directories are designed as pluggable layers. A new game ships as a new perception adapter (or a flag that disables the fast path) and a new action adapter (or a parametric action map). The rest of Nova does not change. Estimated work for the first additional game: **1–2 weeks** once v1 is stable.
+
+**Honest constraints — what v3 does NOT cover.** Even with full generalization, Nova is bounded by black-box VLM perception:
+- Real-time twitch games (FPS, runners, fighting games) — VLM latency is too slow.
+- Games with critical hidden information that requires memorization across long sessions (e.g., card-counting in poker) — possible but harder than the v3 spec.
+- Games with very dense HUDs where the relevant state changes in fine pixel detail.
+
+The v3 sweet spot is the same as v1's — **casual / puzzle / merge / menu-driven mobile games**. That's also the commercial sweet spot, so the constraint and the goal align.
+
 ---
 
 ## 3. Architecture
