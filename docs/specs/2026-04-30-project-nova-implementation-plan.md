@@ -2950,42 +2950,120 @@ from nova_agent.memory.vector_store import VectorStore
 
 def test_vector_store_insert_and_search(tmp_path):
     vs = VectorStore(tmp_path / "lancedb")
-    vs.upsert("a", [0.1, 0.0, 0.9])
-    vs.upsert("b", [0.0, 1.0, 0.0])
-    vs.upsert("c", [0.05, 0.05, 0.9])
-    hits = vs.search([0.1, 0.0, 0.95], k=2)
+    # 16-D vectors matching VectorStore.DIM. Build trivially distinct ones.
+    a = [0.0] * 16; a[0] = 1.0       # axis 0
+    b = [0.0] * 16; b[5] = 1.0       # axis 5
+    c = [0.0] * 16; c[0] = 0.95; c[1] = 0.05  # close to a
+    vs.upsert("a", a)
+    vs.upsert("b", b)
+    vs.upsert("c", c)
+    q = [0.0] * 16; q[0] = 1.0
+    hits = vs.search(q, k=2)
     ids = [id_ for id_, _score in hits]
     assert ids[0] in ("a", "c")
+
+
+def test_vector_store_rejects_wrong_dim(tmp_path):
+    """LanceDB schema asserts dim — bad input raises immediately."""
+    vs = VectorStore(tmp_path / "lancedb")
+    import pytest
+    with pytest.raises(ValueError):
+        vs.upsert("bad", [1.0, 0.0, 0.0])  # 3-D against a 16-D store
 ```
 
-- [ ] **Step 2: Implement embeddings (Voyage via Anthropic SDK or fallback)**
+- [ ] **Step 2: Implement spatial embedding (NOT SHA-256 — that breaks similarity)**
+
+Review #4 caught a real bug: an earlier draft used `hashlib.sha256` per `(value, position)` pair, summing hashed bytes into a 64-D vector. SHA-256's avalanche property destroys spatial similarity — two boards differing by one tile produce uncorrelated hash bytes, so `cos(query, stored)` hovers near zero for *any* non-identical board. That breaks the `relevance` term in §3.4 retrieval AND breaks the `aversive_radius` widening in §3.6 (Task 32) — aversive memories would only fire on exact-match boards, killing trauma generalization.
+
+The replacement is a 16-D log-tile spatial encoder: one component per grid cell, value `log₂(tile)/16` (or 0 for empty), L2-normalized so dot product equals cosine similarity. Two boards differing in one cell now differ in one of 16 components by at most ~1.0 — cosine similarity stays gradient and meaningful.
 
 ```python
 # nova-agent/src/nova_agent/llm/embeddings.py
-import hashlib
+"""Spatial embedding for 2048 boards.
+
+Cosine similarity reflects board structural similarity. NOT a hash —
+hashes destroy similarity by design (avalanche effect) and were a load-
+bearing bug in an earlier draft.
+"""
+
+from __future__ import annotations
+
+import math
 from typing import Sequence
 
+EMBED_DIM: int = 16  # 4×4 grid, one component per cell
 
-def embed_board(grid: Sequence[Sequence[int]], dim: int = 64) -> list[float]:
-    """Cheap deterministic embedding suitable for v1.
 
-    Encodes (value, position) pairs into a hashed vector. Good enough for
-    exact-board nearest-neighbor; replace with a real embedding model if
-    semantic similarity matters. (Voyage 3 large via Anthropic SDK is the
-    likely upgrade in v2.)
+def embed_board(grid: Sequence[Sequence[int]], dim: int = EMBED_DIM) -> list[float]:
+    """16-D L2-normalized log-tile spatial embedding.
+
+    Component i (0..15) = log2(tile)/16 at row=i//4, col=i%4 (0.0 if empty).
+    `dim` kwarg retained for API compatibility but must equal EMBED_DIM=16
+    in v1; LanceDB schema asserts dimensionality on connect.
     """
-    vec = [0.0] * dim
-    for r, row in enumerate(grid):
-        for c, v in enumerate(row):
-            if v == 0:
-                continue
-            key = f"{r}:{c}:{v}".encode()
-            h = hashlib.sha256(key).digest()
-            for i, byte in enumerate(h[:dim]):
-                vec[i] += byte / 255.0
-    # L2-normalize
-    norm = sum(x * x for x in vec) ** 0.5
-    return [x / norm for x in vec] if norm > 0 else vec
+    if dim != EMBED_DIM:
+        raise ValueError(
+            f"v1 spatial embedding is fixed at {EMBED_DIM} dims (4×4 grid). "
+            f"To change dimensionality, update EMBED_DIM and LanceDB schema together."
+        )
+    flat: list[float] = []
+    for row in grid:
+        for v in row:
+            flat.append(0.0 if v == 0 else math.log2(v) / 16.0)
+    if len(flat) != EMBED_DIM:
+        raise ValueError(f"grid must yield {EMBED_DIM} cells; got {len(flat)}")
+    norm = math.sqrt(sum(x * x for x in flat))
+    if norm == 0.0:
+        return flat
+    return [x / norm for x in flat]
+```
+
+**Critical similarity test — the entire reason this rewrite exists**:
+
+```python
+# nova-agent/tests/test_embeddings.py
+import math
+from nova_agent.llm.embeddings import embed_board, EMBED_DIM
+
+
+def _cos(a: list[float], b: list[float]) -> float:
+    return sum(x * y for x, y in zip(a, b))  # both pre-normalized
+
+
+def test_embed_dim_is_16():
+    e = embed_board([[0]*4]*4)
+    assert len(e) == EMBED_DIM == 16
+
+
+def test_similarity_high_for_one_tile_diff():
+    """The whole reason we're not using SHA-256. Two boards differing by
+    one tile in one cell must have cosine similarity > 0.85 — otherwise
+    the aversive-radius widening (§3.6) and Generative Agents relevance
+    term (§3.4) cannot work.
+    """
+    a = [[2, 0, 0, 0], [0, 4, 0, 0], [0, 0, 8, 0], [0, 0, 0, 16]]
+    b = [[2, 0, 0, 0], [0, 4, 0, 0], [0, 0, 8, 0], [0, 0, 0, 32]]  # one tile diff
+    e_a = embed_board(a)
+    e_b = embed_board(b)
+    assert _cos(e_a, e_b) > 0.85
+
+
+def test_similarity_low_for_completely_different_boards():
+    a = [[2, 0, 0, 0]] + [[0]*4]*3
+    b = [[0]*4]*3 + [[0, 0, 0, 2048]]
+    assert _cos(embed_board(a), embed_board(b)) < 0.5
+
+
+def test_identical_boards_cosine_one():
+    g = [[2, 4, 8, 16]] * 4
+    e = embed_board(g)
+    assert abs(_cos(e, e) - 1.0) < 1e-9
+
+
+def test_empty_board_returns_zero_vector():
+    """Edge case: pre-game / cleared board. L2 norm is 0; return zero vec."""
+    e = embed_board([[0]*4]*4)
+    assert all(x == 0.0 for x in e)
 ```
 
 - [ ] **Step 3: Implement vector store**
@@ -3001,8 +3079,15 @@ class VectorStore:
     """LanceDB-backed nearest-neighbor store for board embeddings."""
 
     TABLE = "memory_embeddings"
+    DIM = 16  # must match nova_agent.llm.embeddings.EMBED_DIM
 
     def __init__(self, path: Path):
+        from nova_agent.llm.embeddings import EMBED_DIM
+        if EMBED_DIM != self.DIM:
+            raise RuntimeError(
+                f"VectorStore.DIM ({self.DIM}) != embeddings.EMBED_DIM ({EMBED_DIM}) — "
+                f"update both in lockstep."
+            )
         self.path = Path(path)
         self.path.mkdir(parents=True, exist_ok=True)
         self._db = lancedb.connect(str(self.path))
@@ -3010,13 +3095,15 @@ class VectorStore:
             schema = pa.schema(
                 [
                     pa.field("id", pa.string()),
-                    pa.field("vector", pa.list_(pa.float32())),
+                    pa.field("vector", pa.list_(pa.float32(), self.DIM)),
                 ]
             )
             self._db.create_table(self.TABLE, schema=schema)
         self._tbl = self._db.open_table(self.TABLE)
 
     def upsert(self, id: str, vector: list[float]) -> None:
+        if len(vector) != self.DIM:
+            raise ValueError(f"vector must have {self.DIM} dims; got {len(vector)}")
         self._tbl.delete(f"id = '{id}'")
         self._tbl.add([{"id": id, "vector": vector}])
 
@@ -3295,10 +3382,14 @@ from nova_agent.memory.vector_store import VectorStore
 from nova_agent.perception.types import BoardState
 
 
+VECTOR_IMPORTANCE_THRESHOLD: int = 4  # mundane moves (importance < 4) skip the vector store
+
+
 class MemoryCoordinator:
     def __init__(self, *, sqlite_path: Path, lancedb_path: Path):
         self.episodic = EpisodicStore(sqlite_path)
         self.vector = VectorStore(lancedb_path)
+        self.vector_skip_count: int = 0  # metric for tuning the threshold; logged to bus footer
 
     def write_move(
         self,
@@ -3313,6 +3404,21 @@ class MemoryCoordinator:
         affect: AffectSnapshot | None = None,
         tags: list[str] | None = None,
     ) -> str:
+        """Importance-gated write (review #4 fix for state-space bloat).
+
+        - SQLite always gets the record (full audit trail; reflection reads
+          the whole game's traces; quarantine for reconciliation §3.9.1).
+        - LanceDB only gets the record if it's salient enough to ever be
+          worth retrieving as similar context. A typical 200-move game at
+          a 4-of-10 threshold writes ~30 vectors, not 200 — vector search
+          surfaces strategic moves, not "merged two 2s" noise.
+
+        Aversive precondition records: tagged retroactively by
+        `tag_aversive` after game-over. Their importance bumps to ≥7 at
+        that point; we then upsert them into the vector store via
+        `upsert_aversive_record` (below) so `aversive_radius` retrieval
+        actually finds them.
+        """
         rec_id = f"ep_{uuid.uuid4().hex[:12]}"
         emb = embed_board(board_before.grid)
         rec = MemoryRecord(
@@ -3330,8 +3436,25 @@ class MemoryCoordinator:
             affect=affect,
         )
         self.episodic.insert(rec)
-        self.vector.upsert(rec_id, emb)
+
+        if importance >= VECTOR_IMPORTANCE_THRESHOLD:
+            self.vector.upsert(rec_id, emb)
+        else:
+            self.vector_skip_count += 1
         return rec_id
+
+    def upsert_aversive_record(self, rec: MemoryRecord) -> None:
+        """Lazily insert (or update) a record in the vector store after
+        `tag_aversive` (Task 31) has retroactively bumped its importance.
+
+        Called by the game-over hook in main.py for each aversive
+        precondition record. Without this, an aversive memory tagged from
+        a record that originally had importance < 4 would never enter
+        LanceDB and `aversive_radius` retrieval (§3.6) couldn't find it.
+        """
+        if rec.embedding is None:
+            return
+        self.vector.upsert(rec.id, rec.embedding)
 
     def retrieve_for_board(self, board: BoardState, k: int = 5) -> list[RetrievedMemory]:
         emb = embed_board(board.grid)
@@ -3341,6 +3464,47 @@ class MemoryCoordinator:
         if not candidates:
             return []
         return retrieve_top_k(candidates=candidates, query_embedding=emb, k=k)
+```
+
+**Operator note**: the gate is intentionally conservative (mundane moves stay in SQLite, just not in vector retrieval). To tune the threshold during dev: log `vector_skip_count / total_writes` per game; aim for **30–70%** skip rate. < 30% means the threshold is too loose (vector store still bloats); > 70% means too tight (potentially missing useful retrievable context). At default threshold=4, expect ~50% skip on a typical play distribution.
+
+**Add tests for the gate + retroactive aversive upsert**:
+
+```python
+# nova-agent/tests/test_memory_coordinator.py — add
+def test_low_importance_skips_vector_store(tmp_path):
+    coord = MemoryCoordinator(sqlite_path=tmp_path / "n.db", lancedb_path=tmp_path / "lance")
+    b = BoardState(grid=[[2, 0, 0, 0]] + [[0]*4]*3, score=0)
+    rec_id = coord.write_move(
+        board_before=b, board_after=b, action="swipe_right",
+        score_delta=4, rpe=0.05, importance=2, source_reasoning="trivial",
+    )
+    # SQLite has it; vector store doesn't
+    assert coord.episodic.get(rec_id) is not None
+    assert coord.vector_skip_count == 1
+    # vector search for the same board should miss the just-written record
+    hits = coord.vector.search(embed_board(b.grid), k=5)
+    assert all(h[0] != rec_id for h in hits)
+
+
+def test_aversive_record_upserted_retroactively(tmp_path):
+    """Game-over flow: a record initially written with importance=2 must
+    be reachable via vector search after tag_aversive bumps importance.
+    """
+    coord = MemoryCoordinator(sqlite_path=tmp_path / "n.db", lancedb_path=tmp_path / "lance")
+    b = BoardState(grid=[[2, 4, 8, 16]] + [[0]*4]*3, score=0)
+    rec_id = coord.write_move(
+        board_before=b, board_after=b, action="swipe_left",
+        score_delta=0, rpe=-0.2, importance=2, source_reasoning="bad move",
+    )
+    # initially absent from vector store
+    assert all(h[0] != rec_id for h in coord.vector.search(embed_board(b.grid), k=5))
+    # game over: precondition tagged aversive, importance bumped, upserted
+    rec = coord.episodic.get(rec_id)
+    rec_promoted = replace(rec, importance=8, aversive_weight=1.0, tags=[*rec.tags, "aversive"])
+    coord.upsert_aversive_record(rec_promoted)
+    hits = coord.vector.search(embed_board(b.grid), k=5)
+    assert any(h[0] == rec_id for h in hits)
 ```
 
 - [ ] **Step 3: Update prompt to include retrieved memories**
@@ -4145,25 +4309,37 @@ class LinearValueFunction:
         return cls(**data)
 ```
 
-- [ ] **Step 5: Implement RPE wrapper + RPE_norm**
+- [ ] **Step 5: Implement RPE wrapper with TD(0) + warm-up gate on affect propagation**
+
+Review #4 raised a real concern: σ_δ on game-1 move-1 is undefined (running stdev of an empty deque), so `RPE_norm = δ / σ` is volatile for the first ~10 moves. Even with the [-1, +1] clip, this produces noisy affect signals that look chaotic on the brain panel rather than narrative.
+
+Fix: a **warm-up gate on the affect-propagation path only**. V keeps learning from move 1 (TD update fires every move; that's how V converges in the first place). But the *normalized* RPE returned to the affect module is forced to 0.0 until σ_δ has at least `WARMUP_MOVES = 10` samples. After warm-up, σ_δ is the running mean of |δ_t| over the last 100 moves. A `prior_sigma` derived from `score_scale / 4` is also available as a fallback if the running σ collapses to near-zero (e.g., on a streak of perfect predictions).
+
+This preserves the §3.7 TD(0) math intact — V learns from every move regardless of warm-up — while bounding the affect-side noise that the reviewer correctly flagged.
 
 ```python
 # nova-agent/src/nova_agent/affect/rpe.py
-"""Reward Prediction Error wrapper — TD(0)-based, with running σ for normalization."""
+"""Reward Prediction Error wrapper — TD(0)-based, with running σ for
+normalization and a warm-up gate that bounds early-game affect volatility.
+"""
 
 from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
 
-from nova_agent.affect.value_fn import LinearValueFunction
+from nova_agent.affect.value_fn import SCORE_SCALE, LinearValueFunction
 from nova_agent.perception.types import BoardState
+
+WARMUP_MOVES: int = 10                      # affect propagation suppressed until σ_δ has this many samples
+PRIOR_SIGMA: float = SCORE_SCALE / 4.0      # fallback σ if running σ collapses (≈12.5)
 
 
 @dataclass
 class RPETracker:
     V: LinearValueFunction = field(default_factory=LinearValueFunction.with_analytic_prior)
     recent_abs_deltas: deque[float] = field(default_factory=lambda: deque(maxlen=100))
+    move_count: int = 0  # count of TD updates seen this tracker (per-session)
 
     def step(
         self,
@@ -4173,13 +4349,68 @@ class RPETracker:
         s_tplus1: BoardState,
         terminal: bool,
     ) -> tuple[float, float]:
-        """Return (δ_t raw, RPE_norm clipped to [-1, +1])."""
+        """Run one TD(0) update on V, return (δ_t raw, RPE_norm).
+
+        V learns from every move (move_count is just a counter). The
+        warm-up gate only affects the *affect propagation* path —
+        RPE_norm is forced to 0.0 until at least WARMUP_MOVES samples
+        have accumulated, so affect doesn't get whipsawed by ill-defined
+        σ on the first few moves of a fresh tracker.
+        """
         delta = self.V.td_update(s_t=s_t, r_t=r_t, s_tplus1=s_tplus1, terminal=terminal)
         self.recent_abs_deltas.append(abs(delta))
+        self.move_count += 1
 
-        sigma = max(1e-6, sum(self.recent_abs_deltas) / max(1, len(self.recent_abs_deltas)))
+        # Warm-up gate (review #4 fix). V learning continues regardless.
+        if self.move_count < WARMUP_MOVES:
+            return delta, 0.0
+
+        sigma = sum(self.recent_abs_deltas) / max(1, len(self.recent_abs_deltas))
+        if sigma < 1e-3:
+            sigma = PRIOR_SIGMA  # fallback — protects against runaway when σ collapses
         rpe_norm = max(-1.0, min(1.0, delta / sigma))
         return delta, rpe_norm
+```
+
+**Add tests for warm-up behavior**:
+
+```python
+# nova-agent/tests/test_affect_rpe.py — add to existing
+def test_rpe_norm_zero_during_warmup():
+    """First N moves emit δ_t for V learning but RPE_norm=0 to affect."""
+    tracker = RPETracker()
+    b1 = BoardState(grid=[[2,2,0,0]] + [[0]*4]*3, score=0)
+    b2 = BoardState(grid=[[4,0,0,0]] + [[0]*4]*3, score=4)
+    norms_during_warmup = []
+    for _ in range(9):  # warm-up is 10 — first 9 should all return 0.0
+        _, rpe_norm = tracker.step(s_t=b1, r_t=4.0, s_tplus1=b2, terminal=False)
+        norms_during_warmup.append(rpe_norm)
+    assert all(n == 0.0 for n in norms_during_warmup)
+
+
+def test_rpe_norm_active_after_warmup():
+    tracker = RPETracker()
+    b1 = BoardState(grid=[[2,2,0,0]] + [[0]*4]*3, score=0)
+    b2 = BoardState(grid=[[4,0,0,0]] + [[0]*4]*3, score=4)
+    for _ in range(15):
+        _, rpe_norm = tracker.step(s_t=b1, r_t=4.0, s_tplus1=b2, terminal=False)
+    # After warm-up, last call should produce a nonzero norm bounded to [-1, 1]
+    assert -1.0 <= rpe_norm <= 1.0
+
+
+def test_v_learns_during_warmup():
+    """The warm-up gate must NOT block V's TD updates — only affect
+    propagation. V's weights must move during warmup or convergence
+    breaks across short runs.
+    """
+    tracker = RPETracker()
+    b1 = BoardState(grid=[[2,2,0,0]] + [[0]*4]*3, score=0)
+    b2 = BoardState(grid=[[4,0,0,0]] + [[0]*4]*3, score=4)
+    w_before = list(tracker.V.weights)
+    for _ in range(5):
+        tracker.step(s_t=b1, r_t=4.0, s_tplus1=b2, terminal=False)
+    w_after = list(tracker.V.weights)
+    assert w_before != w_after  # weights moved during warm-up
 ```
 
 - [ ] **Step 6: Failing test — RPE pipeline integration**
@@ -4763,10 +4994,19 @@ class MemoryRecord:
 
 Add a SQLite ALTER (or one-time migration) to add the `aversive_weight REAL DEFAULT 0.0` column.
 
-- [ ] **Step 4: Wire defenses A & D**
+- [ ] **Step 4: Wire defenses A & D + retroactive aversive vector upsert**
 
 - **Defense A (active-tag cap, max-1 surfaced):** modify the retrieval pipeline (Task 32) to keep at most one aversive record in the returned top-k — the one with the highest `aversive_weight` × `relevance` score. Drop the rest from the prompt.
 - **Defense D (cross-game reset):** in the run loop (Task 36 / game-start hook), on `game_start` event reset `affect.anxiety = 0`, `affect.frustration = 0`, `affect.dopamine = 0`. Retain `valence ← 0.3 · valence` (slow variable; partial carry-over by design). Defense D is logged as a hygiene step, not a load-bearing defense.
+- **Retroactive vector upsert (interaction with Task 16's importance gate, review #4 fix):** the precondition records were written during the *moves themselves* and may have failed the `importance >= 4` vector-store gate. After `tag_aversive` bumps their importance to ≥ 7, call `coordinator.upsert_aversive_record(rec)` for each tagged record. Without this step, an aversive memory tagged from a low-importance precondition would never enter LanceDB and `aversive_radius` retrieval (§3.6) couldn't find it. Wire this in main.py's `on_game_over` handler:
+
+```python
+# In main.py game-over hook (Task 36 wiring)
+tagged = tag_aversive(precondition_records=last_5_moves, was_catastrophic=catastrophic)
+for rec in tagged:
+    coordinator.episodic.update(rec)              # persist new importance + tags + aversive_weight
+    coordinator.upsert_aversive_record(rec)        # ensure it's in LanceDB for retrieval
+```
 
 - [ ] **Step 5: Pass + commit**
 
