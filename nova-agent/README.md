@@ -8,7 +8,7 @@ Python implementation of Project Nova's cognitive architecture.
 cd nova-agent
 uv venv
 uv sync --extra dev
-cp ../.env.example ../.env  # then fill in ANTHROPIC_API_KEY
+cp ../.env.example ../.env  # then fill in GOOGLE_API_KEY (dev tier; ANTHROPIC_API_KEY needed only for production/demo)
 uv run pytest
 ```
 

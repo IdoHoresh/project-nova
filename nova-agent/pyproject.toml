@@ -49,6 +49,3 @@ strict = true
 python_version = "3.11"
 files = ["src/nova_agent"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_mode = "auto"
