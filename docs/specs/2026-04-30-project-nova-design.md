@@ -458,7 +458,28 @@ w₀ = [4.0, 5.0, 3.0, 2.0, 2.0, 1.5]
 
 **Convergence test.** Per-game `mean(|δ_t|)` is logged. Across games 1→50 it should monotonically shrink (V is learning the true value). If it doesn't, V has bug or feature-set is inadequate, and the RPE/dopamine claim is empirically broken — see §8 acceptance.
 
-**Citations.** Schultz, Dayan, Montague (1997) — neuroscience anchor for dopamine = RPE. Sutton (1988) and Sutton & Barto (2018) — algorithm anchor for TD-learning and linear function approximation; pairs with Schultz '97 to ground both the *what* (dopamine encodes prediction error) and the *how* (TD-learning is the computational mechanism). Wu (2014) for the 2048 monotonicity heuristic in `φ_mono`.
+#### 3.7.1 The V/LLM strategic-dissonance trap and the two-channel split
+
+A fixed-feature V predicts *score gain*; the LLM's policy may prefer **strategic** moves that score low short-term to set up larger gains later (e.g., a "safe corner" move that preserves monotonicity at the cost of an immediate merge). If V's expected-score-gain disagrees with the LLM's policy on every move, RPE is *negative on every move* even though the LLM is playing well — frustration accumulates, anxiety rises, ToT triggers more, and Nova spirals into bad play purely because the heuristic and the policy disagree. This is **a real bug, not a vibe.** Mitigations, all wired:
+
+**Mitigation A — separate channels.** RPE drives **dopamine** (a phasic, score-grounded surprise signal); a separate **strategic value** channel drives **confidence** and **valence**. Two outputs, one V regressor:
+
+| Channel | What it measures | Drives |
+| --- | --- | --- |
+| `δ_t` (TD-error on score) | Did this move merge as well as the score-prediction said? | dopamine, frustration (instant rewards, fast decay) |
+| `Q_strategic = V(s_{t+1}) − V(s_t)` (position-quality delta) | Did this move improve the *board structure*, regardless of immediate score? | confidence, valence (slow signals, integrate over moves) |
+
+A move that scores low but improves monotonicity yields negative `δ_t` (small dopamine drop, fine — that's the correct phasic signal) **AND** positive `Q_strategic` (confidence rises, valence holds). Net affect is neutral-to-positive, no spiral.
+
+**Mitigation B — `RPE_norm` clipping (already in §3.5).** `clip(δ_t / σ_δ, −1, +1)` with running σ over 100 moves bounds the magnitude any single dissonance event can inject into affect. Even if V and the LLM disagree massively on one move, affect can't move more than 0.7 in valence or 0.3 in frustration that step.
+
+**Mitigation C — V learns from on-policy data.** The TD update fires on whatever action the LLM picked — V is gradually pulled toward predicting *what the LLM's policy actually achieves*, not what an optimal policy would. After ~20 games of on-policy updates, V's predictions stop systematically over- or under-estimating the LLM's score deltas. The convergence test (per-game `mean(|δ_t|)` shrinking) is exactly the empirical check that this is happening.
+
+**Mitigation D — Frustration cap (already in §3.5).** Hard ceiling at `frustration ≤ 0.8` is the engineering brake of last resort.
+
+**Acceptance test for the dissonance fix.** Add to §8: in the affect ablation, log `corr(δ_t, Q_strategic)` across 100 moves. If correlation is highly negative (V and the LLM systematically disagree on direction), the architecture has a real dissonance problem and we need a richer V (more features, or a small MLP). If correlation is near 0 or positive, the channels are doing their job — the LLM and V disagree on magnitude, not direction, which is fine.
+
+**Citations.** Schultz, Dayan, Montague (1997) — neuroscience anchor for dopamine = RPE. Sutton (1988) and Sutton & Barto (2018) — algorithm anchor for TD-learning and linear function approximation; pairs with Schultz '97 to ground both the *what* (dopamine encodes prediction error) and the *how* (TD-learning is the computational mechanism). Wu (2014) for the 2048 monotonicity heuristic in `φ_mono`. Daw et al. (2011) on dissociable model-free / model-based RL signals — relevant to the two-channel split (the dopamine channel is roughly model-free; the strategic channel is roughly model-based).
 
 #### 3.8 Decision module — appraisal, retrieval, deliberation
 
@@ -491,6 +512,30 @@ w₀ = [4.0, 5.0, 3.0, 2.0, 2.0, 1.5]
 - **Visual stability check (replaces hardcoded 300ms wait).** After issuing a swipe, take screenshots in a 50ms-interval pixel-diff loop until two consecutive frames are identical (board is static), with a hard cap of ~600ms then force-read + log. Hardcoded waits break on emulator frame drops; the stability loop is robust to lag.
 - **No-op detection and dead-board handling.** If the post-stability pixel-diff against the pre-swipe screenshot shows no change, retry the swipe once. If the second attempt also shows no change AND all four swipe directions have been tried with no change in this position, fire `game_over` (the board is dead). Without this rule the loop can record phantom moves and burn budget swiping at a finished game.
 - **Concurrency.** The decider's VLM call (§3.8) is a sync, blocking call wrapped in `asyncio.to_thread` so the event bus can continue serving the brain panel during the 500ms–2s decision window. Without this wrap the viewer freezes on every move.
+
+#### 3.9.1 Post-action verification + reconciliation (no phantom moves)
+
+The most insidious failure mode in a black-box agent is **state desync** — Python thinks the agent swiped up, the emulator missed the gesture, and from now on every memory record is wrong. Defense is structural:
+
+**Rule 1 — agent state is never derived, always observed.** The post-swipe board is **always read from a fresh screenshot via `BoardOCR.read()`**, never simulated by applying a swipe transform to the previous board. There is no in-Python 2048 simulator in the loop; the emulator is the source of truth. This is also why the OCR fast-path is required even when VLM perception is available — every move ends with a verified read.
+
+**Rule 2 — the move record is gated on a successful pixel-diff.** Memory writes happen only after `Capture.boards_differ(pre_swipe_img, post_stable_img)` returns `True` (or the game-over branch is taken). On a failed swipe with successful retry, only **one** move is recorded (the successful one). On exhausted retries that fall through to `game_over`, the run terminates without recording the phantom move.
+
+**Rule 3 — score-delta sanity check.** If the OCR-read score on the post-stability frame is *lower* than the pre-swipe score, that's impossible in 2048 — OCR mis-read or screenshot was captured mid-animation. Reject the frame, re-run the stability loop, log a `score_regression_warning`. If two consecutive reads regress, fall through to game-over (the agent is no longer tracking the emulator).
+
+**Rule 4 — periodic full reconciliation.** Every 25 moves, OR whenever an aversive memory is about to be tagged (because we're about to write to memory based on a *terminal* outcome), the loop performs a **reconciliation read**:
+
+1. Capture a fresh screenshot.
+2. OCR the board AND independently OCR the score region.
+3. Compare against the agent's last-known state.
+4. If they match → continue.
+5. If they diverge → log `state_desync_event`, do NOT correct the in-memory state silently. Instead, **invalidate the last 3 move records** in episodic memory (mark them `tags += ["unverified"]` and demote `importance = 1`), and the loop continues from the freshly-observed state.
+
+This means a phantom move can affect at most 3 memory records before reconciliation catches it; those 3 records are quarantined (importance=1 ensures retrieval almost never surfaces them) rather than deleted (preserves the audit trail).
+
+**Why not just delete unverified records?** Two reasons. First, an audit trail is more useful for debugging than silent deletion. Second, in a borderline case (one mis-read out of 25 reads), the 3-record window may include 2 correct records — the importance demote keeps them in the store but pushes them out of normal retrieval, so they don't poison live decisions but remain available for offline analysis.
+
+**Acceptance test (added to §8).** Inject a synthetic phantom move (the test's emulator-mock returns the *same* board after a swipe even though the test asks for a different one); verify the loop catches it via Rule 2 (no record written) within 1 retry, OR catches it via Rule 4 (3-record quarantine) within 25 moves.
 
 #### 3.10 Heuristic fallback (Take-The-Best for v1)
 
@@ -550,7 +595,46 @@ This section walks through Nova's processing of a single move, in plain language
 
 **Step 8 — Brain panel update.** All of the above is broadcast over WebSocket and rendered in real time on the viewer.
 
-Latency budget for this whole loop: target <2s for the ToT path, <500ms for the default path.
+### Latency budget — realistic, with p50 and p95 separated
+
+A blunt < 2s target is a fiction. Network jitter on the VLM call alone routinely adds 200–800 ms of variance, and `adb exec-out screencap -p` over USB is ~200–400 ms before any processing. The honest budget is split into **p50 (typical)** and **p95 (acceptable, no UI-stutter alarm)**, per loop path:
+
+| Stage | p50 (typical) | p95 (acceptable) | Notes |
+| --- | --- | --- | --- |
+| ADB screencap (raw) | 200 ms | 450 ms | streamed bytes, see optimization below |
+| PIL decode | 30 ms | 80 ms | already small in practice |
+| Fast OCR (auto-cal cached) | 8 ms | 25 ms | first-frame calibration is +50 ms |
+| Memory retrieval (top-5) | 25 ms | 80 ms | LanceDB local + 5 SQLite reads |
+| Affect update | <1 ms | 2 ms | trivial |
+| Prompt build | 5 ms | 15 ms |  |
+| **VLM call (System 1, Flash)** | **400 ms** | **1500 ms** | network-bound; jitter dominant term |
+| Pixel-diff stability + post-action capture | 250 ms | 600 ms | §3.9 stability cap is 600 ms |
+| ADB swipe | 100 ms | 250 ms |  |
+| Memory write + bus broadcast | 30 ms | 100 ms |  |
+| **End-to-end System 1 path** | **~1.0 s** | **~3.0 s** | revised target |
+| **End-to-end System 2 path (ToT, 4 parallel branches)** | **~2.5 s** | **~5.0 s** | branches stream — perceived latency is much lower |
+
+Revised acceptance: **p50 ≤ 1.0 s** for the default path, **p50 ≤ 2.5 s** for ToT; p95 ≤ 3 s and ≤ 5 s respectively. Anything above p95 fires a `latency_warning` event on the bus and the brain panel shows a subtle indicator. **The honest 2-second target was never reachable under realistic network conditions; the public-facing "watch the AI think" framing reads better against a tighter p50 + clearly-disclosed p95 than a unicorn 2 s claim that breaks on any commute Wi-Fi.**
+
+#### ADB pipeline optimization
+
+`adb exec-out screencap -p` is the dominant non-VLM cost. Three optimizations, applied in order:
+
+1. **Use `exec-out`, not `shell`.** Already the case in Task 5. `exec-out` streams the raw bytes; `shell` adds CRLF translation and 50–100 ms of overhead.
+2. **Bypass PNG encoding via raw framebuffer when possible.** `screencap` (no `-p`) returns a raw RGBA buffer with a 16-byte header. Skipping PNG decode saves ~100–200 ms per frame. Gated on `NOVA_FAST_FB=1` env var because raw-buffer parsing is more brittle on some emulator builds — keep the PNG path as the default + fallback.
+3. **Reuse a long-lived ADB connection.** Spawning `adb exec-out ...` per frame incurs subprocess startup. The `Capture` class can hold an open `adb shell` session and pipe `screencap` writes through it; saves ~50 ms per frame at the cost of more complex error handling. Implement only if p50 measurement after #1+#2 is still over budget.
+
+The plan ([Task 5](docs/specs/2026-04-30-project-nova-implementation-plan.md)) wires #1 by default, exposes #2 via `NOVA_FAST_FB`, and defers #3 to a Week 4 polish task only if measurement requires it.
+
+#### Graceful degradation under jitter
+
+When a VLM call exceeds 3 s (System 1) or 6 s (System 2 with all branches), the loop **does not block indefinitely**:
+
+- p95 breach → `latency_warning` event published; brain panel shows the indicator.
+- 2× p95 breach → cancel the in-flight call, fall through to the heuristic policy (Take-The-Best, §3.10), publish `latency_fallback` event. The agent keeps playing; the move quality drops; the demo doesn't freeze.
+- 3× p95 breach → pause the run, surface a clear error to the operator. Likely a network outage or rate-limit issue.
+
+This is the same pattern as the retry-then-fallback chain in §3.8, applied at the latency dimension.
 
 ---
 
@@ -660,6 +744,20 @@ These remain hand-coded with Framer Motion + standard React patterns. Plan for t
 #### Subscription requirement
 
 Claude Design requires a Claude Pro / Max / Team / Enterprise subscription. Confirm the user has one before Week 1.
+
+#### Frontend audit checkpoint — Claude Design output is NOT a black box
+
+A hard requirement before Week 6: every Claude-Design-generated React component must be **manually audited** by the developer, not merged blind. Specifically:
+
+| Audit area | What to verify | Frequency |
+| --- | --- | --- |
+| `useNovaSocket` hook | Reconnect logic, event-buffer ordering, handling of out-of-order events (e.g., `decision` arriving before its matching `perception`), cleanup on unmount | end of Week 4 + before each Claude-Design refresh in Week 5 |
+| Framer Motion transitions | No layout-thrashing on mode-badge transitions; no animation-frame leaks (each mounted component cleans up on unmount); spring constants are explicit, not Framer defaults | end of each Claude-Design refresh in Week 5 |
+| Bus-event handler dispatch | Every event from the typed event-schema contract has a handler; unknown events log a warning, not silently drop; handler functions are pure (no side effects beyond `setState`) | end of Week 4 + Week 5 |
+| Memory feed virtualization | If memory feed reaches ≥ 50 cards, the list virtualizes (e.g., `react-window`) — Claude Design output may render all cards eagerly, fine for 5 cards, untenable past 30 | end of Week 5 |
+| Type contracts | Every `<Component>` prop matches the typed event payload schema (Task 17). No `any`, no `unknown` past component boundaries | every PR touching a viewer component |
+
+The portfolio purpose of the project is to demonstrate **architectural competence**, not "I prompted Claude Design and got a UI." A reader who clones the repo will read `nova-viewer/app/components/*.tsx` directly. If those files contain unaudited generated code, that's the exact opposite of the signal we want to send. The audit log lives in `docs/design/v1/audit.md`, with a one-line entry per audited component.
 
 ---
 
@@ -1103,6 +1201,7 @@ Ingest recorded human gameplay and derive a Nova persona that imitates that spec
 
 - Sutton, R. S. (1988). Learning to predict by the methods of temporal differences. *Machine Learning*, 3, 9–44. **[Algorithm anchor for TD-learning, paired with Schultz et al. 1997 as the neuroscience anchor.]**
 - Sutton, R. S., & Barto, A. G. (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press. **[Standard reference for online linear function approximation; Ch. 9 covers TD(0) convergence under on-policy sampling — the regime Nova's V operates in.]**
+- Daw, N. D., Gershman, S. J., Seymour, B., Dayan, P., & Dolan, R. J. (2011). Model-based influences on humans' choices and striatal prediction errors. *Neuron*, 69(6), 1204–1215. **[Grounds the §3.7.1 two-channel split — model-free dopamine (δ_t) vs. model-based strategic value (Q_strategic).]**
 - Wu, K. (2014). 2048 AI — heuristic-based search. *Open-source notes.* **[Source for `φ_mono` (monotonicity) heuristic in V's feature set, §3.7.]**
 
 ### LLM agents
