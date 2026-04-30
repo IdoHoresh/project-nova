@@ -1,0 +1,54 @@
+[project]
+name = "nova-agent"
+version = "0.1.0"
+description = "Project Nova — brain-inspired VLM agent that plays mobile games"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.39.0",
+    "google-genai>=0.3.0",
+    "python-dotenv>=1.0.1",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "opencv-python-headless>=4.10.0",
+    "pillow>=10.3.0",
+    "numpy>=1.26.0",
+    "lancedb>=0.13.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "websockets>=13.0",
+    "structlog>=24.4.0",
+    "tenacity>=9.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "mypy>=1.11.0",
+    "ruff>=0.6.0",
+    "types-pillow",
+]
+
+[project.scripts]
+nova = "nova_agent.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nova_agent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+files = ["src/nova_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
