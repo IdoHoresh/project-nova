@@ -2,9 +2,24 @@
 
 import { useMemo } from "react";
 
+import { AffectLabel } from "./components/AffectLabel";
+import { DopamineBar } from "./components/DopamineBar";
 import { MemoryFeed } from "./components/MemoryFeed";
+import { MoodGauge } from "./components/MoodGauge";
 import { useNovaSocket } from "@/lib/websocket";
-import type { RetrievedMemoryDTO } from "@/lib/types";
+import type {
+  AffectVectorDTO,
+  RetrievedMemoryDTO,
+} from "@/lib/types";
+
+const NEUTRAL_AFFECT: AffectVectorDTO = {
+  valence: 0,
+  arousal: 0.2,
+  dopamine: 0,
+  frustration: 0,
+  anxiety: 0,
+  confidence: 0.5,
+};
 
 export default function Home() {
   const { events, connected } = useNovaSocket();
@@ -18,6 +33,28 @@ export default function Home() {
       }
     }
     return [];
+  }, [events]);
+
+  const affect = useMemo<AffectVectorDTO>(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (e.event === "affect") {
+        const d = e.data as AffectVectorDTO;
+        return d;
+      }
+    }
+    return NEUTRAL_AFFECT;
+  }, [events]);
+
+  const affectText = useMemo<string>(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (e.event === "decision") {
+        const d = e.data as { affect_text?: string };
+        if (d.affect_text) return d.affect_text;
+      }
+    }
+    return "";
   }, [events]);
 
   return (
@@ -39,21 +76,16 @@ export default function Home() {
           <div className="aspect-[9/16] bg-black rounded" />
         </section>
 
-        <section className="bg-zinc-900/50 rounded p-4 overflow-y-auto max-h-[80vh]">
-          <MemoryFeed items={memories} />
+        <section className="bg-zinc-900/50 rounded p-4 space-y-6">
+          <AffectLabel text={affectText} />
+          <div className="flex items-start gap-8">
+            <MoodGauge valence={affect.valence} arousal={affect.arousal} />
+            <DopamineBar level={affect.dopamine} />
+          </div>
         </section>
 
         <section className="bg-zinc-900/50 rounded p-4 overflow-y-auto max-h-[80vh]">
-          <h2 className="text-lg mb-2 text-zinc-400">Events ({events.length})</h2>
-          <ul className="space-y-1">
-            {events.map((e, i) => (
-              <li key={i} className="text-xs">
-                <span className="text-cyan-400">{e.event}</span>
-                <span className="text-zinc-500"> — </span>
-                <span className="text-zinc-400">{JSON.stringify(e.data)}</span>
-              </li>
-            ))}
-          </ul>
+          <MemoryFeed items={memories} />
         </section>
       </div>
     </main>
