@@ -9,6 +9,7 @@ from nova_agent.bus.websocket import EventBus
 from nova_agent.config import get_settings
 from nova_agent.decision.react import ReactDecider
 from nova_agent.llm.factory import build_llm
+from nova_agent.memory.coordinator import MemoryCoordinator
 from nova_agent.perception.capture import Capture
 from nova_agent.perception.ocr import BoardOCR, CalibrationError
 from nova_agent.perception.types import BoardState
@@ -40,9 +41,13 @@ async def run() -> None:
     )
     decider = ReactDecider(llm=decision_llm)
     ocr = BoardOCR()
+    memory = MemoryCoordinator(
+        sqlite_path=s.sqlite_path, lancedb_path=s.lancedb_path
+    )
 
     log.info("nova.started", model=s.decision_model, device=s.adb_device_id)
     try:
+        prev_board: BoardState | None = None
         for step in range(50):
             image = capture.grab_stable()
             try:
@@ -54,7 +59,13 @@ async def run() -> None:
             png_bytes = Capture.to_vlm_bytes(image)
             b64 = base64.b64encode(png_bytes).decode("ascii")
             await bus.publish("perception", {"score": board.score, "step": step})
-            decision = decider.decide(board=board, screenshot_b64=b64)
+
+            retrieved = memory.retrieve_for_board(board, k=5)
+            await bus.publish("memory_retrieved", {"count": len(retrieved)})
+
+            decision = decider.decide_with_context(
+                board=board, screenshot_b64=b64, memories=retrieved
+            )
             await bus.publish(
                 "decision",
                 {
@@ -65,6 +76,22 @@ async def run() -> None:
                 },
             )
             adb.swipe(SwipeDirection(decision.action))
+
+            if prev_board is not None:
+                rec_id = memory.write_move(
+                    board_before=prev_board,
+                    board_after=board,
+                    action=prev_action,  # type: ignore[has-type]
+                    score_delta=board.score - prev_board.score,
+                    rpe=0.0,
+                    importance=1,
+                    source_reasoning=prev_reasoning,  # type: ignore[has-type]
+                )
+                await bus.publish("memory_write", {"id": rec_id, "importance": 1})
+
+            prev_board = board
+            prev_action = decision.action
+            prev_reasoning = decision.reasoning
             await asyncio.sleep(0.5)
     finally:
         await bus.stop()

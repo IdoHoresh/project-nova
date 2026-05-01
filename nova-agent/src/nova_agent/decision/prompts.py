@@ -24,3 +24,24 @@ def build_user_prompt(*, grid: list[list[int]], score: int) -> str:
 Score: {score}
 
 Choose the next swipe."""
+
+
+def render_memories(memories: list) -> str:
+    if not memories:
+        return ""
+    lines = ["Memory recalls (most relevant past situations):"]
+    for m in memories:
+        rec = m.record
+        lines.append(
+            f"- [importance {rec.importance}/10] action={rec.action} "
+            f"score_delta={rec.score_delta} reasoning={rec.source_reasoning or '—'}"
+        )
+    return "\n".join(lines)
+
+
+def build_user_prompt_v2(*, grid: list[list[int]], score: int, memories: list) -> str:
+    base = build_user_prompt(grid=grid, score=score)
+    mem_block = render_memories(memories)
+    if mem_block:
+        return f"{base}\n\n{mem_block}"
+    return base
