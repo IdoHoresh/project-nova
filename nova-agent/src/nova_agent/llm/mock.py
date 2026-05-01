@@ -41,8 +41,8 @@ class _RoleSpec(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str
-    system_fingerprint: str            # substring of system prompt that identifies the role
-    schema_model: type[BaseModel]      # Pydantic model the response must conform to
+    system_fingerprint: str  # substring of system prompt that identifies the role
+    schema_model: type[BaseModel]  # Pydantic model the response must conform to
     factory: Callable[[dict[str, Any]], dict[str, Any]]  # build a response dict from call context
 
 
@@ -103,14 +103,30 @@ class _ImportanceResponse(BaseModel):
 
 
 _ROLES: list[_RoleSpec] = [
-    _RoleSpec(name="decision",   system_fingerprint="emit Observation, Reasoning, Action",
-              schema_model=_DecisionResponse, factory=_decision_factory),
-    _RoleSpec(name="tot_branch", system_fingerprint="evaluating ONE candidate move",
-              schema_model=_ToTBranchResponse, factory=_tot_branch_factory),
-    _RoleSpec(name="reflection", system_fingerprint="generate a short.*postmortem",
-              schema_model=_ReflectionResponse, factory=_reflection_factory),
-    _RoleSpec(name="importance", system_fingerprint='rate this event 1.10 for memorability',
-              schema_model=_ImportanceResponse, factory=_importance_factory),
+    _RoleSpec(
+        name="decision",
+        system_fingerprint="emit Observation, Reasoning, Action",
+        schema_model=_DecisionResponse,
+        factory=_decision_factory,
+    ),
+    _RoleSpec(
+        name="tot_branch",
+        system_fingerprint="evaluating ONE candidate move",
+        schema_model=_ToTBranchResponse,
+        factory=_tot_branch_factory,
+    ),
+    _RoleSpec(
+        name="reflection",
+        system_fingerprint="generate a short.*postmortem",
+        schema_model=_ReflectionResponse,
+        factory=_reflection_factory,
+    ),
+    _RoleSpec(
+        name="importance",
+        system_fingerprint="rate this event 1.10 for memorability",
+        schema_model=_ImportanceResponse,
+        factory=_importance_factory,
+    ),
 ]
 
 
@@ -127,22 +143,36 @@ class MockLLMClient:
     factory, validate the result against the role's Pydantic schema, return
     the JSON-serialized model.
     """
+
     script: list[str] = field(default_factory=list)
     keyed: dict[str, str] = field(default_factory=dict)
     factories: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = field(default_factory=dict)
     calls: list[dict[str, Any]] = field(default_factory=list)
     strict: bool = True  # if True, unrecognized roles raise; if False, return generic decision
 
-    def complete(self, *, system: str, messages: list[dict[str, Any]], max_tokens: int = 200,
-                 temperature: float = 0.7) -> tuple[str, _Usage]:
+    def complete(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        max_tokens: int = 200,
+        temperature: float = 0.7,
+    ) -> tuple[str, _Usage]:
         last_text = self._extract_last_user_text(messages)
-        ctx = {"system": system, "messages": messages, "last_text": last_text,
-               "max_tokens": max_tokens, "temperature": temperature}
+        ctx = {
+            "system": system,
+            "messages": messages,
+            "last_text": last_text,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
 
         # Escape hatches first
         if self.script:
             response = self.script.pop(0)
-        elif (keyed := next((v for k, v in self.keyed.items() if k in last_text), None)) is not None:
+        elif (
+            keyed := next((v for k, v in self.keyed.items() if k in last_text), None)
+        ) is not None:
             response = keyed
         else:
             role = next(

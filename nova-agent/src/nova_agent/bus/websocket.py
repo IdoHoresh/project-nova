@@ -21,7 +21,7 @@ log = structlog.get_logger()
 class EventBus:
     """Local WebSocket broadcaster. Connections subscribe; agent publishes."""
 
-    SEND_TIMEOUT_S: float = 0.1   # R4 — protect agent loop from UI lag
+    SEND_TIMEOUT_S: float = 0.1  # R4 — protect agent loop from UI lag
     _drop_counter: int = 0
 
     def __init__(self, *, host: str = "127.0.0.1", port: int = 8765):

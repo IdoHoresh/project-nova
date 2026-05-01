@@ -1,5 +1,6 @@
 import pytest
 
+
 @pytest.fixture(autouse=True)
 def stub_env(monkeypatch):
     """Provide safe defaults so unit tests don't accidentally hit real APIs."""

@@ -17,6 +17,12 @@ def test_cosine_identical_is_one():
 
 
 def test_combined_score_weights():
-    s = combined_score(recency=0.5, importance_norm=0.5, relevance=0.5,
-                       w_recency=1.0, w_importance=1.0, w_relevance=1.0)
+    s = combined_score(
+        recency=0.5,
+        importance_norm=0.5,
+        relevance=0.5,
+        w_recency=1.0,
+        w_importance=1.0,
+        w_relevance=1.0,
+    )
     assert math.isclose(s, 1.5, abs_tol=1e-6)

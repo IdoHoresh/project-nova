@@ -36,7 +36,7 @@ def _json_to_board(s: str) -> BoardState:
     return BoardState(grid=d["grid"], score=d["score"])
 
 
-def _record_to_row(r: MemoryRecord) -> tuple:
+def _record_to_row(r: MemoryRecord) -> tuple[object, ...]:
     return (
         r.id,
         r.timestamp.isoformat(),
@@ -59,7 +59,9 @@ def _row_to_record(row: sqlite3.Row) -> MemoryRecord:
     return MemoryRecord(
         id=row["id"],
         timestamp=datetime.fromisoformat(row["timestamp"]),
-        last_accessed=datetime.fromisoformat(row["last_accessed"]) if row["last_accessed"] else None,
+        last_accessed=datetime.fromisoformat(row["last_accessed"])
+        if row["last_accessed"]
+        else None,
         board_before=_json_to_board(row["board_before"]),
         board_after=_json_to_board(row["board_after"]),
         action=row["action"],
@@ -95,7 +97,8 @@ class EpisodicStore:
 
     def list_recent(self, limit: int = 10) -> list[MemoryRecord]:
         rows = self._conn.execute(
-            "SELECT * FROM episodic ORDER BY timestamp DESC LIMIT ?", (limit,),
+            "SELECT * FROM episodic ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
         ).fetchall()
         return [_row_to_record(r) for r in rows]
 

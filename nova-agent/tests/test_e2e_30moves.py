@@ -44,9 +44,7 @@ async def test_30_move_loop_writes_memory(tmp_path: Path) -> None:
 
     for _ in range(30):
         retrieved = memory.retrieve_for_board(board, k=5)
-        decision = decider.decide_with_context(
-            board=board, screenshot_b64="", memories=retrieved
-        )
+        decision = decider.decide_with_context(board=board, screenshot_b64="", memories=retrieved)
         if prev_board is not None:
             memory.write_move(
                 board_before=prev_board,

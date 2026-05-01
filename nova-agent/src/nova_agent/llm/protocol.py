@@ -9,7 +9,7 @@ PRICING: dict[str, tuple[float, float]] = {
     "claude-opus-4-7": (5.0, 25.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
-    "gemini-2.5-pro": (1.25, 10.0),     # tier <=200K input tokens
+    "gemini-2.5-pro": (1.25, 10.0),  # tier <=200K input tokens
     "gemini-2.5-flash": (0.30, 2.50),
     "gemini-2.5-flash-lite": (0.10, 0.40),
 }
@@ -24,10 +24,7 @@ class Usage:
     @property
     def cost_usd(self) -> float:
         in_rate, out_rate = PRICING.get(self.model, (5.0, 25.0))  # conservative default
-        return (
-            self.input_tokens * in_rate / 1_000_000
-            + self.output_tokens * out_rate / 1_000_000
-        )
+        return self.input_tokens * in_rate / 1_000_000 + self.output_tokens * out_rate / 1_000_000
 
 
 class LLM(Protocol):

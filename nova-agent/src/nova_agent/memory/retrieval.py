@@ -5,7 +5,9 @@ from datetime import datetime, timezone
 from nova_agent.memory.types import MemoryRecord
 
 
-def recency_score(*, last_accessed: datetime | None, now: datetime, half_life_days: float = 7.0) -> float:
+def recency_score(
+    *, last_accessed: datetime | None, now: datetime, half_life_days: float = 7.0
+) -> float:
     """Power-law decay: 1 / (1 + t/half_life)^1.5 where t is in days.
 
     Wixted & Carpenter (2007) — closer to human forgetting than exponential.
@@ -13,7 +15,7 @@ def recency_score(*, last_accessed: datetime | None, now: datetime, half_life_da
     if last_accessed is None:
         return 0.0
     delta_days = max(0.0, (now - last_accessed).total_seconds() / 86400.0)
-    return 1.0 / (1.0 + delta_days / half_life_days) ** 1.5
+    return float(1.0 / (1.0 + delta_days / half_life_days) ** 1.5)
 
 
 def cosine(a: list[float], b: list[float]) -> float:

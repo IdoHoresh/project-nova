@@ -5,7 +5,7 @@ import uuid
 from nova_agent.llm.embeddings import embed_board
 from nova_agent.memory.episodic import EpisodicStore
 from nova_agent.memory.retrieval import RetrievedMemory, retrieve_top_k
-from nova_agent.memory.types import AffectSnapshot, MemoryRecord
+from nova_agent.memory.types import Action, AffectSnapshot, MemoryRecord
 from nova_agent.memory.vector_store import VectorStore
 from nova_agent.perception.types import BoardState
 
@@ -24,7 +24,7 @@ class MemoryCoordinator:
         *,
         board_before: BoardState,
         board_after: BoardState,
-        action: str,
+        action: Action,
         score_delta: int,
         rpe: float,
         importance: int,

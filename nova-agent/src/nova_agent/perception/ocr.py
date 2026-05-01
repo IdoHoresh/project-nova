@@ -30,7 +30,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
-import pytesseract
+import pytesseract  # type: ignore[import-untyped]
 from PIL import Image
 
 from nova_agent.perception.types import BoardState
@@ -40,10 +40,10 @@ from nova_agent.perception.types import BoardState
 # Re-derive here when adding higher-value tiles (16+) once they appear in
 # live play; do not pull values from the canonical web palette.
 _PALETTE: dict[tuple[int, int, int], int] = {
-    (170, 166, 132): 0,    # empty (sandy olive)
-    (138, 197, 170): 2,    # mint green
-    (138, 179, 196): 4,    # sky blue
-    (255, 181, 239): 8,    # pink
+    (170, 166, 132): 0,  # empty (sandy olive)
+    (138, 197, 170): 2,  # mint green
+    (138, 179, 196): 4,  # sky blue
+    (255, 181, 239): 8,  # pink
 }
 
 
@@ -122,9 +122,7 @@ def _read_score(image: Image.Image, bbox: BoardBBox) -> int:
     pad = 30
     padded = cv2.copyMakeBorder(mask, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
     inv = cv2.bitwise_not(padded)
-    text = pytesseract.image_to_string(
-        inv, config="--psm 7 -c tessedit_char_whitelist=0123456789"
-    )
+    text = pytesseract.image_to_string(inv, config="--psm 7 -c tessedit_char_whitelist=0123456789")
     m = re.search(r"(\d+)", text)
     return int(m.group(1)) if m else 0
 

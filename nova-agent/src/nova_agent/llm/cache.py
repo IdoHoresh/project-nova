@@ -30,12 +30,15 @@ def mark_smoke_pass() -> None:
 
 
 def _hash_key(*, rendered_prompt: str, model: str, temperature: float, schema_hash: str) -> str:
-    payload = json.dumps({
-        "p": rendered_prompt,
-        "m": model,
-        "t": round(temperature, 4),
-        "s": schema_hash,
-    }, sort_keys=True).encode("utf-8")
+    payload = json.dumps(
+        {
+            "p": rendered_prompt,
+            "m": model,
+            "t": round(temperature, 4),
+            "s": schema_hash,
+        },
+        sort_keys=True,
+    ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -50,11 +53,17 @@ def _key_path(key: str) -> Path:
     return CACHE_DIR / f"{key[:2]}" / f"{key}.json"
 
 
-def get(*, rendered_prompt: str, model: str, temperature: float, schema_hash: str = "") -> CacheHit | None:
+def get(
+    *, rendered_prompt: str, model: str, temperature: float, schema_hash: str = ""
+) -> CacheHit | None:
     if CACHE_MODE == "off":
         return None
-    key = _hash_key(rendered_prompt=rendered_prompt, model=model,
-                    temperature=temperature, schema_hash=schema_hash)
+    key = _hash_key(
+        rendered_prompt=rendered_prompt,
+        model=model,
+        temperature=temperature,
+        schema_hash=schema_hash,
+    )
     p = _key_path(key)
     if not p.exists():
         return None
@@ -62,20 +71,34 @@ def get(*, rendered_prompt: str, model: str, temperature: float, schema_hash: st
     return CacheHit(response_text=data["response_text"], cached_at=data["cached_at"], key=key)
 
 
-def put(*, rendered_prompt: str, model: str, temperature: float, response_text: str,
-        schema_hash: str = "") -> None:
+def put(
+    *,
+    rendered_prompt: str,
+    model: str,
+    temperature: float,
+    response_text: str,
+    schema_hash: str = "",
+) -> None:
     if CACHE_MODE in ("off", "replay"):
         return
     if not _smoke_passed:
         # writes gated on smoke-pass — protects against poisoning the cache
         return
-    key = _hash_key(rendered_prompt=rendered_prompt, model=model,
-                    temperature=temperature, schema_hash=schema_hash)
+    key = _hash_key(
+        rendered_prompt=rendered_prompt,
+        model=model,
+        temperature=temperature,
+        schema_hash=schema_hash,
+    )
     p = _key_path(key)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({
-        "response_text": response_text,
-        "cached_at": time.time(),
-        "model": model,
-        "temperature": temperature,
-    }))
+    p.write_text(
+        json.dumps(
+            {
+                "response_text": response_text,
+                "cached_at": time.time(),
+                "model": model,
+                "temperature": temperature,
+            }
+        )
+    )

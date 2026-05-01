@@ -1,6 +1,7 @@
 import pytest
 from nova_agent.config import Settings
 
+
 def test_settings_loads_from_env(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-real-looking-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-real-looking-key")
@@ -9,6 +10,7 @@ def test_settings_loads_from_env(monkeypatch):
     assert s.google_api_key == "AIzaSy-real-looking-key"
     assert s.anthropic_api_key == "sk-ant-real-looking-key"
     assert s.ws_port == 9999
+
 
 def test_settings_fails_without_google_key(monkeypatch):
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
@@ -20,6 +22,7 @@ def test_settings_fails_without_google_key(monkeypatch):
         Settings(_env_file=None)  # type: ignore[call-arg]
     assert "GOOGLE_API_KEY" in str(exc.value)
 
+
 def test_settings_default_models(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-test")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
@@ -29,6 +32,7 @@ def test_settings_default_models(monkeypatch):
     assert s.cheap_vision_model == "gemini-2.5-flash-lite"
     assert s.reflection_model == "claude-sonnet-4-6"
     assert s.demo_model == "claude-opus-4-7"
+
 
 def test_settings_default_paths(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-test")

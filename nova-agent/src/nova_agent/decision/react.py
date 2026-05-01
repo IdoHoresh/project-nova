@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 from nova_agent.decision.prompts import SYSTEM_PROMPT_V1, build_user_prompt_v2
 from nova_agent.llm.protocol import LLM
 from nova_agent.llm.structured import parse_json
+from nova_agent.memory.retrieval import RetrievedMemory
+from nova_agent.memory.types import Action
 from nova_agent.perception.types import BoardState
 
 
@@ -18,7 +20,7 @@ class _ReactOutput(BaseModel):
 
 @dataclass(frozen=True)
 class Decision:
-    action: str
+    action: Action
     observation: str
     reasoning: str
     confidence: str
@@ -29,16 +31,16 @@ class ReactDecider:
         self.llm = llm
 
     def decide(self, *, board: BoardState, screenshot_b64: str) -> Decision:
-        return self.decide_with_context(
-            board=board, screenshot_b64=screenshot_b64, memories=[]
-        )
+        return self.decide_with_context(board=board, screenshot_b64=screenshot_b64, memories=[])
 
     def decide_with_context(
-        self, *, board: BoardState, screenshot_b64: str, memories: list
+        self,
+        *,
+        board: BoardState,
+        screenshot_b64: str,
+        memories: list[RetrievedMemory],
     ) -> Decision:
-        user_text = build_user_prompt_v2(
-            grid=board.grid, score=board.score, memories=memories
-        )
+        user_text = build_user_prompt_v2(grid=board.grid, score=board.score, memories=memories)
         messages = [
             {
                 "role": "user",

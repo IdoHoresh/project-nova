@@ -1,3 +1,6 @@
+from nova_agent.memory.retrieval import RetrievedMemory
+
+
 SYSTEM_PROMPT_V1 = """\
 You are Nova, an AI playing the puzzle game 2048.
 You see the board as a 4x4 grid where 0 means empty.
@@ -15,9 +18,7 @@ For every turn you emit Observation, Reasoning, Action as strict JSON
 
 
 def build_user_prompt(*, grid: list[list[int]], score: int) -> str:
-    grid_str = "\n".join(
-        "  ".join(f"{v:>5}" if v else "    ." for v in row) for row in grid
-    )
+    grid_str = "\n".join("  ".join(f"{v:>5}" if v else "    ." for v in row) for row in grid)
     return f"""Current board:
 {grid_str}
 
@@ -26,7 +27,7 @@ Score: {score}
 Choose the next swipe."""
 
 
-def render_memories(memories: list) -> str:
+def render_memories(memories: list[RetrievedMemory]) -> str:
     if not memories:
         return ""
     lines = ["Memory recalls (most relevant past situations):"]
@@ -39,7 +40,9 @@ def render_memories(memories: list) -> str:
     return "\n".join(lines)
 
 
-def build_user_prompt_v2(*, grid: list[list[int]], score: int, memories: list) -> str:
+def build_user_prompt_v2(
+    *, grid: list[list[int]], score: int, memories: list[RetrievedMemory]
+) -> str:
     base = build_user_prompt(grid=grid, score=score)
     mem_block = render_memories(memories)
     if mem_block:

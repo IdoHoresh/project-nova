@@ -12,6 +12,10 @@ def test_score_programmatic_low_for_routine():
 
 
 def test_score_programmatic_milestone_bumps():
-    base = score_programmatic(rpe=0.5, terminal=False, max_tile=1024, empty_cells=8, milestone=False)
-    bumped = score_programmatic(rpe=0.5, terminal=False, max_tile=1024, empty_cells=8, milestone=True)
+    base = score_programmatic(
+        rpe=0.5, terminal=False, max_tile=1024, empty_cells=8, milestone=False
+    )
+    bumped = score_programmatic(
+        rpe=0.5, terminal=False, max_tile=1024, empty_cells=8, milestone=True
+    )
     assert bumped > base

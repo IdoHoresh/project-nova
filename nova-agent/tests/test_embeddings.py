@@ -1,4 +1,3 @@
-import math
 from nova_agent.llm.embeddings import embed_board, EMBED_DIM
 
 

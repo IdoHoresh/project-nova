@@ -7,7 +7,7 @@ import structlog
 from nova_agent.action.adb import ADB, SwipeDirection
 from nova_agent.bus.websocket import EventBus
 from nova_agent.config import get_settings
-from nova_agent.decision.react import ReactDecider
+from nova_agent.decision.react import Decision, ReactDecider
 from nova_agent.llm.factory import build_llm
 from nova_agent.memory.coordinator import MemoryCoordinator
 from nova_agent.perception.capture import Capture
@@ -41,13 +41,12 @@ async def run() -> None:
     )
     decider = ReactDecider(llm=decision_llm)
     ocr = BoardOCR()
-    memory = MemoryCoordinator(
-        sqlite_path=s.sqlite_path, lancedb_path=s.lancedb_path
-    )
+    memory = MemoryCoordinator(sqlite_path=s.sqlite_path, lancedb_path=s.lancedb_path)
 
     log.info("nova.started", model=s.decision_model, device=s.adb_device_id)
     try:
         prev_board: BoardState | None = None
+        prev_decision: Decision | None = None
         for step in range(50):
             image = capture.grab_stable()
             try:
@@ -93,15 +92,15 @@ async def run() -> None:
             )
             adb.swipe(SwipeDirection(decision.action))
 
-            if prev_board is not None:
+            if prev_board is not None and prev_decision is not None:
                 rec_id = memory.write_move(
                     board_before=prev_board,
                     board_after=board,
-                    action=prev_action,  # type: ignore[has-type]
+                    action=prev_decision.action,
                     score_delta=board.score - prev_board.score,
                     rpe=0.0,
                     importance=1,
-                    source_reasoning=prev_reasoning,  # type: ignore[has-type]
+                    source_reasoning=prev_decision.reasoning,
                 )
                 await bus.publish(
                     "memory_write",
@@ -109,8 +108,7 @@ async def run() -> None:
                 )
 
             prev_board = board
-            prev_action = decision.action
-            prev_reasoning = decision.reasoning
+            prev_decision = decision
             await asyncio.sleep(0.5)
     finally:
         await bus.stop()

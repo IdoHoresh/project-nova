@@ -11,7 +11,9 @@ def test_script_returns_in_order():
 
 def test_keyed_matches_substring():
     m = MockLLMClient(keyed={"trauma": '{"action":"swipe_left"}'})
-    out, _ = m.complete(system="x", messages=[{"role": "user", "content": "you remember a trauma board"}])
+    out, _ = m.complete(
+        system="x", messages=[{"role": "user", "content": "you remember a trauma board"}]
+    )
     assert out == '{"action":"swipe_left"}'
 
 

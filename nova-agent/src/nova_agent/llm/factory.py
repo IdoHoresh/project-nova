@@ -3,7 +3,9 @@ from nova_agent.llm.anthropic_client import AnthropicLLM
 from nova_agent.llm.gemini_client import GeminiLLM
 
 
-def build_llm(*, model: str, google_api_key: str, anthropic_api_key: str, daily_cap_usd: float) -> LLM:
+def build_llm(
+    *, model: str, google_api_key: str, anthropic_api_key: str, daily_cap_usd: float
+) -> LLM:
     """Construct the right adapter for a given model name.
 
     Routing:

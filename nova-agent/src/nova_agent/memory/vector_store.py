@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import lancedb
+import lancedb  # type: ignore[import-untyped]
 import pyarrow as pa
 
 
@@ -12,6 +12,7 @@ class VectorStore:
 
     def __init__(self, path: Path):
         from nova_agent.llm.embeddings import EMBED_DIM
+
         if EMBED_DIM != self.DIM:
             raise RuntimeError(
                 f"VectorStore.DIM ({self.DIM}) != embeddings.EMBED_DIM ({EMBED_DIM}) — "
