@@ -2,11 +2,8 @@
 
 import { useMemo } from "react";
 
-import { AffectLabel } from "./components/AffectLabel";
-import { DopamineBar } from "./components/DopamineBar";
+import { BrainPanel } from "./components/BrainPanel";
 import { GameStream } from "./components/GameStream";
-import { MemoryFeed } from "./components/MemoryFeed";
-import { MoodGauge } from "./components/MoodGauge";
 import { useNovaSocket } from "@/lib/websocket";
 import type {
   AffectVectorDTO,
@@ -21,6 +18,13 @@ const NEUTRAL_AFFECT: AffectVectorDTO = {
   anxiety: 0,
   confidence: 0.5,
 };
+
+interface Stats {
+  score: number;
+  move: number;
+  games: number;
+  best: number;
+}
 
 export default function Home() {
   const { events, connected } = useNovaSocket();
@@ -58,6 +62,26 @@ export default function Home() {
     return "";
   }, [events]);
 
+  const stats = useMemo<Stats>(() => {
+    let score = 0;
+    let move = 0;
+    let best = 0;
+    let games = 1;
+    for (const e of events) {
+      if (e.event === "perception") {
+        const d = e.data as { score?: number; step?: number };
+        if (typeof d.score === "number") {
+          score = d.score;
+          if (d.score > best) best = d.score;
+        }
+        if (typeof d.step === "number") move = d.step;
+      } else if (e.event === "game_over") {
+        games += 1;
+      }
+    }
+    return { score, move, games, best };
+  }, [events]);
+
   return (
     <main className="min-h-screen bg-[#1a1614] text-zinc-100 p-8 font-mono text-sm">
       <header className="flex justify-between items-baseline mb-4">
@@ -71,21 +95,21 @@ export default function Home() {
         </span>
       </header>
 
-      <div className="grid grid-cols-3 gap-8">
+      <div className="grid grid-cols-3 gap-8 max-h-[88vh]">
         <section className="bg-zinc-900/50 rounded p-4">
           <GameStream />
         </section>
 
-        <section className="bg-zinc-900/50 rounded p-4 space-y-6">
-          <AffectLabel text={affectText} />
-          <div className="flex items-start gap-8">
-            <MoodGauge valence={affect.valence} arousal={affect.arousal} />
-            <DopamineBar level={affect.dopamine} />
-          </div>
-        </section>
-
-        <section className="bg-zinc-900/50 rounded p-4 overflow-y-auto max-h-[80vh]">
-          <MemoryFeed items={memories} />
+        <section className="bg-zinc-900/50 rounded p-4 col-span-2">
+          <BrainPanel
+            affect={affect}
+            affectText={affectText}
+            memories={memories}
+            score={stats.score}
+            move={stats.move}
+            games={stats.games}
+            best={stats.best}
+          />
         </section>
       </div>
     </main>
