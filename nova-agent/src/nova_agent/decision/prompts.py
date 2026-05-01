@@ -48,3 +48,16 @@ def build_user_prompt_v2(
     if mem_block:
         return f"{base}\n\n{mem_block}"
     return base
+
+
+def build_user_prompt_v3(
+    *,
+    grid: list[list[int]],
+    score: int,
+    memories: list[RetrievedMemory],
+    affect_text: str,
+) -> str:
+    base = build_user_prompt_v2(grid=grid, score=score, memories=memories)
+    if affect_text.strip():
+        return f"{base}\n\nMood: {affect_text}"
+    return base

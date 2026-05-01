@@ -5,11 +5,15 @@ import sys
 import structlog
 
 from nova_agent.action.adb import ADB, SwipeDirection
+from nova_agent.affect.rpe import rpe as compute_rpe
+from nova_agent.affect.state import AffectState
+from nova_agent.affect.verbalize import describe as describe_affect
 from nova_agent.bus.websocket import EventBus
 from nova_agent.config import get_settings
 from nova_agent.decision.react import Decision, ReactDecider
 from nova_agent.llm.factory import build_llm
 from nova_agent.memory.coordinator import MemoryCoordinator
+from nova_agent.memory.types import AffectSnapshot
 from nova_agent.perception.capture import Capture
 from nova_agent.perception.ocr import BoardOCR, CalibrationError
 from nova_agent.perception.types import BoardState
@@ -42,6 +46,7 @@ async def run() -> None:
     decider = ReactDecider(llm=decision_llm)
     ocr = BoardOCR()
     memory = MemoryCoordinator(sqlite_path=s.sqlite_path, lancedb_path=s.lancedb_path)
+    affect = AffectState()
 
     log.info("nova.started", model=s.decision_model, device=s.adb_device_id)
     try:
@@ -78,8 +83,12 @@ async def run() -> None:
                 },
             )
 
+            affect_text = describe_affect(affect.vector)
             decision = decider.decide_with_context(
-                board=board, screenshot_b64=b64, memories=retrieved
+                board=board,
+                screenshot_b64=b64,
+                memories=retrieved,
+                affect_text=affect_text,
             )
             await bus.publish(
                 "decision",
@@ -88,19 +97,51 @@ async def run() -> None:
                     "observation": decision.observation,
                     "reasoning": decision.reasoning,
                     "confidence": decision.confidence,
+                    "affect_text": affect_text,
                 },
             )
             adb.swipe(SwipeDirection(decision.action))
 
             if prev_board is not None and prev_decision is not None:
+                score_delta = board.score - prev_board.score
+                delta_rpe = compute_rpe(actual_score_delta=score_delta, board_before=prev_board)
+                trauma_triggered = any("trauma" in m.record.tags for m in retrieved)
+                v = affect.update(
+                    rpe=delta_rpe,
+                    empty_cells=board.empty_cells,
+                    terminal=False,
+                    trauma_triggered=trauma_triggered,
+                )
+                snapshot = AffectSnapshot(
+                    valence=v.valence,
+                    arousal=v.arousal,
+                    dopamine=v.dopamine,
+                    frustration=v.frustration,
+                    anxiety=v.anxiety,
+                    confidence=v.confidence,
+                )
+                await bus.publish(
+                    "affect",
+                    {
+                        "valence": v.valence,
+                        "arousal": v.arousal,
+                        "dopamine": v.dopamine,
+                        "frustration": v.frustration,
+                        "anxiety": v.anxiety,
+                        "confidence": v.confidence,
+                        "rpe": delta_rpe,
+                        "trauma_triggered": trauma_triggered,
+                    },
+                )
                 rec_id = memory.write_move(
                     board_before=prev_board,
                     board_after=board,
                     action=prev_decision.action,
-                    score_delta=board.score - prev_board.score,
-                    rpe=0.0,
+                    score_delta=score_delta,
+                    rpe=delta_rpe,
                     importance=1,
                     source_reasoning=prev_decision.reasoning,
+                    affect=snapshot,
                 )
                 await bus.publish(
                     "memory_write",

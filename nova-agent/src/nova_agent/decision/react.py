@@ -3,7 +3,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from nova_agent.decision.prompts import SYSTEM_PROMPT_V1, build_user_prompt_v2
+from nova_agent.decision.prompts import (
+    SYSTEM_PROMPT_V1,
+    build_user_prompt_v2,
+    build_user_prompt_v3,
+)
 from nova_agent.llm.protocol import LLM
 from nova_agent.llm.structured import parse_json
 from nova_agent.memory.retrieval import RetrievedMemory
@@ -39,8 +43,17 @@ class ReactDecider:
         board: BoardState,
         screenshot_b64: str,
         memories: list[RetrievedMemory],
+        affect_text: str = "",
     ) -> Decision:
-        user_text = build_user_prompt_v2(grid=board.grid, score=board.score, memories=memories)
+        if affect_text.strip():
+            user_text = build_user_prompt_v3(
+                grid=board.grid,
+                score=board.score,
+                memories=memories,
+                affect_text=affect_text,
+            )
+        else:
+            user_text = build_user_prompt_v2(grid=board.grid, score=board.score, memories=memories)
         messages = [
             {
                 "role": "user",
