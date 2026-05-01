@@ -10,7 +10,9 @@ from nova_agent.affect.state import AffectState
 from nova_agent.affect.verbalize import describe as describe_affect
 from nova_agent.bus.websocket import EventBus
 from nova_agent.config import get_settings
+from nova_agent.decision.arbiter import should_use_tot
 from nova_agent.decision.react import Decision, ReactDecider
+from nova_agent.decision.tot import ToTDecider
 from nova_agent.llm.factory import build_llm
 from nova_agent.memory.coordinator import MemoryCoordinator
 from nova_agent.memory.types import AffectSnapshot
@@ -43,7 +45,14 @@ async def run() -> None:
         anthropic_api_key=s.anthropic_api_key,
         daily_cap_usd=s.daily_budget_usd,
     )
+    deliberation_llm = build_llm(
+        model=s.deliberation_model,
+        google_api_key=s.google_api_key,
+        anthropic_api_key=s.anthropic_api_key,
+        daily_cap_usd=s.daily_budget_usd,
+    )
     decider = ReactDecider(llm=decision_llm)
+    tot_decider = ToTDecider(llm=deliberation_llm, bus=bus)
     ocr = BoardOCR()
     memory = MemoryCoordinator(sqlite_path=s.sqlite_path, lancedb_path=s.lancedb_path)
     affect = AffectState()
@@ -84,12 +93,21 @@ async def run() -> None:
             )
 
             affect_text = describe_affect(affect.vector)
-            decision = decider.decide_with_context(
-                board=board,
-                screenshot_b64=b64,
-                memories=retrieved,
-                affect_text=affect_text,
-            )
+            mode = "tot" if should_use_tot(board=board, affect=affect.vector) else "react"
+            await bus.publish("mode", {"mode": mode, "step": step})
+            if mode == "tot":
+                decision = await tot_decider.decide(
+                    board=board,
+                    screenshot_b64=b64,
+                    move_idx=step,
+                )
+            else:
+                decision = decider.decide_with_context(
+                    board=board,
+                    screenshot_b64=b64,
+                    memories=retrieved,
+                    affect_text=affect_text,
+                )
             await bus.publish(
                 "decision",
                 {
@@ -98,6 +116,7 @@ async def run() -> None:
                     "reasoning": decision.reasoning,
                     "confidence": decision.confidence,
                     "affect_text": affect_text,
+                    "mode": mode,
                 },
             )
             adb.swipe(SwipeDirection(decision.action))
