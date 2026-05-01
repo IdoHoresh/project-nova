@@ -13,8 +13,11 @@ def test_settings_loads_from_env(monkeypatch):
 def test_settings_fails_without_google_key(monkeypatch):
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    # Suppress on-disk .env discovery so the test only sees env vars.
+    # Without this, find_dotenv() walks up to the repo-root `.env` and
+    # loads a real GOOGLE_API_KEY, which would mask the missing-key path.
     with pytest.raises(Exception) as exc:
-        Settings()
+        Settings(_env_file=None)  # type: ignore[call-arg]
     assert "GOOGLE_API_KEY" in str(exc.value)
 
 def test_settings_default_models(monkeypatch):

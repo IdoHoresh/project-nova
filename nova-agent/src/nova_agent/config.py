@@ -1,11 +1,19 @@
 from pathlib import Path
+
+from dotenv import find_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Walk up from cwd to locate the first `.env` (worktree root, repo root, etc.).
+# Falls back to a literal ".env" so unit tests that monkeypatch env vars without
+# a file on disk still work. Without this, `nova` invoked from the `nova-agent/`
+# subdir would never find the repo-root `.env`.
+_ENV_FILE = find_dotenv(usecwd=True) or ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )

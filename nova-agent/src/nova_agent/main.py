@@ -1,0 +1,80 @@
+import asyncio
+import base64
+import sys
+
+import structlog
+from PIL.Image import Image
+
+from nova_agent.action.adb import ADB, SwipeDirection
+from nova_agent.bus.websocket import EventBus
+from nova_agent.config import get_settings
+from nova_agent.decision.react import ReactDecider
+from nova_agent.llm.factory import build_llm
+from nova_agent.perception.capture import Capture
+from nova_agent.perception.types import BoardState
+
+log = structlog.get_logger()
+
+
+def _placeholder_perceive(image: Image) -> BoardState:
+    """Week 1 placeholder — no OCR yet, return empty board.
+
+    Replaced by real OCR at Task 10.
+    """
+    log.warning("perception.placeholder_in_use", image_size=image.size)
+    return BoardState(grid=[[0] * 4 for _ in range(4)], score=0)
+
+
+async def run() -> None:
+    s = get_settings()
+    bus = EventBus(host=s.ws_host, port=s.ws_port)
+    await bus.start()
+
+    capture = Capture(adb_path=s.adb_path, device_id=s.adb_device_id)
+    adb = ADB(
+        adb_path=s.adb_path,
+        device_id=s.adb_device_id,
+        screen_w=1080,
+        screen_h=2400,
+    )
+    decision_llm = build_llm(
+        model=s.decision_model,
+        google_api_key=s.google_api_key,
+        anthropic_api_key=s.anthropic_api_key,
+        daily_cap_usd=s.daily_budget_usd,
+    )
+    decider = ReactDecider(llm=decision_llm)
+
+    log.info("nova.started", model=s.decision_model, device=s.adb_device_id)
+    try:
+        for step in range(50):
+            image = capture.grab_stable()
+            board = _placeholder_perceive(image)
+            png_bytes = Capture.to_vlm_bytes(image)
+            b64 = base64.b64encode(png_bytes).decode("ascii")
+            await bus.publish("perception", {"score": board.score, "step": step})
+            decision = decider.decide(board=board, screenshot_b64=b64)
+            await bus.publish(
+                "decision",
+                {
+                    "action": decision.action,
+                    "observation": decision.observation,
+                    "reasoning": decision.reasoning,
+                    "confidence": decision.confidence,
+                },
+            )
+            adb.swipe(SwipeDirection(decision.action))
+            await asyncio.sleep(0.5)
+    finally:
+        await bus.stop()
+
+
+def cli() -> None:
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    cli()
