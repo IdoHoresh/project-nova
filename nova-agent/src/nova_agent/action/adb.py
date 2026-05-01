@@ -1,3 +1,12 @@
+"""ADB action wrapper.
+
+The Unity 6 fork of 2048 ignores ``adb shell input swipe`` events — its
+input layer only handles keyboard / DPAD keycodes. The wrapper therefore
+sends ``input keyevent KEYCODE_DPAD_*`` for each move. The public API stays
+``swipe(direction)`` because the agent thinks in board moves, not in the
+underlying IPC.
+"""
+
 import subprocess
 import time
 from enum import Enum
@@ -14,8 +23,17 @@ class SwipeDirection(str, Enum):
     RIGHT = "swipe_right"
 
 
+# Android KeyEvent constants (KEYCODE_DPAD_*).
+_KEYCODE: dict[SwipeDirection, int] = {
+    SwipeDirection.UP: 19,
+    SwipeDirection.DOWN: 20,
+    SwipeDirection.LEFT: 21,
+    SwipeDirection.RIGHT: 22,
+}
+
+
 class ADB:
-    """Thin wrapper around `adb shell input` for swipes."""
+    """Thin wrapper around `adb shell input keyevent` for board moves."""
 
     def __init__(self, *, adb_path: str, device_id: str | None, screen_w: int, screen_h: int):
         self.adb_path = adb_path
@@ -29,29 +47,14 @@ class ADB:
             args += ["-s", self.device_id]
         return args
 
-    def swipe(self, direction: SwipeDirection, duration_ms: int = 100) -> None:
-        cx, cy = self.w // 2, self.h // 2
-        margin_x, margin_y = self.w // 4, self.h // 4
-        match direction:
-            case SwipeDirection.UP:
-                x1, y1, x2, y2 = cx, cy + margin_y, cx, cy - margin_y
-            case SwipeDirection.DOWN:
-                x1, y1, x2, y2 = cx, cy - margin_y, cx, cy + margin_y
-            case SwipeDirection.LEFT:
-                x1, y1, x2, y2 = cx + margin_x, cy, cx - margin_x, cy
-            case SwipeDirection.RIGHT:
-                x1, y1, x2, y2 = cx - margin_x, cy, cx + margin_x, cy
-            case _:
-                raise ValueError(f"Unknown direction {direction}")
-        args = self._base_args() + [
-            "shell", "input", "swipe",
-            str(x1), str(y1), str(x2), str(y2), str(duration_ms),
-        ]
-        log.info("adb.swipe", direction=direction.value, args=args)
+    def swipe(self, direction: SwipeDirection) -> None:
+        keycode = _KEYCODE[direction]
+        args = self._base_args() + ["shell", "input", "keyevent", str(keycode)]
+        log.info("adb.swipe", direction=direction.value, keycode=keycode, args=args)
         result = subprocess.run(args, capture_output=True, timeout=5.0)
         if result.returncode != 0:
             raise RuntimeError(
-                f"adb swipe failed: rc={result.returncode}; "
+                f"adb keyevent failed: rc={result.returncode}; "
                 f"stderr={result.stderr.decode(errors='ignore')!r}"
             )
         time.sleep(0.3)  # wait for tile-slide animation
