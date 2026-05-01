@@ -123,6 +123,16 @@ class EpisodicStore:
         )
         self._conn.commit()
 
+    def batch_update_last_accessed(self, ids: list[str], when: datetime) -> None:
+        if not ids:
+            return
+        ts = when.isoformat()
+        self._conn.executemany(
+            "UPDATE episodic SET last_accessed = ? WHERE id = ?",
+            [(ts, i) for i in ids],
+        )
+        self._conn.commit()
+
     def all(self) -> list[MemoryRecord]:
         rows = self._conn.execute("SELECT * FROM episodic ORDER BY timestamp DESC").fetchall()
         return [_row_to_record(r) for r in rows]

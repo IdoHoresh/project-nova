@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from nova_agent.llm.embeddings import embed_board
 from nova_agent.memory.coordinator import MemoryCoordinator
@@ -67,3 +68,33 @@ def test_aversive_record_upserted_retroactively(tmp_path):
     coord.upsert_aversive_record(rec_promoted)
     hits = coord.vector.search(embed_board(b.grid), k=5)
     assert any(h[0] == rec_id for h in hits)
+
+
+def test_retrieve_writes_back_last_accessed(tmp_path):
+    """§3.4 — recency decay requires last_accessed to be refreshed on retrieval."""
+    coord = MemoryCoordinator(
+        sqlite_path=tmp_path / "n.db",
+        lancedb_path=tmp_path / "lance",
+    )
+    b = BoardState(grid=[[0, 2, 0, 0]] + [[0] * 4 for _ in range(3)], score=0)
+    rec_id = coord.write_move(
+        board_before=b,
+        board_after=b,
+        action="swipe_right",
+        score_delta=4,
+        rpe=0.1,
+        importance=6,
+        source_reasoning="merge",
+    )
+    # Force last_accessed to a stale value.
+    stale = datetime.now(timezone.utc) - timedelta(hours=1)
+    coord.episodic.update_last_accessed(rec_id, stale)
+    pre = coord.episodic.get(rec_id)
+    assert pre is not None and pre.last_accessed == stale
+
+    retrieved = coord.retrieve_for_board(b, k=3)
+    assert any(m.record.id == rec_id for m in retrieved)
+
+    post = coord.episodic.get(rec_id)
+    assert post is not None and post.last_accessed is not None
+    assert post.last_accessed > stale

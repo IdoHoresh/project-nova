@@ -2,6 +2,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from nova_agent.memory.aversive import AVERSIVE_TAG, is_inert
 from nova_agent.memory.types import MemoryRecord
 
 
@@ -47,6 +48,24 @@ class RetrievedMemory:
     score: float
 
 
+AVERSIVE_RELEVANCE_FLOOR = 0.4
+AVERSIVE_WIDENED_RELEVANCE = 0.7
+
+
+def _enforce_aversive_cap(scored: list[RetrievedMemory]) -> list[RetrievedMemory]:
+    """Defense A from §3.6 — at most one aversive record per move.
+
+    Keeps relative score order otherwise. The single aversive kept is the
+    highest-scoring one; the rest are dropped from the candidate set before
+    truncation to top-k.
+    """
+    aversive = [m for m in scored if AVERSIVE_TAG in m.record.tags]
+    if len(aversive) <= 1:
+        return scored
+    best_aversive = max(aversive, key=lambda m: m.score)
+    return [m for m in scored if AVERSIVE_TAG not in m.record.tags or m is best_aversive]
+
+
 def retrieve_top_k(
     *,
     candidates: list[MemoryRecord],
@@ -56,13 +75,19 @@ def retrieve_top_k(
     w_recency: float = 1.0,
     w_importance: float = 1.0,
     w_relevance: float = 1.0,
+    aversive_relevance_floor: float = AVERSIVE_RELEVANCE_FLOOR,
 ) -> list[RetrievedMemory]:
     now = now or datetime.now(timezone.utc)
     scored: list[RetrievedMemory] = []
     for rec in candidates:
+        if is_inert(rec):
+            continue
         rec_recency = recency_score(last_accessed=rec.last_accessed or rec.timestamp, now=now)
         rec_relevance = cosine(query_embedding, rec.embedding)
-        importance_norm = (rec.importance - 1) / 9  # 1..10 -> 0..1
+        if AVERSIVE_TAG in rec.tags and rec_relevance > aversive_relevance_floor:
+            rec_relevance = max(rec_relevance, AVERSIVE_WIDENED_RELEVANCE)
+            rec_relevance *= rec.aversive_weight
+        importance_norm = (rec.importance - 1) / 9
         s = combined_score(
             recency=rec_recency,
             importance_norm=importance_norm,
@@ -73,4 +98,5 @@ def retrieve_top_k(
         )
         scored.append(RetrievedMemory(record=rec, score=s))
     scored.sort(key=lambda x: x.score, reverse=True)
-    return scored[:k]
+    capped = _enforce_aversive_cap(scored)
+    return capped[:k]

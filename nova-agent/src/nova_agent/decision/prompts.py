@@ -46,7 +46,7 @@ def build_user_prompt_v2(
     base = build_user_prompt(grid=grid, score=score)
     mem_block = render_memories(memories)
     if mem_block:
-        return f"{base}\n\n{mem_block}"
+        return f"{mem_block}\n\n{base}"
     return base
 
 

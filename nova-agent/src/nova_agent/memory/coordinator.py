@@ -67,4 +67,10 @@ class MemoryCoordinator:
         candidates = [r for r in (self.episodic.get(i) for i in candidate_ids) if r]
         if not candidates:
             return []
-        return retrieve_top_k(candidates=candidates, query_embedding=emb, k=k)
+        retrieved = retrieve_top_k(candidates=candidates, query_embedding=emb, k=k)
+        if retrieved:
+            self.episodic.batch_update_last_accessed(
+                [m.record.id for m in retrieved],
+                datetime.now(timezone.utc),
+            )
+        return retrieved
