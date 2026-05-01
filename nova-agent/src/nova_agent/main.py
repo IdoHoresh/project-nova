@@ -11,11 +11,16 @@ from nova_agent.affect.verbalize import describe as describe_affect
 from nova_agent.bus.websocket import EventBus
 from nova_agent.config import get_settings
 from nova_agent.decision.arbiter import should_use_tot
+from nova_agent.decision.heuristic import is_game_over
 from nova_agent.decision.react import Decision, ReactDecider
 from nova_agent.decision.tot import ToTDecider
 from nova_agent.llm.factory import build_llm
+from nova_agent.memory.aversive import is_catastrophic_loss, tag_aversive
+from nova_agent.llm.protocol import LLM
 from nova_agent.memory.coordinator import MemoryCoordinator
-from nova_agent.memory.types import AffectSnapshot
+from nova_agent.memory.semantic import SemanticStore
+from nova_agent.memory.types import AffectSnapshot, MemoryRecord
+from nova_agent.reflection import run_reflection
 from nova_agent.perception.capture import Capture
 from nova_agent.perception.ocr import BoardOCR, CalibrationError
 from nova_agent.perception.types import BoardState
@@ -25,6 +30,74 @@ log = structlog.get_logger()
 
 def _empty_board() -> BoardState:
     return BoardState(grid=[[0] * 4 for _ in range(4)], score=0)
+
+
+def _summarize_moves(records: list[MemoryRecord], *, limit: int = 30) -> str:
+    """Compact text summary of the most recent N episodic records.
+
+    Reflection LLM reads this verbatim, so keep one line per move and lead
+    with the action+delta — that's the signal that drives lesson extraction.
+    """
+    lines: list[str] = []
+    for rec in records[:limit]:
+        score_part = f"{rec.score_delta:+d}" if rec.score_delta else "0"
+        reasoning = (rec.source_reasoning or "—").replace("\n", " ")[:80]
+        lines.append(f"[{rec.id}] {rec.action} delta={score_part} | {reasoning}")
+    return "\n".join(lines) or "(no moves recorded)"
+
+
+async def _run_post_game(
+    *,
+    bus: EventBus,
+    memory: MemoryCoordinator,
+    semantic: SemanticStore,
+    affect: AffectState,
+    reflection_llm: LLM,
+    final_board: BoardState,
+) -> None:
+    """Game-over hook: aversive-tag preconditions, run reflection, persist
+    semantic rules, reset affect (defense D), publish events.
+    """
+    last_30 = memory.episodic.list_recent(limit=30)
+    catastrophic = is_catastrophic_loss(
+        final_score=final_board.score,
+        max_tile_reached=final_board.max_tile,
+        last_empty_cells=final_board.empty_cells,
+    )
+    if catastrophic and last_30:
+        last_5 = last_30[:5]
+        tagged = tag_aversive(precondition_records=last_5, was_catastrophic=True)
+        for rec in tagged:
+            memory.episodic.update(rec)
+            memory.upsert_aversive_record(rec)
+
+    prior_lessons = [r["rule"] for r in semantic.all_rules()]
+    summary = _summarize_moves(last_30)
+    try:
+        reflection = run_reflection(
+            llm=reflection_llm,
+            last_30_moves_summary=summary,
+            prior_lessons=prior_lessons,
+        )
+    except Exception as exc:  # reflection is best-effort; never block restart
+        log.warning("reflection.failed", error=str(exc))
+        reflection = {"summary": "", "lessons": [], "notable_episodes": []}
+
+    notable = reflection.get("notable_episodes") or []
+    for lesson in reflection.get("lessons") or []:
+        semantic.add_rule(rule=lesson, citations=list(notable))
+
+    await bus.publish(
+        "game_over",
+        {
+            "final_score": final_board.score,
+            "max_tile": final_board.max_tile,
+            "catastrophic": catastrophic,
+            "summary": reflection.get("summary", ""),
+            "lessons": reflection.get("lessons", []),
+        },
+    )
+    affect.reset_for_new_game()
 
 
 async def run() -> None:
@@ -51,10 +124,17 @@ async def run() -> None:
         anthropic_api_key=s.anthropic_api_key,
         daily_cap_usd=s.daily_budget_usd,
     )
+    reflection_llm = build_llm(
+        model=s.reflection_model,
+        google_api_key=s.google_api_key,
+        anthropic_api_key=s.anthropic_api_key,
+        daily_cap_usd=s.daily_budget_usd,
+    )
     decider = ReactDecider(llm=decision_llm)
     tot_decider = ToTDecider(llm=deliberation_llm, bus=bus)
     ocr = BoardOCR()
     memory = MemoryCoordinator(sqlite_path=s.sqlite_path, lancedb_path=s.lancedb_path)
+    semantic = SemanticStore(s.sqlite_path.parent / "semantic.db")
     affect = AffectState()
 
     log.info("nova.started", model=s.decision_model, device=s.adb_device_id)
@@ -72,6 +152,17 @@ async def run() -> None:
             png_bytes = Capture.to_vlm_bytes(image)
             b64 = base64.b64encode(png_bytes).decode("ascii")
             await bus.publish("perception", {"score": board.score, "step": step})
+
+            if is_game_over(board):
+                await _run_post_game(
+                    bus=bus,
+                    memory=memory,
+                    semantic=semantic,
+                    affect=affect,
+                    reflection_llm=reflection_llm,
+                    final_board=board,
+                )
+                break
 
             retrieved = memory.retrieve_for_board(board, k=5)
             await bus.publish(

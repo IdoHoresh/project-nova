@@ -59,3 +59,23 @@ class AffectState:
             confidence=_clamp(confidence, 0.0, 1.0),
         )
         return self.vector
+
+    def reset_for_new_game(self) -> AffectVector:
+        """§3.6 defense D — cross-game affect reset on game_start.
+
+        Fast variables (anxiety, frustration, dopamine) are zeroed; valence
+        is a slow variable so it carries over partially (×0.3) by design.
+        Arousal and confidence reset to baseline. Logged as a hygiene step,
+        not a load-bearing spiral defense.
+        """
+        v = self.vector
+        baseline = AffectVector()
+        self.vector = AffectVector(
+            valence=v.valence * 0.3,
+            arousal=baseline.arousal,
+            dopamine=0.0,
+            frustration=0.0,
+            anxiety=0.0,
+            confidence=baseline.confidence,
+        )
+        return self.vector

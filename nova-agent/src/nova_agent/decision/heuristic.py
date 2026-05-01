@@ -64,6 +64,15 @@ def _simulate(board: BoardState, direction: SwipeAction) -> tuple[BoardState, in
     return BoardState(grid=g, score=board.score + gains), gains
 
 
+def is_game_over(board: BoardState) -> bool:
+    """True iff no swipe direction changes the board.
+
+    Used as the trigger for post-game reflection (Task 36) and aversive
+    tagging (Task 31 game-over hook).
+    """
+    return all(_simulate(board, d)[0].grid == board.grid for d in _DIRS)
+
+
 def take_the_best(*, board: BoardState) -> SwipeAction:
     """Take-The-Best heuristic.
 
