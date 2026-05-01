@@ -61,7 +61,23 @@ async def run() -> None:
             await bus.publish("perception", {"score": board.score, "step": step})
 
             retrieved = memory.retrieve_for_board(board, k=5)
-            await bus.publish("memory_retrieved", {"count": len(retrieved)})
+            await bus.publish(
+                "memory_retrieved",
+                {
+                    "items": [
+                        {
+                            "id": m.record.id,
+                            "importance": m.record.importance,
+                            "action": m.record.action,
+                            "score_delta": m.record.score_delta,
+                            "reasoning": m.record.source_reasoning,
+                            "tags": m.record.tags,
+                            "preview_grid": m.record.board_before.grid,
+                        }
+                        for m in retrieved
+                    ]
+                },
+            )
 
             decision = decider.decide_with_context(
                 board=board, screenshot_b64=b64, memories=retrieved
@@ -87,7 +103,10 @@ async def run() -> None:
                     importance=1,
                     source_reasoning=prev_reasoning,  # type: ignore[has-type]
                 )
-                await bus.publish("memory_write", {"id": rec_id, "importance": 1})
+                await bus.publish(
+                    "memory_write",
+                    {"id": rec_id, "importance": 1, "tags": []},
+                )
 
             prev_board = board
             prev_action = decision.action
