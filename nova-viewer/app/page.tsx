@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import { AffectLabel } from "./components/AffectLabel";
 import { DopamineBar } from "./components/DopamineBar";
+import { GameStream } from "./components/GameStream";
 import { MemoryFeed } from "./components/MemoryFeed";
 import { MoodGauge } from "./components/MoodGauge";
 import { useNovaSocket } from "@/lib/websocket";
@@ -72,8 +73,7 @@ export default function Home() {
 
       <div className="grid grid-cols-3 gap-8">
         <section className="bg-zinc-900/50 rounded p-4">
-          <h2 className="text-lg mb-2 text-zinc-400">Live game (placeholder)</h2>
-          <div className="aspect-[9/16] bg-black rounded" />
+          <GameStream />
         </section>
 
         <section className="bg-zinc-900/50 rounded p-4 space-y-6">
