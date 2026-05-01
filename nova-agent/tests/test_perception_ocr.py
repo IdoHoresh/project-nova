@@ -20,6 +20,7 @@ def test_ocr_reads_known_boards(name: str, exp: dict) -> None:
     ocr = BoardOCR()
     state = ocr.read(img)
     assert state.grid == exp["grid"], f"{name}: grid mismatch"
+    assert state.score == exp["score"], f"{name}: score mismatch"
 
 
 def test_ocr_recalibrates_when_image_size_changes() -> None:

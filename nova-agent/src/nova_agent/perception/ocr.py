@@ -24,11 +24,13 @@ not substitute it.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
 import cv2
 import numpy as np
+import pytesseract
 from PIL import Image
 
 from nova_agent.perception.types import BoardState
@@ -103,6 +105,30 @@ def calibrate_board_bbox(image: Image.Image) -> BoardBBox:
     return BoardBBox(top=y, left=x, cell_size=cell_size)
 
 
+def _read_score(image: Image.Image, bbox: BoardBBox) -> int:
+    """Read the score HUD ('Score: 000000016') overlaid on the row 0 / row 1
+    boundary band of the Unity 6 fork. White-text-on-mixed-tiles is a hard
+    OCR target raw; we mask near-white pixels (text) into a binary image and
+    invert before passing to Tesseract for stable digit extraction.
+
+    Returns 0 when OCR finds no digit — matches the placeholder behavior of
+    earlier ticks so retrieval never crashes on a transient HUD glitch.
+    """
+    boundary = bbox.top + bbox.cell_size
+    band = image.crop((0, boundary - 25, image.width, boundary + 50))
+    arr = np.asarray(band.convert("RGB"))
+    gray = arr.min(axis=2)
+    mask = (gray > 200).astype(np.uint8) * 255
+    pad = 30
+    padded = cv2.copyMakeBorder(mask, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+    inv = cv2.bitwise_not(padded)
+    text = pytesseract.image_to_string(
+        inv, config="--psm 7 -c tessedit_char_whitelist=0123456789"
+    )
+    m = re.search(r"(\d+)", text)
+    return int(m.group(1)) if m else 0
+
+
 @dataclass
 class BoardOCR:
     bbox: Optional[BoardBBox] = None
@@ -128,4 +154,5 @@ class BoardOCR:
                 rgb = (int(med[0]), int(med[1]), int(med[2]))
                 value, _ = _nearest_tile(rgb)
                 grid[r][c] = value
-        return BoardState(grid=grid, score=0)
+        score = _read_score(image, bbox)
+        return BoardState(grid=grid, score=score)
