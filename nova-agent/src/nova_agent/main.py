@@ -112,11 +112,17 @@ async def run() -> None:
         screen_w=1080,
         screen_h=2400,
     )
+    # ReactDecider is the hot path: low latency, structured-JSON-only output.
+    # Disable Gemini thinking for the decision LLM so the entire
+    # max_output_tokens budget is available for the visible JSON payload.
+    # Pro / Anthropic deciders handle thinking_budget=0 silently (Anthropic
+    # ignores; Pro is not used here — Flash is the dev-tier decision model).
     decision_llm = build_llm(
         model=s.decision_model,
         google_api_key=s.google_api_key,
         anthropic_api_key=s.anthropic_api_key,
         daily_cap_usd=s.daily_budget_usd,
+        thinking_budget=0,
     )
     deliberation_llm = build_llm(
         model=s.deliberation_model,

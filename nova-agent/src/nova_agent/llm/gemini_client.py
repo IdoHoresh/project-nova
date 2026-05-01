@@ -38,10 +38,23 @@ def _to_gemini_content(messages: list[dict[str, Any]]) -> list[types.Content]:
 
 
 class GeminiLLM:
-    def __init__(self, *, api_key: str, model: str, daily_cap_usd: float):
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        daily_cap_usd: float,
+        thinking_budget: int | None = None,
+    ):
         self._client = genai.Client(api_key=api_key)
         self.model = model
         self.budget = BudgetGuard(daily_cap_usd=daily_cap_usd)
+        # thinking_budget=None → SDK default (model decides). thinking_budget=0
+        # disables thinking entirely (Flash only — Pro rejects 0). Positive
+        # values cap thinking tokens. Without this knob, Flash burns the entire
+        # max_output_tokens budget on hidden reasoning and returns a truncated
+        # JSON payload (latent issue #4).
+        self.thinking_budget = thinking_budget
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
     def complete(
@@ -53,12 +66,17 @@ class GeminiLLM:
         temperature: float = 0.7,
     ) -> tuple[str, Usage]:
         contents = _to_gemini_content(messages)
-        config = types.GenerateContentConfig(
+        config_kwargs: dict[str, Any] = dict(
             system_instruction=system,
             max_output_tokens=max_tokens,
             temperature=temperature,
             response_mime_type="application/json",  # request strict JSON
         )
+        if self.thinking_budget is not None:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(
+                thinking_budget=self.thinking_budget
+            )
+        config = types.GenerateContentConfig(**config_kwargs)
         resp = self._client.models.generate_content(
             model=self.model,
             contents=contents,  # type: ignore[arg-type]
