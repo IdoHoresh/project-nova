@@ -17,6 +17,8 @@ export interface AffectVectorDTO {
   confidence: number;
 }
 
+export type AgentMode = "react" | "tot";
+
 export type AgentEvent =
   | { event: "perception"; data: { score: number; step: number; grid?: number[][] } }
   | {
@@ -27,6 +29,7 @@ export type AgentEvent =
         observation: string;
         confidence: string;
         affect_text?: string;
+        mode?: AgentMode;
       };
     }
   | {
@@ -35,4 +38,6 @@ export type AgentEvent =
     }
   | { event: "memory_write"; data: { id: string; importance: number; tags?: string[] } }
   | { event: "memory_retrieved"; data: { items: RetrievedMemoryDTO[] } }
+  | { event: "mode"; data: { mode: AgentMode; step?: number } }
+  | { event: "trauma_active"; data: { active: boolean } }
   | { event: string; data: unknown };

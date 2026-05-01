@@ -15,7 +15,7 @@ from nova_agent.decision.heuristic import is_game_over
 from nova_agent.decision.react import Decision, ReactDecider
 from nova_agent.decision.tot import ToTDecider
 from nova_agent.llm.factory import build_llm
-from nova_agent.memory.aversive import is_catastrophic_loss, tag_aversive
+from nova_agent.memory.aversive import AVERSIVE_TAG, is_catastrophic_loss, tag_aversive
 from nova_agent.llm.protocol import LLM
 from nova_agent.memory.coordinator import MemoryCoordinator
 from nova_agent.memory.semantic import SemanticStore
@@ -165,6 +165,7 @@ async def run() -> None:
                 break
 
             retrieved = memory.retrieve_for_board(board, k=5)
+            trauma_active = any(AVERSIVE_TAG in m.record.tags for m in retrieved)
             await bus.publish(
                 "memory_retrieved",
                 {
@@ -182,6 +183,7 @@ async def run() -> None:
                     ]
                 },
             )
+            await bus.publish("trauma_active", {"active": trauma_active})
 
             affect_text = describe_affect(affect.vector)
             mode = "tot" if should_use_tot(board=board, affect=affect.vector) else "react"
@@ -215,7 +217,7 @@ async def run() -> None:
             if prev_board is not None and prev_decision is not None:
                 score_delta = board.score - prev_board.score
                 delta_rpe = compute_rpe(actual_score_delta=score_delta, board_before=prev_board)
-                trauma_triggered = any("trauma" in m.record.tags for m in retrieved)
+                trauma_triggered = any(AVERSIVE_TAG in m.record.tags for m in retrieved)
                 v = affect.update(
                     rpe=delta_rpe,
                     empty_cells=board.empty_cells,

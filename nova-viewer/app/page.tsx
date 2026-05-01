@@ -4,9 +4,11 @@ import { useMemo } from "react";
 
 import { BrainPanel } from "./components/BrainPanel";
 import { GameStream } from "./components/GameStream";
+import { TraumaIndicator } from "./components/TraumaIndicator";
 import { useNovaSocket } from "@/lib/websocket";
 import type {
   AffectVectorDTO,
+  AgentMode,
   RetrievedMemoryDTO,
 } from "@/lib/types";
 
@@ -62,6 +64,28 @@ export default function Home() {
     return "";
   }, [events]);
 
+  const mode = useMemo<AgentMode>(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (e.event === "mode") {
+        const d = e.data as { mode?: AgentMode };
+        if (d.mode === "tot" || d.mode === "react") return d.mode;
+      }
+    }
+    return "react";
+  }, [events]);
+
+  const traumaActive = useMemo<boolean>(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (e.event === "trauma_active") {
+        const d = e.data as { active?: boolean };
+        return Boolean(d.active);
+      }
+    }
+    return false;
+  }, [events]);
+
   const stats = useMemo<Stats>(() => {
     let score = 0;
     let move = 0;
@@ -84,6 +108,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#1a1614] text-zinc-100 p-8 font-mono text-sm">
+      <TraumaIndicator active={traumaActive} />
       <header className="flex justify-between items-baseline mb-4">
         <h1 className="text-2xl">Project Nova — brain panel</h1>
         <span
@@ -109,6 +134,7 @@ export default function Home() {
             move={stats.move}
             games={stats.games}
             best={stats.best}
+            mode={mode}
           />
         </section>
       </div>
