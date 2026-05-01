@@ -32,3 +32,4 @@ class MemoryRecord:
     last_accessed: datetime | None = None
     source_reasoning: str | None = None
     affect: AffectSnapshot | None = None
+    aversive_weight: float = 0.0

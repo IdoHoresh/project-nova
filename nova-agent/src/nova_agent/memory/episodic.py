@@ -20,11 +20,19 @@ CREATE TABLE IF NOT EXISTS episodic (
     tags TEXT NOT NULL,
     embedding TEXT NOT NULL,
     source_reasoning TEXT,
-    affect TEXT
+    affect TEXT,
+    aversive_weight REAL NOT NULL DEFAULT 0.0
 );
 CREATE INDEX IF NOT EXISTS idx_episodic_timestamp ON episodic(timestamp);
 CREATE INDEX IF NOT EXISTS idx_episodic_importance ON episodic(importance);
 """
+
+
+def _ensure_aversive_weight_column(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(episodic)").fetchall()}
+    if "aversive_weight" not in cols:
+        conn.execute("ALTER TABLE episodic ADD COLUMN aversive_weight REAL NOT NULL DEFAULT 0.0")
+        conn.commit()
 
 
 def _board_to_json(b: BoardState) -> str:
@@ -51,6 +59,7 @@ def _record_to_row(r: MemoryRecord) -> tuple[object, ...]:
         json.dumps(r.embedding),
         r.source_reasoning,
         json.dumps(r.affect.__dict__) if r.affect else None,
+        r.aversive_weight,
     )
 
 
@@ -72,6 +81,7 @@ def _row_to_record(row: sqlite3.Row) -> MemoryRecord:
         embedding=json.loads(row["embedding"]),
         source_reasoning=row["source_reasoning"],
         affect=AffectSnapshot(**affect_d) if affect_d else None,
+        aversive_weight=row["aversive_weight"] if "aversive_weight" in row.keys() else 0.0,
     )
 
 
@@ -82,14 +92,18 @@ class EpisodicStore:
         self._conn = sqlite3.connect(self.path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        _ensure_aversive_weight_column(self._conn)
         self._conn.commit()
 
     def insert(self, r: MemoryRecord) -> None:
         self._conn.execute(
-            "INSERT OR REPLACE INTO episodic VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO episodic VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             _record_to_row(r),
         )
         self._conn.commit()
+
+    def update(self, r: MemoryRecord) -> None:
+        self.insert(r)
 
     def get(self, id: str) -> MemoryRecord | None:
         row = self._conn.execute("SELECT * FROM episodic WHERE id = ?", (id,)).fetchone()
