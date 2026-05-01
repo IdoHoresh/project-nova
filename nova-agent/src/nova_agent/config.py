@@ -16,6 +16,12 @@ class Settings(BaseSettings):
         env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
+        # Process env takes precedence over .env by default. If a parent shell
+        # exports an alias as an empty string (common for ANTHROPIC_API_KEY in
+        # CI / template shell rcs), it shadows the populated .env value and
+        # produces confusing "auth header not set" errors at API call time.
+        # Treat empty exports as "unset" so the .env wins.
+        env_ignore_empty=True,
     )
 
     # Required secrets — TWO providers
