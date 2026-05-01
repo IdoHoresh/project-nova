@@ -1,0 +1,80 @@
+# Hand-labeled boards captured from the Unity 6 fork running on Pixel_6_API_34.
+# Captured 2026-05-01 via `adb shell input keyevent` (DPAD_UP/LEFT/DOWN/RIGHT).
+#
+# Notes specific to this fork (not canonical 2048):
+#   - Initial spawn = 3 tiles (canonical = 2).
+#   - Score does not always increment on merges; trust per-board `score` field.
+#   - HUD ("Score:" / "Best: 0") overlays the row 0 / row 1 boundary band.
+#     The OCR sampling strategy must be robust to that band.
+
+board_0:
+  grid:
+    - [2, 0, 2, 0]
+    - [0, 0, 0, 0]
+    - [0, 2, 0, 0]
+    - [0, 0, 0, 0]
+  score: 0
+
+board_1:
+  grid:
+    - [2, 2, 2, 0]
+    - [0, 0, 0, 2]
+    - [0, 0, 0, 0]
+    - [0, 0, 0, 0]
+  score: 0
+
+board_2:
+  grid:
+    - [4, 2, 0, 0]
+    - [2, 0, 2, 0]
+    - [0, 0, 0, 0]
+    - [0, 0, 0, 0]
+  score: 0
+
+board_3:
+  grid:
+    - [4, 0, 0, 0]
+    - [0, 0, 0, 0]
+    - [4, 0, 0, 0]
+    - [2, 2, 2, 0]
+  score: 0
+
+board_4:
+  grid:
+    - [0, 0, 0, 4]
+    - [2, 0, 0, 0]
+    - [0, 0, 0, 4]
+    - [0, 0, 2, 4]
+  score: 4
+
+board_5:
+  grid:
+    - [2, 0, 2, 8]
+    - [0, 0, 2, 4]
+    - [0, 0, 0, 0]
+    - [0, 0, 0, 0]
+  score: 8
+
+board_6:
+  grid:
+    - [4, 8, 0, 0]
+    - [2, 4, 0, 0]
+    - [0, 0, 2, 0]
+    - [0, 0, 0, 0]
+  score: 16
+
+board_7:
+  grid:
+    - [0, 0, 0, 2]
+    - [0, 0, 0, 0]
+    - [4, 8, 0, 0]
+    - [2, 4, 2, 0]
+  score: 16
+
+board_8:
+  grid:
+    - [4, 8, 2, 2]
+    - [2, 4, 0, 0]
+    - [0, 0, 2, 0]
+    - [0, 0, 0, 0]
+  score: 16

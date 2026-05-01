@@ -3,7 +3,6 @@ import base64
 import sys
 
 import structlog
-from PIL.Image import Image
 
 from nova_agent.action.adb import ADB, SwipeDirection
 from nova_agent.bus.websocket import EventBus
@@ -11,17 +10,13 @@ from nova_agent.config import get_settings
 from nova_agent.decision.react import ReactDecider
 from nova_agent.llm.factory import build_llm
 from nova_agent.perception.capture import Capture
+from nova_agent.perception.ocr import BoardOCR, CalibrationError
 from nova_agent.perception.types import BoardState
 
 log = structlog.get_logger()
 
 
-def _placeholder_perceive(image: Image) -> BoardState:
-    """Week 1 placeholder — no OCR yet, return empty board.
-
-    Replaced by real OCR at Task 10.
-    """
-    log.warning("perception.placeholder_in_use", image_size=image.size)
+def _empty_board() -> BoardState:
     return BoardState(grid=[[0] * 4 for _ in range(4)], score=0)
 
 
@@ -44,12 +39,18 @@ async def run() -> None:
         daily_cap_usd=s.daily_budget_usd,
     )
     decider = ReactDecider(llm=decision_llm)
+    ocr = BoardOCR()
 
     log.info("nova.started", model=s.decision_model, device=s.adb_device_id)
     try:
         for step in range(50):
             image = capture.grab_stable()
-            board = _placeholder_perceive(image)
+            try:
+                board = ocr.read(image)
+            except CalibrationError as exc:
+                log.warning("perception.calibration_failed", error=str(exc))
+                board = _empty_board()
+            log.info("perception.read", step=step, grid=board.grid, score=board.score)
             png_bytes = Capture.to_vlm_bytes(image)
             b64 = base64.b64encode(png_bytes).decode("ascii")
             await bus.publish("perception", {"score": board.score, "step": step})
