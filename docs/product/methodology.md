@@ -124,6 +124,123 @@ layer to specific games. Each signature has a clear falsification criterion
 and a clear KPI mapping (next section). Adding a fifth signature requires
 new evidence that an outcome category isn't covered by these four.
 
+### 1.6 Future work: long-horizon simulation (Day-N retention prediction)
+
+Phase 4 of the roadmap extends Nova from single-session prediction
+("does this level frustrate Casual Carla?") to multi-session simulation
+("does the difficulty curve in weeks 1-4 produce the Day-30 retention
+curve the studio is forecasting?"). This is the question UA Managers and
+Live Ops Directors actually buy answers to, and Nova is architecturally
+positioned to answer it without taking 30 calendar days to do so.
+
+The mechanism is **time compression** (via the Unity SDK's clock-advance
+primitive, Nova plays 30 simulated days in ~15 minutes of wall-clock) plus
+**cognitive carryover** — the agent's memory and affect baselines persist
+across simulated sessions, so Day 3's frustration shapes Day 17's churn
+risk via accumulated affective load.
+
+#### 1.6.1 Multi-rate memory decay
+
+Current Nova treats all memory channels as if they had the same temporal
+persistence. Real human memory does not. For multi-day simulation, we
+apply differentiated decay matched to the three established memory
+channels (Tulving, 1972):
+
+| Channel | What it stores | Half-life (simulated time) | Literature anchor |
+|---------|----------------|------------------------------|---------------------|
+| **Episodic** | Specific past events (per-move board states, individual decisions) | ~24 hours | Ebbinghaus (1885); modernized by Murre & Dros (2015) |
+| **Semantic** | Generalized lessons from reflection (post-game extracted rules) | ~7 days | Bahrick (1984) on long-term retention with sparse retrieval |
+| **Affective baseline** ("the scar") | Persistent shifts in mood/anxiety from significant negative events | ~30 days, asymptotic floor (never returns to zero) | Yehuda et al. on stress endocrinology; trauma persistence research |
+
+This is what makes the "Day-3 frustration → Day-17 churn" prediction
+mechanism work. Affective scars persist long after episodic details fade,
+so accumulated negative-experience weight raises baseline anxiety enough
+to shorten the cognitive buffer for normal challenges later in the
+simulated month.
+
+The half-life values above are literature-anchored defaults. They will
+be calibrated against real per-cohort retention data from paid pilots
+(Phase 6 onwards). The calibrated values become part of the validation
+corpus moat — every studio's pilot data refines our decay coefficients
+against their actual user base.
+
+#### 1.6.2 Cohort-distribution reporting (handling compounding error)
+
+A single 30-day trajectory accumulates error exponentially. Small
+inaccuracies in single-day affect dynamics compound into noise by Day
+30. This is the same mathematical reality that limits weather forecasting
+beyond ~10 days regardless of model quality.
+
+**Mitigation:** Nova never reports a single-trajectory point prediction
+for Day-N retention. Instead, every long-horizon prediction is reported
+as a cohort distribution:
+
+- Run N=50+ personas with the same baseline through the simulated 30-day
+  arc
+- Report the median, P25, P75, and 95% confidence interval of the
+  Signature-Alpha firing rate at each day
+- Honest 30-day prediction format: **"Median 28% Day-30 churn (95% CI
+  [22%, 38%]), driven by accumulated affective baseline drift over the
+  Day 3-7 difficulty band"**
+
+The widening confidence interval *is* the prediction — it makes the
+inherent uncertainty visible and actionable. Studios use the
+distribution shape (not just the median) to make decisions: a wide CI
+means "this design has high outcome variance, run it past more human
+playtesters before shipping;" a tight CI means "this design produces
+consistent player reactions across personas, ship with confidence."
+
+#### 1.6.3 What needs to be built
+
+The single-session machinery validated in Phase 0.7 / 0.8 supports the
+single-day case. Long-horizon simulation requires three additional
+implementation pieces:
+
+- **Simulated-time clock primitive.** A `SimulatedClock` service that
+  advances the virtual game clock and Nova's internal time counter in
+  lockstep, exposed via the Unity SDK as a `FastForward(timedelta)`
+  call. Decay functions consume the clock's elapsed-since-last-event
+  reading per memory record.
+- **Multi-rate decay function on memory records.** Each `EpisodicRecord`
+  and `SemanticRule` gains a `last_decay_check_at_simulated_time` field.
+  On retrieval, weight is recomputed via the channel's exponential decay
+  function. Affective baseline state is similarly decayed between
+  sessions.
+- **Cross-session state persistence.** A `PlayerState` snapshot that
+  captures `AffectVector` baselines + memory store state at session-end
+  and restores them at next-session-start, with the decay applied for
+  the elapsed simulated gap. Already partially supported by
+  `AffectState.reset_for_new_game()` (Task 36); needs extension to soft-
+  reset rather than hard-reset.
+
+**Estimated implementation:** 1-2 weeks of focused work in Phase 4. See
+the corresponding work unit in [`product-roadmap.md`](./product-roadmap.md)
+§4.6.
+
+#### 1.6.4 Why this isn't validated yet
+
+Three reasons we ship this as future work, not as a current capability:
+
+1. **The basics must validate first.** Phase 0.7 (cliff test) and Phase
+   0.8 (trauma ablation) test the single-session machinery. If the
+   single-session affect predictions don't track human pain (Phase 0.7
+   fails), there's no point extending to multi-day. Long-horizon work
+   gates on those two passes.
+
+2. **Decay parameters need calibration data.** Half-lives are
+   literature-anchored defaults; per-game and per-genre calibration
+   requires real-user retention curves to fit against. We get that data
+   from paid pilots, not from internal validation.
+
+3. **Compounding error needs validation too.** The cohort-distribution
+   reporting principle is sound in theory; whether the actual confidence
+   intervals stay narrow enough to be commercially useful at Day 30 is
+   an empirical question. If the CI grows to ±25 percentage points by
+   Day 30 across all personas, the prediction is too noisy to be
+   actionable and we ship "5-day prediction with high confidence" rather
+   than "30-day prediction with low confidence." The product framing
+   adapts to whatever the empirical width turns out to be.
+
 ---
 
 ## 2. Signature → KPI Translation
@@ -361,3 +478,21 @@ load-bearing for this methodology:
   cognitive approach).
 - **GameAnalytics (2025).** Mobile gaming retention benchmarks report. —
   D1/D7 retention baselines used in Signature Delta KPI mapping.
+- **Tulving, E. (1972).** "Episodic and semantic memory." In *Organization
+  of Memory*, 381-403. Academic Press. — Foundation for Nova's
+  three-channel memory model (§1.6).
+- **Ebbinghaus, H. (1885).** *Über das Gedächtnis* (On Memory). — Original
+  forgetting curve; episodic-channel decay model.
+- **Murre, J.M.J., & Dros, J. (2015).** "Replication and analysis of
+  Ebbinghaus' forgetting curve." *PLoS ONE*, 10(7), e0120644. — Modern
+  replication of Ebbinghaus' decay rates.
+- **Bahrick, H.P. (1984).** "Semantic memory content in permastore: Fifty
+  years of memory for Spanish learned in school." *J. Experimental
+  Psychology: General*, 113(1), 1-29. — Semantic-channel long-term
+  retention; basis for ~7-day half-life default.
+- **Yehuda, R., Halligan, S.L., & Grossman, R. (2001).** "Childhood trauma
+  and risk for PTSD: relationship to intergenerational effects of
+  trauma, parental PTSD, and cortisol excretion." *Development &
+  Psychopathology*, 13(3), 733-753. — Affective-baseline persistence
+  research; basis for Nova's slow-decay-with-floor model on the affective
+  channel.

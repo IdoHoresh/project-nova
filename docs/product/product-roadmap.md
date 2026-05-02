@@ -30,14 +30,14 @@
 | **1** | **Unity SDK** + GameAdapter abstraction + Tetris port (proof of generality) + hybrid local+API inference | 6–8 weeks | week 12 | ~$100 + $1.5K hardware |
 | **2** | Exploration learning + general perception ("drop in any game") | 8–12 weeks | week 24 | ~$200 |
 | **3** | Persona system v1 (4 personas) → v2 (10 personas) | 2–3 weeks (parallel with 2) | week 24 | ~$100 |
-| **4** | **KPI Translation Layer + Validation Report** (lead deliverable) | 4–6 weeks | week 30 | ~$200 |
-| **5** | Production infra (headless emulators, multi-tenant API, billing) | 8–12 weeks | week 42 | $500–2K cloud |
-| **6** | First 3 paid pilots, real-user validation corpus, iterate | open-ended | from week 31 onward | revenue from here |
+| **4** | **KPI Translation Layer + Validation Report** (lead deliverable) + Long-Horizon Simulation Loop (§4.6) | 5–8 weeks | week 32 | ~$250 |
+| **5** | Production infra (headless emulators, multi-tenant API, billing) | 8–12 weeks | week 44 | $500–2K cloud |
+| **6** | First 3 paid pilots, real-user validation corpus, iterate | open-ended | from week 33 onward | revenue from here |
 
-**MVP-as-product:** Phases 0–4 → ~7 months wall-clock, ~$700 in LLM/hardware
-costs.
+**MVP-as-product:** Phases 0–4 → ~7.5 months wall-clock, ~$750 in
+LLM/hardware costs.
 
-**Polished v1 product:** through Phase 5 → ~10 months wall-clock.
+**Polished v1 product:** through Phase 5 → ~10.5 months wall-clock.
 
 Estimates assume one full-time engineer plus LLM/hardware costs. With a
 second engineer hired around Phase 4, Phases 1–4 can compress to ~5 months.
@@ -454,7 +454,7 @@ their stream logs. Diff them.
 
 ---
 
-## Phase 4 — KPI Translation Layer + Validation Report (weeks 25–30)
+## Phase 4 — KPI Translation Layer + Validation Report + Long-Horizon Simulation (weeks 25–32)
 
 **Reframed scope (key change in v2):** Phase 4's lead deliverable is the
 **KPI Translation Layer**, not the affect-curves dashboard. Affect curves
@@ -493,15 +493,56 @@ Combine a real Nova report (from running the architecture against a sample
 game) with the validation results from Phases 0.7/0.8 + competitive
 positioning. Pitch deck for the first studio conversations.
 
+**4.6 — Long-Horizon Simulation Loop** (1–2 weeks)
+Implements the Day-N retention prediction capability spec'd in
+[`methodology.md`](./methodology.md) §1.6. Three concrete deliverables:
+
+- **Simulated-time clock primitive.** New `nova_agent.lab.SimulatedClock`
+  service exposed via the Unity SDK as `FastForward(timedelta)`.
+  Advances the virtual game clock and Nova's internal time counter in
+  lockstep. Decay functions consume the elapsed-since-last-event reading.
+- **Multi-rate decay function on memory records.** Each `EpisodicRecord`
+  and `SemanticRule` gains `last_decay_check_at_simulated_time`.
+  Implements three-channel decay (episodic ~24h half-life, semantic
+  ~7d, affective ~30d with floor) per the Tulving / Ebbinghaus / Bahrick
+  / Yehuda literature anchors.
+- **Cross-session state persistence.** New `PlayerState` snapshot type
+  that captures `AffectVector` baselines + memory store state at
+  session-end and restores them at next-session-start with decay
+  applied for the elapsed simulated gap. Extends the existing
+  `AffectState.reset_for_new_game()` (Task 36) to soft-reset rather
+  than hard-reset.
+
+**Cohort-distribution reporting:** every long-horizon prediction is
+returned as a distribution (median, P25, P75, 95% CI) across N=50+
+personas, never as a single-trajectory point estimate. The widening CI
+*is* the prediction. Reports use the format: "Median 28% Day-30 churn
+(95% CI [22%, 38%]), driven by accumulated affective baseline drift
+over the Day 3-7 difficulty band."
+
+**Gates this phase has to clear:**
+- Phase 0.7 cliff test passed (single-session affect prediction works)
+- Phase 0.8 trauma ablation passed (Levene's variance reduction
+  significant) — confirms the affective-channel persistence mechanism
+  Nova relies on for the "scar" effect in Day-N predictions
+- Empirical CI-width check: at Day 30 in a synthetic-validation run on
+  2048 with N=50 Casual personas, the 95% CI for Signature Alpha
+  firing rate must stay below ±15 percentage points. If wider, the
+  product framing adapts to "useful Day-N prediction up to N = [the day
+  where CI crossed the threshold]" — honest framing matters more than
+  the longer horizon.
+
 **Exit criteria:**
 - End-to-end: studio uploads APK (or runs SDK-integrated build) → 50
   personas → HTML report in their inbox
 - One real generated report committed to the repo as canonical example
+- One canonical 30-day cohort-distribution report committed as the
+  long-horizon example
 - Pilot deck ready
 
 ---
 
-## Phase 5 — Production infrastructure (weeks 31–42)
+## Phase 5 — Production infrastructure (weeks 33–44)
 
 **Goal:** make Nova rentable at scale. Mostly cloud engineering. Defer
 until Phase 4 has produced a first paid pilot signal.
