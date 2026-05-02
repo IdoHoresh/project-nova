@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — two doc-only files (`LESSONS.md` + `.claude/pre-commit-checklist.md`); no source code touched
-- [x] Atomic commit — single logical change: capture the AgentEvent catch-all anti-pattern lesson and refresh the per-commit checklist for this commit
+- [x] `git diff --cached --stat` reviewed — small CI-fix patch (~30 lines across `.github/workflows/ci.yml` + `nova-viewer/public/window.svg` + checklist), well under the 500 threshold
+- [x] Atomic commit — single logical change: fix CI workflow failures surfaced by PR #1's first run
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — pure prose addition + checklist rewrite; no env / API keys / tokens / URLs touched
-- [x] `nova-agent/` not touched — N/A, doc-only change
-- [x] `nova-viewer/` — full gate trio re-run before staging: `pnpm test` 98/98 across 5 files, `npx tsc --noEmit` exit 0, `pnpm run lint` zero warnings (no source files modified by this commit)
-- [x] Docs / config — LESSONS.md gains one new "Engineering / debugging gotchas" entry above the existing UF_HIDDEN entry (newest-at-top); checklist file rewritten for this commit's scope
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
+- [x] `nova-agent/` not touched in source — N/A, the `tesseract-ocr` apt step lands in `.github/workflows/ci.yml` only
+- [x] `nova-viewer/` only the SVG trailing newline — eof-fixer auto-fixed; static asset only
+- [x] Docs / config only (`.github/workflows/`) — N/A on test runs
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, doc-only change with no behavior risk
-- [x] `security-reviewer` — N/A by trigger; no secrets / env / LLM / bus code touched
+- [x] `code-reviewer` subagent — N/A, CI-config + static-asset change with no executable logic
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — new entry "Discriminated-union catch-alls hide missing variants" added at the top of "Engineering / debugging gotchas"; metadata format (Date / Cost / What happened / Lesson / How to apply) matches existing entries
-- [x] CLAUDE.md "Common gotchas" — N/A, gotcha #9 (AgentEvent catch-all) was resolved by Tasks 1–8 of this branch; the LESSONS entry is the canonical postmortem
+- [x] LESSONS.md — N/A, the CI bumps are infra plumbing; no engineering insight worth capturing
+- [x] CLAUDE.md "Common gotchas" — N/A, the pnpm-9-vs-10 quirk is captured implicitly by the workflow comment
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, no architectural decision; this is the closing doc commit for the AgentEvent validator chain
+- [x] New ADR — N/A, no architectural decision; standard infra fix
 
 ## Commit message
 
-- [x] Conventional Commits format: `docs(lessons): record AgentEvent catch-all anti-pattern`
-- [x] Body explains *why* — captures the postmortem from Tasks 1–8 so future protocol-mirroring work doesn't reach for the same string-keyed catch-all "for safety"; points future contributors at `nova-viewer/lib/eventGuards.ts` as the template for new event types
+- [x] Conventional Commits format: `ci: fix workflow failures surfaced by PR #1 first run`
+- [x] Body explains *why* — pnpm 9 vs 10 workspace-file parsing, missing tesseract on ubuntu-latest, broken cache step, SVG eof-newline; all four were pre-existing CI bugs that surfaced on the first nova-viewer-touching CI run since the workflow landed
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
