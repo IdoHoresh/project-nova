@@ -14,17 +14,17 @@
 | Phase | What | Duration | Cumulative wall-clock | LLM-cost gate |
 |---|---|---|---|---|
 | 0 | Finish v1.0.0 cognitive architecture demo on 2048 | 2 weeks | week 2 | ~$50 |
-| 0.5 | Empirical validation study (Nova vs N=20 humans on 2048) | 3 weeks | week 5 | ~$100 |
-| 1 | `GameAdapter` extraction + Tetris port | 4–6 weeks | week 11 | ~$50 |
-| 2 | Exploration-learning + general perception (the "drop in any game" capability) | 8–12 weeks | week 23 | ~$200 |
-| 3 | Persona system (4 personas v1, 10 personas v2) | 2–3 weeks (parallel with 2) | week 23 | ~$100 |
-| 4 | Reporting + A/B comparison layer | 4–6 weeks | week 29 | ~$200 |
-| 5 | Production infra (headless emulator farm, multi-tenant API, billing) | 8–12 weeks | week 41 | $500–2K cloud |
-| 6 | First 3 paid pilots, validation data, iterate | open-ended | from week 30 onward | revenue from here |
+| 0.5 | Lightweight validation (5 friends-and-family) + repositioning | 1 week | week 3 | $0 |
+| 1 | `GameAdapter` extraction + Tetris port | 4–6 weeks | week 9 | ~$50 |
+| 2 | Exploration-learning + general perception (the "drop in any game" capability) | 8–12 weeks | week 21 | ~$200 |
+| 3 | Persona system (4 personas v1, 10 personas v2) | 2–3 weeks (parallel with 2) | week 21 | ~$100 |
+| 4 | Reporting + A/B comparison layer | 4–6 weeks | week 27 | ~$200 |
+| 5 | Production infra (headless emulator farm, multi-tenant API, billing) | 8–12 weeks | week 39 | $500–2K cloud |
+| 6 | First 3 paid pilots, real-user validation, iterate | open-ended | from week 28 onward | revenue from here |
 
-**MVP-as-product:** Phases 0–4 → ~7 months wall-clock, ~$700 in LLM credits.
+**MVP-as-product:** Phases 0–4 → ~6 months wall-clock, ~$600 in LLM credits.
 
-**Full v1 product:** through Phase 5 → ~10 months wall-clock.
+**Full v1 product:** through Phase 5 → ~9 months wall-clock.
 
 These are realistic estimates assuming one full-time engineer (you) plus
 LLM/infra costs. With a second engineer, Phases 1–4 can run partially in
@@ -58,64 +58,88 @@ foundations make every subsequent phase harder.
 
 ---
 
-## Phase 0.5 — empirical validation study (3 weeks)
+## Phase 0.5 — lightweight validation + repositioning (1 week)
 
-**Goal:** establish the claim "Nova's predictions correlate with real player
-behavior" with measurable r-value.
+**Updated 2026-05-02:** the original phase called for a $600 + 3-week
+formal study (N=20 paid playtesters via PlaytestCloud). Replaced with a
+~$0 + 1-week hybrid that splits formal validation across two stages.
 
-**Why first:** every downstream pitch depends on this claim. Run the study
-before building product. If r is too low, the product needs to reposition
-(see "Open questions" in the README) — better to learn now than after Phase 5.
+**Goal:** get directional evidence that Nova's persona predictions track
+something real about human play, without spending $600 or three weeks
+upfront. Defer the rigorous validation to the first pilot, where real
+users do the work for free.
 
-### Study design
+### Why repositioning matters more than rigorous numbers right now
 
-**Target N:** 20 humans, mix of self-reported "casual," "experienced," and
-"new to 2048." Recruit via PlaytestCloud at ~$30/playtest = ~$600. Or
-unpaid friends-and-family for $0 (tradeoff: less generalizable).
+The product pitch can lean on the **cognitive-architecture-as-design-tool**
+story rather than the **predictor-of-real-players** story. Buyers
+(designers, UA managers, live-ops PMs) value the visible brain-panel
+reasoning — they want to *see* Nova's thought process and judge
+plausibility themselves, not trust a statistical correlation claim sight
+unseen. The brain-panel "show your work" artifact is a stronger first
+sell than r-values.
+
+The rigorous "Nova predicts humans at r=0.X" claim becomes an enterprise-
+upsell artifact later — generated from real pilot user data instead of
+a paid playtest cohort.
+
+### Stage 1 — friends & family lite (1 week, $0)
+
+**Target N:** 5 people you know personally. Mix of "casual" (rarely plays
+2048) and "experienced" (knows the game well). Friends, family, ex-
+colleagues — anyone you can ask in person.
 
 **What humans do:**
-- Play 2048 in the same emulator setup, using the same Pixel 6 AVD + Unity
-  fork, with no time pressure.
-- Think aloud throughout (recorded video).
-- Rate per-move confidence on a 1-5 scale (post-game review).
-- Self-report frustration peak moments (post-game review).
-- Final score, time-to-game-over, total moves.
+- Play 2048 once each in the emulator setup. ~10-20 minutes per session.
+- Think aloud throughout (you take notes; or record audio if comfortable).
+- Single self-report at the end: "what was the most frustrating moment?"
 
 **What Nova does:**
-- Plays the same fixed initial board states (seeded RNG so Nova faces the
-  same opening positions humans faced).
-- One run per persona (Casual, Hardcore, Returning) per seed.
-- Records all internal events (decision reasoning, affect vector trajectory,
-  ToT triggers, trauma tags).
+- Plays the same fixed seeded starting positions as your humans (so
+  comparison is apples-to-apples).
+- Two persona runs per seed: Casual + Hardcore.
 
-**Comparison metrics:**
-- **Score correlation** — Nova final score vs human median
-- **Move-pattern similarity** — edit distance on swipe sequences
-- **Frustration-moment alignment** — does Nova's anxiety_high crossing
-  coincide with human-reported frustration moments?
-- **Game-over move count** — Nova's vs humans'
-- **Reflection content** — does Nova's post-game lesson echo what humans
-  said in their think-aloud?
+**Comparison — directional, not statistical:**
+- Did Nova's `anxiety_high` crossing coincide (within ±2 moves) with the
+  human's self-reported frustration moment? Count hits / 5.
+- Did Nova's final score fall within ±20% of the human's? Count hits / 5.
+- Did Nova's reflection lesson echo something the human said
+  while thinking aloud? Subjective yes/no per session.
 
-**Output deliverable:** a short paper / blog post titled something like
-"Cognitive simulation predicts human player behavior at r=0.[X] on 2048."
-This becomes the artifact every pitch deck references. Even r=0.3 is a
-real claim if it's measured — "we predict moderate-strength correlation
-with real players" is honest and actionable.
+**Honest framing for the pitch deck:** "in our N=5 informal pilot, Nova's
+Casual persona's frustration peak coincided with human frustration in
+[N]/5 cases." Not statistically significant. Real evidence of directional
+alignment. Sufficient for the first 5 studio conversations.
 
-### Why this matters before Phase 1+
+### Stage 2 — first paid (or pilot) studio is the formal validation
 
-If Nova's predictions correlate strongly (r > 0.6), the persona-based
-playtesting pitch is real. Build the product.
+The first studio engagement bundles "free 30-day measurement period" into
+the pilot terms. During that period:
+- Run Nova predictions on the studio's pre-launch build with their persona
+  mix.
+- Studio launches the build to real users.
+- Compare Nova predictions vs real-user metrics 30 days later.
 
-If Nova correlates moderately (0.3 ≤ r ≤ 0.6), reposition: "Nova surfaces
-plausible player reactions for designers to inspect" — still valuable as a
-design tool, not as a predictor. Different pricing, different sales cycle.
+This produces the formal r-value paper / case study **using the studio's
+own real users as the validation cohort**. Free for both sides — they get
+the playtesting tool, you get the validation data.
 
-If Nova correlates weakly (r < 0.3), the cognitive-architecture-as-predictor
-hypothesis fails. The product becomes "exploration agent for QA bug-finding"
-(modl.ai-adjacent, harder to differentiate). Or — pivot away from playtesting
-entirely. Whatever the answer: better to know now.
+### Phase 0.5 exit criteria
+
+- Friends & family hit-rate captured (a small markdown doc in the repo with
+  the raw observations + the 3 directional metrics counted)
+- Pitch deck reframed around "design tool with visible cognitive
+  reasoning" rather than "statistical predictor of real players"
+- First-pilot terms drafted to include the 30-day measurement window
+
+### What changed and why
+
+The original Phase 0.5 made the validation study a gating prerequisite
+("don't sell before Phase 0.5"). That assumed enterprise sales as the
+primary motion. In practice the first-pilot motion is more like
+"friendly studio agrees to try the tool because the demo is compelling
+and the cognitive-architecture story is novel." The validation data is
+upsell ammunition for pilots #2 onwards, not a precondition for pilot #1.
 
 ---
 

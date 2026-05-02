@@ -174,11 +174,15 @@ In priority order (the roadmap doc has the full schedule):
    plan, ~2 weeks remaining). The demo IS the proof-of-architecture for the
    product pitch. Don't pivot mid-build.
 
-2. **Run the empirical validation study** (post-v1.0.0, ~3 weeks). Get N=20
-   actual humans to play 2048 in the emulator alongside Nova. Compare:
-   tutorial drop-off, frustration moment, total session time, score
-   trajectory. Publish the results — this becomes the "Nova's predictions
-   correlate with humans at r=0.X" claim that opens enterprise doors.
+2. **Lightweight validation + repositioning** (post-v1.0.0, ~1 week, $0).
+   Five friends-and-family play 2048 in the emulator; compare directional
+   alignment with Nova's Casual + Hardcore personas. Reframe the pitch
+   around the **cognitive-architecture-as-design-tool** story (visible
+   brain-panel reasoning, persona variety) rather than statistical
+   prediction claims. Defer rigorous validation to the first pilot — the
+   first studio engagement bundles a 30-day measurement window where
+   their real users do the validation work for free. See Phase 0.5 in
+   the roadmap for the full reframe.
 
 3. **Build the GameAdapter abstraction + port to Tetris** (~4-6 weeks). Two
    games proves the architecture. Tetris is well-known, simple action space,
@@ -205,10 +209,13 @@ direction, or land 5–10 pilots if staying bootstrapped.
 These are real risks the research surfaced that the team should be deliberate about:
 
 1. **Does cognitive simulation actually predict human behavior?** Untested
-   for LLM-affect agents specifically. The validation study answers this.
-   If the answer is "no, only loosely," the product needs to reposition as
-   "exploration tool for designers" rather than "predictor of real-player
-   reactions" — still valuable, less defensible pricing.
+   for LLM-affect agents specifically. **Decision (2026-05-02):** the
+   product is positioned from day one as "**design tool with visible
+   cognitive reasoning**" rather than "**statistical predictor of real
+   players**." The brain-panel UI is the trust artifact. Rigorous
+   correlation data accrues from real pilot users in the first paid
+   engagement (free 30-day measurement window bundled into pilot terms),
+   not from upfront paid playtests.
 
 2. **Is the "persona report" deliverable actually what studios buy?** Studios
    want answers, not data. The first pilot has to involve a hands-on
