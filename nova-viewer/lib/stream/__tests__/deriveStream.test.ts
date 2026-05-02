@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { deriveStream } from "../deriveStream";
-import { decisionEv } from "./fixtures";
-import type { DecisionEntry } from "../types";
+import { decisionEv, modeEv } from "./fixtures";
+import type { DecisionEntry, ModeFlipEntry } from "../types";
 
 describe("deriveStream — scaffold", () => {
   it("returns empty stream for empty events", () => {
@@ -39,5 +39,39 @@ describe("deriveStream — routine decisions", () => {
       "decision-1",
       "decision-2",
     ]);
+  });
+});
+
+describe("deriveStream — mode flip", () => {
+  it("emits a mode_flip entry only when mode changes", () => {
+    const stream = deriveStream([
+      modeEv("react"),
+      decisionEv({}),
+      modeEv("react"), // no flip
+      modeEv("tot"),   // flip!
+      decisionEv({ mode: "tot" }),
+    ]);
+    const flips = stream.filter((e) => e.kind === "mode_flip");
+    expect(flips).toHaveLength(1);
+    const f = flips[0] as ModeFlipEntry;
+    expect(f.from).toBe("react");
+    expect(f.to).toBe("tot");
+    expect(f.text).toMatch(/deliberation|tot|deliberat/i);
+  });
+
+  it("does not emit flip for the very first mode event (no prior mode known)", () => {
+    const stream = deriveStream([modeEv("react"), decisionEv({})]);
+    expect(stream.filter((e) => e.kind === "mode_flip")).toHaveLength(0);
+  });
+
+  it("flip entry sits between the events that bracket it (chronological order)", () => {
+    const stream = deriveStream([
+      modeEv("react"),
+      decisionEv({ reasoning: "before flip" }),
+      modeEv("tot"),
+      decisionEv({ reasoning: "after flip", mode: "tot" }),
+    ]);
+    const kinds = stream.map((e) => e.kind);
+    expect(kinds).toEqual(["decision", "mode_flip", "decision"]);
   });
 });
