@@ -3,6 +3,7 @@ import { deriveStream } from "../deriveStream";
 import {
   affectEv,
   decisionEv,
+  gameOverEv,
   makeMemory,
   memoryRetrievedEv,
   modeEv,
@@ -15,6 +16,7 @@ import type { AffectVectorDTO } from "@/lib/types";
 import type {
   AffectCrossingEntry,
   DecisionEntry,
+  GameOverEntry,
   MemoryRecalledEntry,
   ModeFlipEntry,
   ToTBlockEntry,
@@ -291,5 +293,33 @@ describe("deriveStream — trauma coalescing", () => {
       traumaActiveEv(true),
     ]);
     expect(stream.filter((e) => e.kind === "trauma")).toHaveLength(2);
+  });
+});
+
+describe("deriveStream — game_over", () => {
+  it("emits a game_over entry with finalScore + maxTile", () => {
+    const stream = deriveStream([gameOverEv({ finalScore: 1024 })]);
+    const g = stream.find((e) => e.kind === "game_over") as GameOverEntry;
+    expect(g).toBeDefined();
+    expect(g.finalScore).toBe(1024);
+    expect(g.maxTile).toBe(64);
+  });
+
+  it("includes the first lesson when present", () => {
+    const stream = deriveStream([gameOverEv({ lesson: "Don't trap the 16 in a corner." })]);
+    const g = stream.find((e) => e.kind === "game_over") as GameOverEntry;
+    expect(g.lesson).toBe("Don't trap the 16 in a corner.");
+  });
+
+  it("omits lesson when none provided", () => {
+    const stream = deriveStream([gameOverEv({})]);
+    const g = stream.find((e) => e.kind === "game_over") as GameOverEntry;
+    expect(g.lesson).toBeUndefined();
+  });
+
+  it("captures catastrophic flag", () => {
+    const stream = deriveStream([gameOverEv({ catastrophic: true })]);
+    const g = stream.find((e) => e.kind === "game_over") as GameOverEntry;
+    expect(g.catastrophic).toBe(true);
   });
 });

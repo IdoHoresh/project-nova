@@ -2,6 +2,7 @@ import type {
   AgentEvent,
   AffectVectorDTO,
   AgentMode,
+  GameOverData,
   RetrievedMemoryDTO,
   SwipeAction,
   ToTBranchData,
@@ -11,6 +12,7 @@ import type {
   StreamEntry,
   AffectCrossingEntry,
   DecisionEntry,
+  GameOverEntry,
   MemoryRecalledEntry,
   ModeFlipEntry,
   ToTBlockEntry,
@@ -247,6 +249,20 @@ export function deriveStream(
         currentTraumaEntry = null;
       }
       lastTraumaActive = active;
+      continue;
+    }
+    if (e.event === "game_over") {
+      const d = e.data as GameOverData;
+      const entry: GameOverEntry = {
+        kind: "game_over",
+        id: `game_over-${seq++}`,
+        ts: now().toISOString(),
+        finalScore: d.final_score,
+        maxTile: d.max_tile,
+        catastrophic: d.catastrophic,
+        lesson: d.lessons.length > 0 ? d.lessons[0] : undefined,
+      };
+      entries.push(entry);
       continue;
     }
     if (e.event === "decision") {
