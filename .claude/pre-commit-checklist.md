@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — small CI-fix patch (~30 lines across `.github/workflows/ci.yml` + `nova-viewer/public/window.svg` + checklist), well under the 500 threshold
-- [x] Atomic commit — single logical change: fix CI workflow failures surfaced by PR #1's first run
+- [x] `git diff --cached --stat` reviewed — small CI-fix patch (~20 lines across `.github/workflows/ci.yml` + `nova-agent/src/nova_agent/decision/tot.py` + checklist), well under the 500 threshold
+- [x] Atomic commit — single logical change: second-pass CI fixes after `d69e855` resolved 2 of 4 (viewer + security green now)
 
 ## Verification
 
 - [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
-- [x] `nova-agent/` not touched in source — N/A, the `tesseract-ocr` apt step lands in `.github/workflows/ci.yml` only
-- [x] `nova-viewer/` only the SVG trailing newline — eof-fixer auto-fixed; static asset only
-- [x] Docs / config only (`.github/workflows/`) — N/A on test runs
+- [x] `nova-agent/`: only a 4-line `ruff format` cosmetic break (line wrap on a `; ".join(...)` ternary in `tot.py`); no logic change. `uv run ruff format --check` is clean post-fix
+- [x] `nova-viewer/` not touched — N/A, viewer + security jobs already green from `d69e855`
+- [x] Docs / config — `.github/workflows/ci.yml` `pre-commit` job now sets `SKIP=eslint-viewer,tsc-viewer,prettier-viewer,claude-checklist-check` so the Python-only pre-commit runner doesn't try to invoke node-dependent hooks
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, CI-config + static-asset change with no executable logic
+- [x] `code-reviewer` subagent — N/A, CI-config + cosmetic ruff format change with no behavior risk
 - [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, the CI bumps are infra plumbing; no engineering insight worth capturing
-- [x] CLAUDE.md "Common gotchas" — N/A, the pnpm-9-vs-10 quirk is captured implicitly by the workflow comment
+- [x] LESSONS.md — N/A, second-round CI plumbing fix
+- [x] CLAUDE.md "Common gotchas" — N/A, the pre-commit-runner-has-no-node and dev-only-hook semantics are now self-explanatory in the workflow's `SKIP` env block
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, no architectural decision; standard infra fix
+- [x] New ADR — N/A, no architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `ci: fix workflow failures surfaced by PR #1 first run`
-- [x] Body explains *why* — pnpm 9 vs 10 workspace-file parsing, missing tesseract on ubuntu-latest, broken cache step, SVG eof-newline; all four were pre-existing CI bugs that surfaced on the first nova-viewer-touching CI run since the workflow landed
+- [x] Conventional Commits format: `ci: skip node-only pre-commit hooks + apply ruff format`
+- [x] Body explains *why* — pre-commit runner is Python-only; eslint/tsc/prettier hooks need node_modules and would always fail there. Also commits the ruff format that the local hook would have applied if it had been run before pushing
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`

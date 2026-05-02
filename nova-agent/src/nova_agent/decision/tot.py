@@ -81,7 +81,11 @@ class ToTDecider:
             failure_summaries = [
                 f"{type(r).__name__}: {r}" for r in results if isinstance(r, BaseException)
             ]
-            detail = "; ".join(failure_summaries) if failure_summaries else "all branches returned non-_ToTBranch values"
+            detail = (
+                "; ".join(failure_summaries)
+                if failure_summaries
+                else "all branches returned non-_ToTBranch values"
+            )
             raise RuntimeError(f"ToT produced no valid candidates ({detail})")
 
         best = max(candidates, key=lambda c: c.value)

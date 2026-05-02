@@ -174,10 +174,15 @@ jobs:
 
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
-        with:
+        env:
           # Skip the local hooks that need pnpm/node — those are
-          # already covered by the viewer job. Skip markdownlint until
-          # we add .markdownlint.yaml.
+          # already covered by the viewer job. The pre-commit runner
+          # is Python-only and has no node_modules/, so eslint /
+          # tsc / prettier would all fail with "Cannot find module".
+          # Also skip the in-repo Claude-checklist hooks which only
+          # make sense on developer machines making real commits.
+          SKIP: eslint-viewer,tsc-viewer,prettier-viewer,claude-checklist-check
+        with:
           extra_args: --all-files --hook-stage pre-commit
 
   # ─────────────────────────────────────────────────────────────────────────
