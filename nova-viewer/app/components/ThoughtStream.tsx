@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type {
   StreamEntry,
   DecisionEntry,
@@ -191,6 +192,26 @@ function Row({ entry }: { entry: StreamEntry }) {
 }
 
 export function ThoughtStream({ entries }: Props) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [stuckToBottom, setStuckToBottom] = useState(true);
+
+  // Sticky-scroll: on entries change, scroll to bottom if currently stuck.
+  useEffect(() => {
+    if (!containerRef.current || !stuckToBottom) return;
+    containerRef.current.scrollTo({
+      top: containerRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [entries, stuckToBottom]);
+
+  // Detach: if user scrolls up by >24px from bottom, release sticky.
+  function onScroll() {
+    const el = containerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setStuckToBottom(distanceFromBottom <= 24);
+  }
+
   if (entries.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-stone-500 text-xs">
@@ -199,10 +220,12 @@ export function ThoughtStream({ entries }: Props) {
     );
   }
   return (
-    <ul className="font-mono text-[11.5px] leading-[1.55] text-stone-200 list-none p-0 m-0">
-      {entries.map((e) => (
-        <Row key={e.id} entry={e} />
-      ))}
-    </ul>
+    <div ref={containerRef} onScroll={onScroll} className="h-full overflow-y-auto">
+      <ul className="font-mono text-[11.5px] leading-[1.55] text-stone-200 list-none p-0 m-0">
+        {entries.map((e) => (
+          <Row key={e.id} entry={e} />
+        ))}
+      </ul>
+    </div>
   );
 }

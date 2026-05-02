@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { useEffect, useState } from "react";
+import { render, screen, act } from "@testing-library/react";
 import { ThoughtStream } from "../ThoughtStream";
 import type { StreamEntry } from "@/lib/stream/types";
 
@@ -91,5 +92,41 @@ describe("<ThoughtStream />", () => {
   it("renders an empty placeholder when there are no entries", () => {
     render(<ThoughtStream entries={[]} />);
     expect(screen.getByText(/waiting for nova/i)).toBeInTheDocument();
+  });
+});
+
+describe("<ThoughtStream /> — auto-scroll", () => {
+  it("scrolls the container to the bottom on new entries when sticky", () => {
+    // Mock scrollTo so we can observe it.
+    const scrollToCalls: number[] = [];
+    Element.prototype.scrollTo = function (this: Element, ...args: unknown[]) {
+      const opts = args[0] as { top?: number };
+      if (opts?.top !== undefined) scrollToCalls.push(opts.top);
+    } as unknown as Element["scrollTo"];
+
+    function Harness() {
+      const [n, setN] = useState(1);
+      const list: StreamEntry[] = Array.from({ length: n }, (_, i) => ({
+        kind: "decision",
+        id: `decision-${i}`,
+        ts: baseTs,
+        text: `move ${i}`,
+        action: "swipe_down",
+        confidence: "medium",
+      }));
+      useEffect(() => {
+        // Simulate growing list
+        const t = setTimeout(() => setN((v) => v + 1), 0);
+        return () => clearTimeout(t);
+      }, [n]);
+      return <ThoughtStream entries={list} />;
+    }
+
+    render(<Harness />);
+    // After mount + 1 effect run, expect at least one scroll call.
+    return act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      expect(scrollToCalls.length).toBeGreaterThan(0);
+    });
   });
 });
