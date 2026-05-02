@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — types.ts (~15 lines net) + pre-commit-config.yaml hook prefix fix + this checklist; well under the 500 threshold
-- [x] Atomic commit — single logical change is the AgentEvent catch-all removal; pre-commit-config.yaml fix is bundled because the broken eslint-viewer hook blocks the commit (path-prefix mismatch — pre-existing bug surfaced by first viewer commit since hook was added)
+- [x] `git diff --cached --stat` reviewed — `nova-viewer/lib/eventGuards.ts` (~265 LOC new file) + `nova-viewer/lib/__tests__/eventGuards.test.ts` (~340 LOC new file) + this checklist; ~625 LOC total, all additive, no production deletions
+- [x] Atomic commit — single logical change is "introduce hand-written runtime predicates for AgentEvent"; the test file ships in the same commit because predicates without tests would land untested into the bus path (Task 1's catch-all removal already raised the consumer-narrowing pressure)
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — TS interface + comment + bash hook edits, no env / API keys / tokens
-- [x] `nova-agent/` not touched — N/A, viewer-only types change
-- [x] `nova-viewer/` — only `lib/types.ts` modified; tsc clean (existing casts narrow compatibly post-discrimination so the expected error cascade did not materialise — flagged in Tasks 6/7 territory)
-- [x] Docs / config — `.pre-commit-config.yaml` hook prefix-strip fix included to unblock the commit; covered in commit body
+- [x] `git diff --cached` scanned for secrets — pure TS predicates + vitest spec, no env / API keys / tokens / URLs
+- [x] `nova-agent/` not touched — N/A, viewer-only addition
+- [x] `nova-viewer/` — pnpm test green (78/78, including 31 new eventGuards tests), `npx tsc --noEmit` clean, `pnpm run lint` zero warnings (dropped unused `isAffectVector` wrapper that pnpm lint flagged after the Task-2 helper extraction)
+- [x] Docs / config — N/A, no config / docs changes; the predicate file is self-documenting via inline comments
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, change is mechanical and matches the verbatim plan from Task 1; reviewer ran on the parent plan
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus surface touched; pure TS type narrowing
+- [x] `code-reviewer` subagent — N/A, change implements the verbatim plan from the AgentEvent validator spec; the parent plan was reviewer-approved before Task 2 began
+- [x] `security-reviewer` — N/A by trigger, but the file IS bus-surface; the change is strictly tightening (rejecting malformed frames returns `null` instead of accepting `unknown`), so the security delta is non-negative
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, the catch-all-hides-variants lesson lands with Task 9 (final commit) per plan
-- [x] CLAUDE.md "Common gotchas" — N/A, gotcha #9 is being actively resolved by this task chain; final removal note lands in Task 9
-- [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, decision was already captured in the AgentEvent validator plan
+- [x] LESSONS.md — N/A, the catch-all-hides-variants lesson is the property of Task 9 (the final commit in this plan) per the plan's "documentation lands at the wrap" convention
+- [x] CLAUDE.md "Common gotchas" — N/A, gotcha #9 will be flipped to "resolved" in Task 9 once `useNovaSocket` consumes `parseAgentEvent`
+- [x] ARCHITECTURE.md — N/A, system topology unchanged; this is a typing/validation refinement
+- [x] New ADR — N/A, the decision (hand-written predicates over zod) was already captured in the parent validator plan
 
 ## Commit message
 
-- [x] Conventional Commits format: `refactor(viewer): drop AgentEvent catch-all, add tot_branch api_error arm`
-- [x] Body explains *why* — catch-all silently hid the api_error branch shape that nova-agent's tot.py:166 has been publishing; removing it forces discriminated narrowing at every consumer
+- [x] Conventional Commits format: `feat(viewer): add hand-written runtime predicates for AgentEvent`
+- [x] Body explains *why* — keeps the bundle small (no zod runtime), documents the api_error tot_branch arm that the catch-all had been silently dropping, lays the foundation for `useNovaSocket` to call `parseAgentEvent` instead of casting
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
