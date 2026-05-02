@@ -28,6 +28,7 @@ export type SwipeAction =
 // Per backend `nova_agent/decision/tot.py` publishes:
 //   tot_branch (complete):    {game_id, move_idx, direction, value, reasoning, status: "complete"}
 //   tot_branch (parse_error): {game_id, move_idx, direction, status: "parse_error", error}
+//   tot_branch (api_error):   {game_id, move_idx, direction, status: "api_error", error}
 //   tot_selected:             {game_id, move_idx, chosen_action, chosen_value, branch_values}
 // And `nova_agent/main.py` publishes:
 //   game_over: {final_score, max_tile, catastrophic, summary, lessons: string[]}
@@ -48,7 +49,18 @@ export interface ToTBranchParseErrorData {
   error: string;
 }
 
-export type ToTBranchData = ToTBranchCompleteData | ToTBranchParseErrorData;
+export interface ToTBranchApiErrorData {
+  game_id: string | null;
+  move_idx: number | null;
+  direction: SwipeAction;
+  status: "api_error";
+  error: string;
+}
+
+export type ToTBranchData =
+  | ToTBranchCompleteData
+  | ToTBranchParseErrorData
+  | ToTBranchApiErrorData;
 
 export interface ToTSelectedData {
   game_id: string | null;
@@ -89,5 +101,4 @@ export type AgentEvent =
   | { event: "trauma_active"; data: { active: boolean } }
   | { event: "tot_branch"; data: ToTBranchData }
   | { event: "tot_selected"; data: ToTSelectedData }
-  | { event: "game_over"; data: GameOverData }
-  | { event: string; data: unknown };
+  | { event: "game_over"; data: GameOverData };

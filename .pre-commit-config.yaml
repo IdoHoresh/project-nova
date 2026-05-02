@@ -61,8 +61,10 @@ repos:
         name: eslint (nova-viewer)
         language: system
         files: ^nova-viewer/(app|lib)/.*\.(ts|tsx|js|jsx)$
-        # cd into nova-viewer and run pnpm lint targeted at the changed files
-        entry: bash -c 'cd nova-viewer && pnpm exec eslint --max-warnings=0 "$@"' --
+        # cd into nova-viewer and run pnpm lint targeted at the changed files.
+        # pre-commit passes repo-relative paths (e.g. "nova-viewer/lib/foo.ts");
+        # strip the "nova-viewer/" prefix so eslint resolves them after the cd.
+        entry: bash -c 'cd nova-viewer && args=(); for f in "$@"; do args+=("${f#nova-viewer/}"); done; pnpm exec eslint --max-warnings=0 "${args[@]}"' --
         require_serial: false
 
       - id: tsc-viewer
@@ -81,7 +83,8 @@ repos:
         # (and gracefully skip if not — pnpm exec returns non-zero, and we
         # accept it as "no prettier configured yet"). To enforce strictly,
         # add prettier to package.json devDependencies.
-        entry: bash -c 'cd nova-viewer && pnpm exec prettier --check "$@" 2>/dev/null || echo "(prettier not configured; skipping)"' --
+        # Prefix-strip mirrors eslint-viewer above.
+        entry: bash -c 'cd nova-viewer && args=(); for f in "$@"; do args+=("${f#nova-viewer/}"); done; pnpm exec prettier --check "${args[@]}" 2>/dev/null || echo "(prettier not configured; skipping)"' --
 
   # ─── Markdown ──────────────────────────────────────────────────────────────
   # Lightweight markdown linter — catches broken links, malformed tables, etc.
