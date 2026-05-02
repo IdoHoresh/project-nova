@@ -2,6 +2,7 @@ import type {
   AgentEvent,
   AffectVectorDTO,
   AgentMode,
+  RetrievedMemoryDTO,
   SwipeAction,
   ToTBranchData,
   ToTSelectedData,
@@ -10,6 +11,7 @@ import type {
   StreamEntry,
   AffectCrossingEntry,
   DecisionEntry,
+  MemoryRecalledEntry,
   ModeFlipEntry,
   ToTBlockEntry,
   ToTBranchEntry,
@@ -202,6 +204,23 @@ export function deriveStream(
         };
         entries.push(entry);
       }
+      continue;
+    }
+    if (e.event === "memory_retrieved") {
+      const d = e.data as { items: RetrievedMemoryDTO[] };
+      const items = d.items;
+      if (items.length === 0) continue;
+      const entry: MemoryRecalledEntry = {
+        kind: "memory_recalled",
+        id: `memory_recalled-${seq++}`,
+        ts: now().toISOString(),
+        text:
+          items.length === 1
+            ? "I remember something from a past game."
+            : `${items.length} echoes from past games surface.`,
+        count: items.length,
+      };
+      entries.push(entry);
       continue;
     }
     if (e.event === "decision") {

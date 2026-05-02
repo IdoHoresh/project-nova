@@ -3,6 +3,8 @@ import { deriveStream } from "../deriveStream";
 import {
   affectEv,
   decisionEv,
+  makeMemory,
+  memoryRetrievedEv,
   modeEv,
   totBranchEv,
   totBranchParseErrEv,
@@ -12,6 +14,7 @@ import type { AffectVectorDTO } from "@/lib/types";
 import type {
   AffectCrossingEntry,
   DecisionEntry,
+  MemoryRecalledEntry,
   ModeFlipEntry,
   ToTBlockEntry,
 } from "../types";
@@ -229,5 +232,30 @@ describe("deriveStream — affect crossings", () => {
       { prevAffect: { ...(affectEv({ anxiety: 0.5 }).data as AffectVectorDTO) } },
     );
     expect(stream.filter((e) => e.kind === "affect_crossing")).toHaveLength(1);
+  });
+});
+
+describe("deriveStream — memory_recalled", () => {
+  it("emits an entry only when items array is non-empty", () => {
+    const stream = deriveStream([
+      memoryRetrievedEv([]),
+      memoryRetrievedEv([makeMemory({ id: "m1" })]),
+    ]);
+    const recalls = stream.filter((e) => e.kind === "memory_recalled") as MemoryRecalledEntry[];
+    expect(recalls).toHaveLength(1);
+    expect(recalls[0].count).toBe(1);
+  });
+
+  it("count reflects items.length and text references it", () => {
+    const stream = deriveStream([
+      memoryRetrievedEv([
+        makeMemory({ id: "m1" }),
+        makeMemory({ id: "m2" }),
+        makeMemory({ id: "m3" }),
+      ]),
+    ]);
+    const recall = stream.find((e) => e.kind === "memory_recalled") as MemoryRecalledEntry;
+    expect(recall.count).toBe(3);
+    expect(recall.text).toMatch(/3|three/);
   });
 });
