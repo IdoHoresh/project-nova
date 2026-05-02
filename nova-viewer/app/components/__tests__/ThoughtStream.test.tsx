@@ -131,6 +131,22 @@ describe("<ThoughtStream /> — auto-scroll", () => {
   });
 });
 
+describe("<ThoughtStream /> — fade-in motion", () => {
+  it("each entry has the animate-stream-fade class", () => {
+    render(<ThoughtStream entries={entries} />);
+    const items = screen.getAllByRole("listitem").filter((el) => !el.closest("ul ul"));
+    for (const it of items) {
+      expect(it.className).toContain("animate-stream-fade");
+    }
+  });
+
+  it("trauma entry additionally carries the trauma-wash class", () => {
+    render(<ThoughtStream entries={[entries[4]]} />);
+    const items = screen.getAllByRole("listitem");
+    expect(items[0].className).toContain("animate-stream-trauma");
+  });
+});
+
 describe("<ThoughtStream /> — jump-to-live chip", () => {
   it("shows the chip when not stuck and there are unseen new entries", async () => {
     function Harness() {

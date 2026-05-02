@@ -75,7 +75,7 @@ function Timestamp({ ts }: { ts: string }) {
 
 function DecisionRow({ e }: { e: DecisionEntry }) {
   return (
-    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] ${BORDER_BY_KIND.decision}`}>
+    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] animate-stream-fade ${BORDER_BY_KIND.decision}`}>
       <Timestamp ts={e.ts} />
       <span>{e.text}</span>
     </li>
@@ -85,7 +85,7 @@ function DecisionRow({ e }: { e: DecisionEntry }) {
 function AffectCrossingRow({ e }: { e: AffectCrossingEntry }) {
   const chip = CHIP_BY_KIND.affect_crossing!;
   return (
-    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] ${BORDER_BY_KIND.affect_crossing}`}>
+    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] animate-stream-fade ${BORDER_BY_KIND.affect_crossing}`}>
       <Chip label={chip.label} classes={chip.classes} />
       <span>{e.text}</span>
     </li>
@@ -95,7 +95,7 @@ function AffectCrossingRow({ e }: { e: AffectCrossingEntry }) {
 function ModeFlipRow({ e }: { e: ModeFlipEntry }) {
   const chip = CHIP_BY_KIND.mode_flip!;
   return (
-    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] ${BORDER_BY_KIND.mode_flip}`}>
+    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] animate-stream-fade ${BORDER_BY_KIND.mode_flip}`}>
       <Chip label={chip.label} classes={chip.classes} />
       <span>{e.text}</span>
     </li>
@@ -105,7 +105,7 @@ function ModeFlipRow({ e }: { e: ModeFlipEntry }) {
 function ToTRow({ e }: { e: ToTBlockEntry }) {
   const chip = CHIP_BY_KIND.tot_block!;
   return (
-    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] ${BORDER_BY_KIND.tot_block}`}>
+    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] animate-stream-fade ${BORDER_BY_KIND.tot_block}`}>
       <Chip label={chip.label} classes={chip.classes} />
       <span>{e.lead}</span>
       <ul className="mt-2 space-y-[2px]">
@@ -147,7 +147,7 @@ function arrowFor(action: string): string {
 function MemoryRecalledRow({ e }: { e: MemoryRecalledEntry }) {
   const chip = CHIP_BY_KIND.memory_recalled!;
   return (
-    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] ${BORDER_BY_KIND.memory_recalled}`}>
+    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] animate-stream-fade ${BORDER_BY_KIND.memory_recalled}`}>
       <Chip label={chip.label} classes={chip.classes} />
       <span>{e.text}</span>
     </li>
@@ -157,7 +157,7 @@ function MemoryRecalledRow({ e }: { e: MemoryRecalledEntry }) {
 function TraumaRow({ e }: { e: TraumaEntry }) {
   const chip = CHIP_BY_KIND.trauma!;
   return (
-    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] ${BORDER_BY_KIND.trauma}`}>
+    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] animate-stream-fade animate-stream-trauma ${BORDER_BY_KIND.trauma}`}>
       <Chip label={chip.label} classes={chip.classes} />
       <span>{e.text}</span>
       {e.count > 1 && <span className="ml-1 text-stone-500">× {e.count}</span>}
@@ -168,7 +168,7 @@ function TraumaRow({ e }: { e: TraumaEntry }) {
 function GameOverRow({ e }: { e: GameOverEntry }) {
   const chip = CHIP_BY_KIND.game_over!;
   return (
-    <li className={`my-[12px] py-[10px] px-[10px] ${BORDER_BY_KIND.game_over}`}>
+    <li className={`my-[12px] py-[10px] px-[10px] animate-stream-fade ${BORDER_BY_KIND.game_over}`}>
       <Chip label={chip.label} classes={chip.classes} />
       <span>
         Final score {e.finalScore} · max tile {e.maxTile}
