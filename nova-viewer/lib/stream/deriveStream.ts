@@ -2,9 +2,6 @@ import type {
   AgentEvent,
   AffectVectorDTO,
   AgentMode,
-  GameOverData,
-  RetrievedMemoryDTO,
-  SwipeAction,
   ToTBranchData,
   ToTSelectedData,
 } from "@/lib/types";
@@ -20,6 +17,7 @@ import type {
   TraumaEntry,
 } from "./types";
 import { rewordFirstPerson } from "./reword";
+import { isSwipeAction } from "@/lib/eventGuards";
 
 const MAX_ENTRIES = 100;
 
@@ -102,20 +100,24 @@ function makeToTBlock(seq: number, ts: string): ToTBlockEntry {
 }
 
 function applyBranch(block: ToTBlockEntry, data: ToTBranchData): void {
-  const branch: ToTBranchEntry =
-    data.status === "complete"
-      ? {
-          action: data.direction,
-          value: data.value,
-          reasoning: rewordFirstPerson(data.reasoning),
-          status: "complete",
-        }
-      : {
-          action: data.direction,
-          value: null,
-          reasoning: PARSE_ERROR_REASONING,
-          status: "parse_error",
-        };
+  let branch: ToTBranchEntry;
+  if (data.status === "complete") {
+    branch = {
+      action: data.direction,
+      value: data.value,
+      reasoning: rewordFirstPerson(data.reasoning),
+      status: "complete",
+    };
+  } else {
+    // Both parse_error and api_error render identically: failed branch with
+    // no value. The distinction matters for telemetry/logs, not the card.
+    branch = {
+      action: data.direction,
+      value: null,
+      reasoning: PARSE_ERROR_REASONING,
+      status: "parse_error",
+    };
+  }
 
   // De-duplicate by action: a complete branch replaces an earlier parse_error
   // (and vice versa, last write wins).
@@ -161,7 +163,7 @@ export function deriveStream(
 
   for (const e of events) {
     if (e.event === "mode") {
-      const d = e.data as { mode: AgentMode; step?: number };
+      const d = e.data;
       const next = d.mode;
       if (currentMode !== null && next !== currentMode) {
         const entry: ModeFlipEntry = {
@@ -187,7 +189,7 @@ export function deriveStream(
       continue;
     }
     if (e.event === "tot_branch") {
-      const d = e.data as ToTBranchData;
+      const d = e.data;
       // If we never saw a mode flip but ToT branches are arriving, open a block.
       if (!openBlock) {
         openBlock = makeToTBlock(seq++, tsOf(e));
@@ -197,7 +199,7 @@ export function deriveStream(
       continue;
     }
     if (e.event === "tot_selected") {
-      const d = e.data as ToTSelectedData;
+      const d = e.data;
       if (!openBlock) {
         // Same defensive open as above.
         openBlock = makeToTBlock(seq++, tsOf(e));
@@ -207,7 +209,7 @@ export function deriveStream(
       continue;
     }
     if (e.event === "affect") {
-      const d = e.data as AffectVectorDTO & { rpe: number; trauma_triggered: boolean };
+      const d = e.data;
       const fired = detectCrossings(thresholds, d);
       for (const dim of fired) {
         const entry: AffectCrossingEntry = {
@@ -222,7 +224,7 @@ export function deriveStream(
       continue;
     }
     if (e.event === "memory_retrieved") {
-      const d = e.data as { items: RetrievedMemoryDTO[] };
+      const d = e.data;
       const items = d.items;
       if (items.length === 0) continue;
       const entry: MemoryRecalledEntry = {
@@ -239,7 +241,7 @@ export function deriveStream(
       continue;
     }
     if (e.event === "trauma_active") {
-      const d = e.data as { active: boolean };
+      const d = e.data;
       const active = d.active;
       if (active && !lastTraumaActive) {
         // rising edge — new entry
@@ -262,7 +264,7 @@ export function deriveStream(
       continue;
     }
     if (e.event === "game_over") {
-      const d = e.data as GameOverData;
+      const d = e.data;
       const entry: GameOverEntry = {
         kind: "game_over",
         id: `game_over-${seq++}`,
@@ -280,18 +282,14 @@ export function deriveStream(
       // implicit (they come out of tot_selected). Only emit a decision entry
       // when not currently inside an open block, OR when the decision's own
       // mode is "react".
-      const d = e.data as {
-        action: string;
-        reasoning: string;
-        confidence: string;
-        mode?: AgentMode;
-      };
-      const decisionMode = (d.mode ?? currentMode) as AgentMode | null;
+      const d = e.data;
+      const decisionMode: AgentMode | null = d.mode ?? currentMode;
       if (decisionMode === "tot" && openBlock) {
         // The block already represents this move; skip the redundant decision.
         continue;
       }
-      const action = d.action as SwipeAction;
+      if (!isSwipeAction(d.action)) continue;
+      const action = d.action;
       const entry: DecisionEntry = {
         kind: "decision",
         id: `decision-${seq++}`,
