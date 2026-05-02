@@ -104,6 +104,30 @@ repos:
         stages: [commit-msg]
         args: []  # default config: feat/fix/docs/style/refactor/test/chore/build/ci/perf/revert
 
+  # ─── Claude Code pre-commit checklist enforcement ──────────────────────────
+  # Blocks commits if any item in .claude/pre-commit-checklist.md is unchecked,
+  # then resets the checklist after a successful commit. Pattern adopted from
+  # the Gibor app workflow.
+  #
+  # First-time setup (per clone): the post-commit hook needs explicit install:
+  #   pre-commit install --hook-type post-commit
+  - repo: local
+    hooks:
+      - id: claude-checklist-check
+        name: Claude pre-commit checklist (block on unchecked)
+        language: system
+        pass_filenames: false
+        always_run: true
+        entry: bash scripts/check-claude-checklist.sh
+
+      - id: claude-checklist-reset
+        name: Claude pre-commit checklist (reset after commit)
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [post-commit]
+        entry: bash scripts/reset-checklist.sh
+
 # Default settings
 default_language_version:
   python: python3.11

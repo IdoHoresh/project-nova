@@ -188,6 +188,29 @@ The pre-commit framework (`.pre-commit-config.yaml`) auto-runs these on
 staged files. CI (`.github/workflows/ci.yml`) re-runs the full suite on
 every push and PR.
 
+### Pre-commit checklist (Claude pair)
+
+`.claude/pre-commit-checklist.md` is a per-commit checklist that the
+pre-commit framework enforces: any `- [ ]` (unchecked) item **blocks the
+commit**. After a successful commit, the post-commit hook auto-resets
+every box back to `- [ ]` so the next commit starts fresh.
+
+Pattern adopted from the Gibor app workflow. Catches the failure mode of
+"Claude commits without verifying" by making verification a physical
+artifact, not a vibes-based discipline.
+
+**First-time setup per clone** (one-shot):
+
+```bash
+pre-commit install                      # installs the standard hooks
+pre-commit install --hook-type commit-msg
+pre-commit install --hook-type post-commit  # required for the auto-reset
+```
+
+If a checklist item legitimately doesn't apply, check the box and add a
+one-sentence reason inline (e.g. `- [x] /review — skipped, doc-only
+change`). Silent skipping is forbidden.
+
 ---
 
 ## Common gotchas (have already cost time)
