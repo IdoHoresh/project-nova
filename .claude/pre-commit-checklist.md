@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — `nova-viewer/lib/eventGuards.ts` (~265 LOC new file) + `nova-viewer/lib/__tests__/eventGuards.test.ts` (~340 LOC new file) + this checklist; ~625 LOC total, all additive, no production deletions
-- [x] Atomic commit — single logical change is "introduce hand-written runtime predicates for AgentEvent"; the test file ships in the same commit because predicates without tests would land untested into the bus path (Task 1's catch-all removal already raised the consumer-narrowing pressure)
+- [x] `git diff --cached --stat` reviewed — `nova-viewer/lib/__tests__/eventGuards.test.ts` (+137 LOC test additions) + `nova-viewer/lib/eventGuards.ts` (+1 LOC comment) + this checklist; ~153 insertions total, all additive, zero deletions in production code
+- [x] Atomic commit — single logical change is "close coverage gaps in eventGuards predicate tests after 0f57f98 review"; the comment in eventGuards.ts ships in the same commit because the corresponding test asserting prototype-pollution rejection is the consumer of that comment
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — pure TS predicates + vitest spec, no env / API keys / tokens / URLs
+- [x] `git diff --cached` scanned for secrets — pure TS test cases + one source-comment line, no env / API keys / tokens / URLs
 - [x] `nova-agent/` not touched — N/A, viewer-only addition
-- [x] `nova-viewer/` — pnpm test green (78/78, including 31 new eventGuards tests), `npx tsc --noEmit` clean, `pnpm run lint` zero warnings (dropped unused `isAffectVector` wrapper that pnpm lint flagged after the Task-2 helper extraction)
-- [x] Docs / config — N/A, no config / docs changes; the predicate file is self-documenting via inline comments
+- [x] `nova-viewer/` — pnpm test green (93/93, including 46 eventGuards tests up from 31), `npx tsc --noEmit` clean, `pnpm run lint` zero warnings
+- [x] Docs / config — N/A, no config / docs changes; the test additions are self-documenting via describe-block names
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, change implements the verbatim plan from the AgentEvent validator spec; the parent plan was reviewer-approved before Task 2 began
-- [x] `security-reviewer` — N/A by trigger, but the file IS bus-surface; the change is strictly tightening (rejecting malformed frames returns `null` instead of accepting `unknown`), so the security delta is non-negative
+- [x] `code-reviewer` subagent — N/A, this commit IS the response to code-reviewer + spec-reviewer feedback on 0f57f98; their NEEDS_FIX / SHOULD-FIX items are addressed verbatim
+- [x] `security-reviewer` — N/A by trigger, but the predicate file IS bus-surface; the change tightens test coverage on the prototype-pollution allowlist (new comment + already-passing test) and adds NaN-reject assertions, so the security delta is non-negative
 
 ## Documentation
 
 - [x] LESSONS.md — N/A, the catch-all-hides-variants lesson is the property of Task 9 (the final commit in this plan) per the plan's "documentation lands at the wrap" convention
 - [x] CLAUDE.md "Common gotchas" — N/A, gotcha #9 will be flipped to "resolved" in Task 9 once `useNovaSocket` consumes `parseAgentEvent`
-- [x] ARCHITECTURE.md — N/A, system topology unchanged; this is a typing/validation refinement
-- [x] New ADR — N/A, the decision (hand-written predicates over zod) was already captured in the parent validator plan
+- [x] ARCHITECTURE.md — N/A, system topology unchanged; this is a test-coverage and one-line comment refinement
+- [x] New ADR — N/A, no architectural decision; review-feedback-driven test additions only
 
 ## Commit message
 
-- [x] Conventional Commits format: `feat(viewer): add hand-written runtime predicates for AgentEvent`
-- [x] Body explains *why* — keeps the bundle small (no zod runtime), documents the api_error tot_branch arm that the catch-all had been silently dropping, lays the foundation for `useNovaSocket` to call `parseAgentEvent` instead of casting
+- [x] Conventional Commits format: `test(viewer): close coverage gaps in eventGuards predicate tests`
+- [x] Body explains *why* — three predicates (memory_write, mode, trauma_active) routed but untested; NaN reject paths for tot_selected.chosen_value and tot_branch.complete.value were not exercised; duplicate body in unknown-event-name `it` removed; one-line allowlist comment on isToTSelectedData clarifies the prototype-pollution guard
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`

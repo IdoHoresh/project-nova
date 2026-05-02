@@ -206,6 +206,7 @@ function isToTSelectedData(v: unknown): v is ToTSelectedData {
   if (!isSwipeAction(v.chosen_action) || !isNumber(v.chosen_value))
     return false;
   if (!isRecord(v.branch_values)) return false;
+  // Allowlist guard: rejects __proto__ / constructor keys and unknown directions.
   for (const [k, val] of Object.entries(v.branch_values)) {
     if (!isSwipeAction(k)) return false;
     if (!isNumber(val)) return false;

@@ -233,6 +233,21 @@ describe("parseAgentEvent — tot_branch", () => {
       }),
     ).toBeNull();
   });
+  it("rejects a complete branch with NaN value", () => {
+    expect(
+      parseAgentEvent({
+        event: "tot_branch",
+        data: {
+          game_id: "g1",
+          move_idx: 0,
+          direction: "swipe_down",
+          value: NaN,
+          reasoning: "merges 4s",
+          status: "complete",
+        },
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("parseAgentEvent — tot_selected", () => {
@@ -260,6 +275,127 @@ describe("parseAgentEvent — tot_selected", () => {
           chosen_value: 0.6,
           branch_values: { foo: 0.1 },
         },
+      }),
+    ).toBeNull();
+  });
+  it("rejects chosen_value of NaN", () => {
+    expect(
+      parseAgentEvent({
+        event: "tot_selected",
+        data: {
+          game_id: "g1",
+          move_idx: 0,
+          chosen_action: "swipe_down",
+          chosen_value: NaN,
+          branch_values: { swipe_down: 0.6 },
+        },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("parseAgentEvent — memory_write", () => {
+  it("accepts a minimal memory_write", () => {
+    const out = parseAgentEvent({
+      event: "memory_write",
+      data: { id: "m1", importance: 7 },
+    });
+    expect(out?.event).toBe("memory_write");
+  });
+  it("accepts memory_write with tags", () => {
+    const out = parseAgentEvent({
+      event: "memory_write",
+      data: { id: "m1", importance: 7, tags: ["danger", "near_loss"] },
+    });
+    expect(out?.event).toBe("memory_write");
+  });
+  it("rejects memory_write missing id", () => {
+    expect(
+      parseAgentEvent({
+        event: "memory_write",
+        data: { importance: 7 },
+      }),
+    ).toBeNull();
+  });
+  it("rejects memory_write with non-number importance", () => {
+    expect(
+      parseAgentEvent({
+        event: "memory_write",
+        data: { id: "m1", importance: "high" },
+      }),
+    ).toBeNull();
+  });
+  it("rejects memory_write with non-string tag element", () => {
+    expect(
+      parseAgentEvent({
+        event: "memory_write",
+        data: { id: "m1", importance: 7, tags: ["ok", 42] },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("parseAgentEvent — mode", () => {
+  it("accepts a valid mode frame", () => {
+    const out = parseAgentEvent({
+      event: "mode",
+      data: { mode: "tot", step: 3 },
+    });
+    expect(out?.event).toBe("mode");
+  });
+  it("accepts mode without optional step", () => {
+    const out = parseAgentEvent({
+      event: "mode",
+      data: { mode: "react" },
+    });
+    expect(out?.event).toBe("mode");
+  });
+  it("rejects an invalid mode value", () => {
+    expect(
+      parseAgentEvent({
+        event: "mode",
+        data: { mode: "thinking" },
+      }),
+    ).toBeNull();
+  });
+  it("rejects mode with non-number step", () => {
+    expect(
+      parseAgentEvent({
+        event: "mode",
+        data: { mode: "tot", step: "3" },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("parseAgentEvent — trauma_active", () => {
+  it("accepts trauma_active true", () => {
+    const out = parseAgentEvent({
+      event: "trauma_active",
+      data: { active: true },
+    });
+    expect(out?.event).toBe("trauma_active");
+  });
+  it("accepts trauma_active false", () => {
+    const out = parseAgentEvent({
+      event: "trauma_active",
+      data: { active: false },
+    });
+    expect(out?.event).toBe("trauma_active");
+  });
+  it("rejects non-boolean active (string \"true\")", () => {
+    expect(
+      parseAgentEvent({
+        event: "trauma_active",
+        data: { active: "true" },
+      }),
+    ).toBeNull();
+  });
+  it("rejects trauma_active missing active field", () => {
+    expect(
+      parseAgentEvent({
+        event: "trauma_active",
+        data: {},
       }),
     ).toBeNull();
   });
@@ -355,7 +491,6 @@ describe("parseAgentEvent — top-level rejections", () => {
     expect(parseAgentEvent({ data: {} })).toBeNull();
   });
   it("rejects an unknown event name", () => {
-    expect(parseAgentEvent({ data: {} })).toBeNull();
     expect(parseAgentEvent({ event: "telemetry", data: {} })).toBeNull();
   });
 });
