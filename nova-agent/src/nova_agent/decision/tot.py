@@ -72,7 +72,17 @@ class ToTDecider:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         candidates = [r for r in results if isinstance(r, _ToTBranch)]
         if not candidates:
-            raise RuntimeError("ToT produced no valid candidates")
+            # Surface the underlying per-branch failures so the caller (and
+            # future debugging) can see WHY all branches failed instead of
+            # just "no valid candidates". `_evaluate_one` returns either a
+            # `_ToTBranch` on success or the original exception on failure;
+            # `gather(return_exceptions=True)` may also wrap unforeseen
+            # errors that `_evaluate_one` didn't catch.
+            failure_summaries = [
+                f"{type(r).__name__}: {r}" for r in results if isinstance(r, BaseException)
+            ]
+            detail = "; ".join(failure_summaries) if failure_summaries else "all branches returned non-_ToTBranch values"
+            raise RuntimeError(f"ToT produced no valid candidates ({detail})")
 
         best = max(candidates, key=lambda c: c.value)
         await self.bus.publish(
@@ -122,13 +132,42 @@ class ToTDecider:
                 ],
             }
         ]
-        text, _usage = await asyncio.to_thread(
-            self.llm.complete,
-            system=_TOT_SYSTEM,
-            messages=messages,
-            max_tokens=200,
-            temperature=self.branch_temperature,
-        )
+        # Gemini 2.5 Pro spends a large hidden thinking budget against
+        # max_output_tokens. Plan's 200 only left room for thinking; visible
+        # JSON came back truncated/empty, every branch failed to parse, and
+        # ToTDecider raised "no valid candidates". 3000 leaves Pro ~2500
+        # for thinking + 500 for the small JSON payload (action + reasoning
+        # + value). Pro disallows thinking_budget=0 so we can't fully disable
+        # it the way ReactDecider on Flash does — see GeminiLLM constructor
+        # for the per-llm thinking_budget knob (set to 1024 for the
+        # deliberation_llm in main.py).
+        try:
+            text, _usage = await asyncio.to_thread(
+                self.llm.complete,
+                system=_TOT_SYSTEM,
+                messages=messages,
+                max_tokens=3000,
+                temperature=self.branch_temperature,
+            )
+        except Exception as exc:
+            # Catch ANY failure from the LLM call — quota errors (429),
+            # network failures, tenacity RetryError, etc. Without this catch,
+            # the exception propagates to gather(return_exceptions=True) and
+            # the user sees only the generic "no valid candidates" downstream
+            # error with no clue what actually broke. Publish a descriptive
+            # tot_branch with the underlying exception type + message so the
+            # brain panel and logs both see it.
+            await self.bus.publish(
+                "tot_branch",
+                {
+                    "game_id": game_id,
+                    "move_idx": move_idx,
+                    "direction": direction,
+                    "status": "api_error",
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
+            return exc
         try:
             branch = parse_json(text, _ToTBranch)
         except StructuredOutputError as exc:

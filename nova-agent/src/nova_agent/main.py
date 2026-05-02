@@ -124,11 +124,17 @@ async def run() -> None:
         daily_cap_usd=s.daily_budget_usd,
         thinking_budget=0,
     )
+    # Pro can't disable thinking (thinking_budget=0 rejected) but accepts a
+    # positive cap. Without one, Pro uses dynamic thinking that can consume
+    # the entire max_output_tokens budget — branches return tokens_out=0
+    # and ToTDecider raises "no valid candidates". 1024 caps thinking and
+    # leaves room for the small ToT JSON payload (action + value + reasoning).
     deliberation_llm = build_llm(
         model=s.deliberation_model,
         google_api_key=s.google_api_key,
         anthropic_api_key=s.anthropic_api_key,
         daily_cap_usd=s.daily_budget_usd,
+        thinking_budget=1024,
     )
     reflection_llm = build_llm(
         model=s.reflection_model,

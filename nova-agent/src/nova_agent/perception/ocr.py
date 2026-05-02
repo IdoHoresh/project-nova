@@ -43,7 +43,10 @@ _PALETTE: dict[tuple[int, int, int], int] = {
     (170, 166, 132): 0,  # empty (sandy olive)
     (138, 197, 170): 2,  # mint green
     (138, 179, 196): 4,  # sky blue
-    (255, 181, 239): 8,  # pink
+    (255, 181, 239): 8,  # pink (light magenta)
+    (255, 124, 142): 16,  # salmon / coral (sampled live 2026-05-02)
+    (125, 255, 150): 32,  # bright lime green (sampled live 2026-05-02)
+    (231, 151, 247): 128,  # light purple (sampled live 2026-05-02; 64 still unsampled)
 }
 
 

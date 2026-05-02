@@ -144,3 +144,4 @@ lancedb/
 *.mov
 *.avi
 *.mkv
+.superpowers/
