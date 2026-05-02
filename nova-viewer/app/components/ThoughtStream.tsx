@@ -12,6 +12,13 @@ import type {
   TraumaEntry,
   GameOverEntry,
 } from "@/lib/stream/types";
+import { truncate } from "@/lib/stream/reword";
+
+// Soft cap on decision-text length. The LLM prompt asks for 5-15 word
+// fragments, but Gemini occasionally ignores the constraint and emits
+// 2-3 sentence analyses. Truncating in the viewer keeps the stream
+// scannable even when the upstream prompt is ignored.
+const DECISION_TEXT_MAX = 90;
 
 interface Props {
   entries: StreamEntry[];
@@ -75,9 +82,12 @@ function Timestamp({ ts }: { ts: string }) {
 
 function DecisionRow({ e }: { e: DecisionEntry }) {
   return (
-    <li className={`my-[6px] py-[6px] px-[10px] rounded-[4px] animate-stream-fade ${BORDER_BY_KIND.decision}`}>
+    <li
+      className={`my-[6px] py-[6px] px-[10px] rounded-[4px] animate-stream-fade ${BORDER_BY_KIND.decision}`}
+      title={e.text.length > DECISION_TEXT_MAX ? e.text : undefined}
+    >
       <Timestamp ts={e.ts} />
-      <span>{e.text}</span>
+      <span>{truncate(e.text, DECISION_TEXT_MAX)}</span>
     </li>
   );
 }
@@ -193,42 +203,50 @@ function Row({ entry }: { entry: StreamEntry }) {
 
 export function ThoughtStream({ entries }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [stuckToBottom, setStuckToBottom] = useState(true);
-  // Snapshot of entries.length the last time user was at-bottom. Updated only
+  // "Stuck to top" = the newest entry is visible. Newest is rendered FIRST
+  // (entries are reversed for display) so the natural pinned position is
+  // scrollTop=0. Detach when the user scrolls down past 24px.
+  const [stuckToTop, setStuckToTop] = useState(true);
+  // Snapshot of entries.length the last time user was at-top. Updated only
   // in event handlers (scroll, jumpToLive) — never in effects — so render-time
   // derivation of `unseen` doesn't trip set-state-in-effect.
   const [lastSeenLength, setLastSeenLength] = useState(entries.length);
 
-  const unseen = stuckToBottom
+  const unseen = stuckToTop
     ? 0
     : Math.max(0, entries.length - lastSeenLength);
 
-  // Sticky-scroll: on entries change, scroll to bottom if currently stuck.
+  // Render newest-first. The deriveStream output is chronological-oldest-first
+  // (so its reducer logic stays simple). Reverse here at the presentation
+  // boundary so users see the most recent thought at the top.
+  const ordered = [...entries].reverse();
+
+  // Sticky-scroll: on entries change, snap to top if currently stuck.
   useEffect(() => {
-    if (!containerRef.current || !stuckToBottom) return;
+    if (!containerRef.current || !stuckToTop) return;
     containerRef.current.scrollTo({
-      top: containerRef.current.scrollHeight,
+      top: 0,
       behavior: "smooth",
     });
-  }, [entries, stuckToBottom]);
+  }, [entries, stuckToTop]);
 
   function onScroll() {
     const el = containerRef.current;
     if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const nowStuck = distanceFromBottom <= 24;
-    setStuckToBottom(nowStuck);
+    const distanceFromTop = el.scrollTop;
+    const nowStuck = distanceFromTop <= 24;
+    setStuckToTop(nowStuck);
     if (nowStuck) {
       setLastSeenLength(entries.length);
     }
   }
 
   function jumpToLive() {
-    setStuckToBottom(true);
+    setStuckToTop(true);
     setLastSeenLength(entries.length);
     if (containerRef.current) {
       containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
+        top: 0,
         behavior: "smooth",
       });
     }
@@ -245,18 +263,18 @@ export function ThoughtStream({ entries }: Props) {
     <div className="relative h-full">
       <div ref={containerRef} onScroll={onScroll} className="h-full overflow-y-auto">
         <ul className="font-mono text-[11.5px] leading-[1.55] text-stone-200 list-none p-0 m-0">
-          {entries.map((e) => (
+          {ordered.map((e) => (
             <Row key={e.id} entry={e} />
           ))}
         </ul>
       </div>
-      {!stuckToBottom && (
+      {!stuckToTop && (
         <button
           type="button"
           onClick={jumpToLive}
-          className="absolute bottom-3 right-3 text-[10px] uppercase tracking-[0.1em] px-3 py-1 rounded bg-sky-400/15 text-sky-300 border border-sky-400/30 hover:bg-sky-400/25"
+          className="absolute top-3 right-3 text-[10px] uppercase tracking-[0.1em] px-3 py-1 rounded bg-sky-400/15 text-sky-300 border border-sky-400/30 hover:bg-sky-400/25"
         >
-          ↓ jump to live{unseen > 0 ? ` (${unseen} new)` : ""}
+          ↑ jump to live{unseen > 0 ? ` (${unseen} new)` : ""}
         </button>
       )}
     </div>

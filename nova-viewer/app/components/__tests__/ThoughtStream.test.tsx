@@ -60,7 +60,7 @@ const entries: StreamEntry[] = [
 ];
 
 describe("<ThoughtStream />", () => {
-  it("renders one element per entry, ordered chronologically", () => {
+  it("renders one element per entry, newest first", () => {
     render(<ThoughtStream entries={entries} />);
     // ToT branches are also rendered as <li>s nested inside the ToT block's
     // inner <ul>. Filter to top-level entry items only.
@@ -68,8 +68,12 @@ describe("<ThoughtStream />", () => {
       .getAllByRole("listitem")
       .filter((el) => !el.closest("ul ul"));
     expect(items).toHaveLength(6);
-    expect(items[0]).toHaveTextContent("consolidate down");
-    expect(items[5]).toHaveTextContent("Avoid the corner");
+    // Component renders newest-first (the deriveStream output is chronological-
+    // oldest-first; ThoughtStream reverses at the presentation boundary). The
+    // fixture's last entry (game_over with "Avoid the corner") appears at
+    // items[0]; the first entry (decision "consolidate down") appears at items[5].
+    expect(items[0]).toHaveTextContent("Avoid the corner");
+    expect(items[5]).toHaveTextContent("consolidate down");
   });
 
   it("renders ToT branches with the winner marked", () => {
@@ -159,15 +163,17 @@ describe("<ThoughtStream /> — jump-to-live chip", () => {
         action: "swipe_down",
         confidence: "medium",
       }));
-      // Trigger a synthetic scroll-up to detach, then add new entries.
+      // Trigger a synthetic scroll-down to detach (newest is at top now, so
+      // moving scrollTop > 24px away from 0 means user is reading older
+      // entries below the latest), then add new entries.
       useEffect(() => {
         const id = setTimeout(() => {
           const list = document.querySelector("div.overflow-y-auto") as HTMLDivElement | null;
           if (list) {
-            // Force detach: simulate scrolled-up state.
             Object.defineProperty(list, "scrollHeight", { value: 1000, configurable: true });
             Object.defineProperty(list, "clientHeight", { value: 200, configurable: true });
-            Object.defineProperty(list, "scrollTop", { value: 0, writable: true, configurable: true });
+            // scrollTop > 24 → distanceFromTop > 24 → detach from sticky-top.
+            Object.defineProperty(list, "scrollTop", { value: 200, writable: true, configurable: true });
             list.dispatchEvent(new Event("scroll"));
           }
           setN((v) => v + 1);

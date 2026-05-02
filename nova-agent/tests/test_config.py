@@ -26,7 +26,11 @@ def test_settings_fails_without_google_key(monkeypatch):
 def test_settings_default_models(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-test")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    s = Settings()
+    # `_env_file=None` isolates from any developer-local .env overrides
+    # (e.g. NOVA_DELIBERATION_MODEL) that would otherwise shadow the
+    # constructor defaults this test asserts on. Same pattern as
+    # test_settings_fails_without_google_key above.
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.decision_model == "gemini-2.5-flash"
     assert s.deliberation_model == "gemini-2.5-pro"
     assert s.cheap_vision_model == "gemini-2.5-flash-lite"
@@ -37,6 +41,6 @@ def test_settings_default_models(monkeypatch):
 def test_settings_default_paths(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-test")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    s = Settings()
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert str(s.sqlite_path).endswith("nova.db")
     assert str(s.lancedb_path).endswith("lancedb")

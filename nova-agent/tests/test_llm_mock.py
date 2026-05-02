@@ -20,9 +20,12 @@ def test_keyed_matches_substring():
 def test_calls_recorded():
     # Strict-mode default requires a recognized role fingerprint in the system prompt;
     # use the decision-role fingerprint so the call routes to the default factory.
+    # Fingerprint was rewritten 2026-05-02 from the prose phrase
+    # "emit Observation, Reasoning, Action" to the schema field name
+    # `"observation":` (more stable across prompt rewrites).
     m = MockLLMClient()
     m.complete(
-        system="emit Observation, Reasoning, Action",
+        system='schema: { "observation": "..." }',
         messages=[{"role": "user", "content": "hi"}],
     )
     assert len(m.calls) == 1

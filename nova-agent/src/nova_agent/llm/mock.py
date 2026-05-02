@@ -105,7 +105,13 @@ class _ImportanceResponse(BaseModel):
 _ROLES: list[_RoleSpec] = [
     _RoleSpec(
         name="decision",
-        system_fingerprint="emit Observation, Reasoning, Action",
+        # Stable fingerprint that survives prompt rewrites: "observation" is the
+        # field name in the decision JSON schema (and only the decision schema —
+        # ToT and reflection use different fields). Earlier fingerprint
+        # "emit Observation, Reasoning, Action" was tied to one specific prose
+        # phrasing of SYSTEM_PROMPT_V1 and broke when the prompt was rewritten
+        # for terser first-person voice (2026-05-02).
+        system_fingerprint=r'"observation":',
         schema_model=_DecisionResponse,
         factory=_decision_factory,
     ),

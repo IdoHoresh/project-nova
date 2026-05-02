@@ -149,6 +149,16 @@ export function deriveStream(
   let lastTraumaActive: boolean | null = null;
   let currentTraumaEntry: TraumaEntry | null = null;
 
+  // Per-event timestamp resolver. The WebSocket layer stamps each event
+  // with a wall-clock arrival time (StampedAgentEvent.ts). When stream
+  // entries are derived from a stamped event we use that ts so every entry
+  // shows the moment its source event arrived (not the moment the deriver
+  // re-ran). Tests pass plain AgentEvent without ts and fall back to now().
+  const tsOf = (e: AgentEvent): string => {
+    const stamped = e as AgentEvent & { ts?: string };
+    return stamped.ts ?? now().toISOString();
+  };
+
   for (const e of events) {
     if (e.event === "mode") {
       const d = e.data as { mode: AgentMode; step?: number };
@@ -157,7 +167,7 @@ export function deriveStream(
         const entry: ModeFlipEntry = {
           kind: "mode_flip",
           id: `mode_flip-${seq++}`,
-          ts: now().toISOString(),
+          ts: tsOf(e),
           from: currentMode,
           to: next,
           text: MODE_FLIP_TEXT[`${currentMode}->${next}`],
@@ -166,7 +176,7 @@ export function deriveStream(
       }
       // Opening a fresh ToT round when entering tot mode (and on first sight of tot).
       if (next === "tot") {
-        openBlock = makeToTBlock(seq++, now().toISOString());
+        openBlock = makeToTBlock(seq++, tsOf(e));
         entries.push(openBlock);
       }
       // Leaving tot mode finalizes any open block (selected may already be set).
@@ -180,7 +190,7 @@ export function deriveStream(
       const d = e.data as ToTBranchData;
       // If we never saw a mode flip but ToT branches are arriving, open a block.
       if (!openBlock) {
-        openBlock = makeToTBlock(seq++, now().toISOString());
+        openBlock = makeToTBlock(seq++, tsOf(e));
         entries.push(openBlock);
       }
       applyBranch(openBlock, d);
@@ -190,7 +200,7 @@ export function deriveStream(
       const d = e.data as ToTSelectedData;
       if (!openBlock) {
         // Same defensive open as above.
-        openBlock = makeToTBlock(seq++, now().toISOString());
+        openBlock = makeToTBlock(seq++, tsOf(e));
         entries.push(openBlock);
       }
       applySelected(openBlock, d);
@@ -203,7 +213,7 @@ export function deriveStream(
         const entry: AffectCrossingEntry = {
           kind: "affect_crossing",
           id: `affect_crossing-${seq++}`,
-          ts: now().toISOString(),
+          ts: tsOf(e),
           text: CROSSING_TEXT[dim],
           dimension: dim,
         };
@@ -218,7 +228,7 @@ export function deriveStream(
       const entry: MemoryRecalledEntry = {
         kind: "memory_recalled",
         id: `memory_recalled-${seq++}`,
-        ts: now().toISOString(),
+        ts: tsOf(e),
         text:
           items.length === 1
             ? "I remember something from a past game."
@@ -236,7 +246,7 @@ export function deriveStream(
         const entry: TraumaEntry = {
           kind: "trauma",
           id: `trauma-${seq++}`,
-          ts: now().toISOString(),
+          ts: tsOf(e),
           text: "This pattern killed me before.",
           count: 1,
         };
@@ -256,7 +266,7 @@ export function deriveStream(
       const entry: GameOverEntry = {
         kind: "game_over",
         id: `game_over-${seq++}`,
-        ts: now().toISOString(),
+        ts: tsOf(e),
         finalScore: d.final_score,
         maxTile: d.max_tile,
         catastrophic: d.catastrophic,
@@ -285,7 +295,7 @@ export function deriveStream(
       const entry: DecisionEntry = {
         kind: "decision",
         id: `decision-${seq++}`,
-        ts: now().toISOString(),
+        ts: tsOf(e),
         text: rewordFirstPerson(d.reasoning),
         action,
         confidence: d.confidence,
