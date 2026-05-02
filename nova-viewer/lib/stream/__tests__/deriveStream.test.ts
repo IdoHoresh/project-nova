@@ -9,6 +9,7 @@ import {
   totBranchEv,
   totBranchParseErrEv,
   totSelectedEv,
+  traumaActiveEv,
 } from "./fixtures";
 import type { AffectVectorDTO } from "@/lib/types";
 import type {
@@ -17,6 +18,7 @@ import type {
   MemoryRecalledEntry,
   ModeFlipEntry,
   ToTBlockEntry,
+  TraumaEntry,
 } from "../types";
 
 describe("deriveStream — scaffold", () => {
@@ -257,5 +259,37 @@ describe("deriveStream — memory_recalled", () => {
     const recall = stream.find((e) => e.kind === "memory_recalled") as MemoryRecalledEntry;
     expect(recall.count).toBe(3);
     expect(recall.text).toMatch(/3|three/);
+  });
+});
+
+describe("deriveStream — trauma coalescing", () => {
+  it("emits a trauma entry on rising edge (false → true)", () => {
+    const stream = deriveStream([
+      traumaActiveEv(false),
+      traumaActiveEv(true),
+    ]);
+    const t = stream.filter((e) => e.kind === "trauma");
+    expect(t).toHaveLength(1);
+    expect((t[0] as TraumaEntry).count).toBe(1);
+  });
+
+  it("emits a single coalesced entry when trauma fires consecutively", () => {
+    const stream = deriveStream([
+      traumaActiveEv(true),
+      traumaActiveEv(true),
+      traumaActiveEv(true),
+    ]);
+    const t = stream.filter((e) => e.kind === "trauma") as TraumaEntry[];
+    expect(t).toHaveLength(1);
+    expect(t[0].count).toBe(3);
+  });
+
+  it("starts a new entry after trauma releases (true → false → true)", () => {
+    const stream = deriveStream([
+      traumaActiveEv(true),
+      traumaActiveEv(false),
+      traumaActiveEv(true),
+    ]);
+    expect(stream.filter((e) => e.kind === "trauma")).toHaveLength(2);
   });
 });

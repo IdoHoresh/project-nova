@@ -15,6 +15,7 @@ import type {
   ModeFlipEntry,
   ToTBlockEntry,
   ToTBranchEntry,
+  TraumaEntry,
 } from "./types";
 import { rewordFirstPerson } from "./reword";
 
@@ -143,6 +144,8 @@ export function deriveStream(
   let currentMode: AgentMode | null = null;
   let openBlock: ToTBlockEntry | null = null;
   const thresholds = initThresholdState(_prevAffect);
+  let lastTraumaActive: boolean | null = null;
+  let currentTraumaEntry: TraumaEntry | null = null;
 
   for (const e of events) {
     if (e.event === "mode") {
@@ -221,6 +224,29 @@ export function deriveStream(
         count: items.length,
       };
       entries.push(entry);
+      continue;
+    }
+    if (e.event === "trauma_active") {
+      const d = e.data as { active: boolean };
+      const active = d.active;
+      if (active && !lastTraumaActive) {
+        // rising edge — new entry
+        const entry: TraumaEntry = {
+          kind: "trauma",
+          id: `trauma-${seq++}`,
+          ts: now().toISOString(),
+          text: "This pattern killed me before.",
+          count: 1,
+        };
+        entries.push(entry);
+        currentTraumaEntry = entry;
+      } else if (active && currentTraumaEntry) {
+        // sustained — bump counter on the existing entry (mutate in place)
+        currentTraumaEntry.count += 1;
+      } else if (!active) {
+        currentTraumaEntry = null;
+      }
+      lastTraumaActive = active;
       continue;
     }
     if (e.event === "decision") {
