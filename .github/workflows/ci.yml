@@ -1,0 +1,216 @@
+name: CI
+
+# Run on every push to any branch + every pull request to main.
+# Branch protection on main should require all jobs in this workflow to pass.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs when a new commit lands on the same branch.
+# Saves CI minutes on rapid pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default minimal permissions — give jobs only what they need.
+permissions:
+  contents: read
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # nova-agent — Python cognitive architecture
+  # ─────────────────────────────────────────────────────────────────────────
+  agent:
+    name: nova-agent (pytest + mypy + ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: nova-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # We want full history for git-blame in failure reports
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          # Lock the uv version so CI is reproducible
+          version: "0.5.13"
+
+      - name: Sync dependencies (with dev extras)
+        run: uv sync --extra dev
+
+      - name: Run pytest
+        run: uv run pytest --tb=short -p no:warnings
+
+      - name: Run mypy (strict)
+        run: uv run mypy
+
+      - name: Run ruff (lint)
+        run: uv run ruff check
+
+      - name: Run ruff (format check)
+        run: uv run ruff format --check
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # nova-viewer — Next.js + React + Tailwind brain panel
+  # ─────────────────────────────────────────────────────────────────────────
+  viewer:
+    name: nova-viewer (vitest + tsc + eslint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: nova-viewer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Match the version locally installed
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run vitest
+        run: pnpm test
+
+      - name: Type-check (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Run eslint
+        run: pnpm run lint
+
+      - name: Build (production)
+        run: pnpm run build
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Security — secret scanning + dependency audit
+  # ─────────────────────────────────────────────────────────────────────────
+  security:
+    name: security (gitleaks + pnpm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # gitleaks needs full history to scan
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # No license needed for OSS repos
+          config-path: .gitleaks.toml
+        continue-on-error: false
+
+      - name: Set up Node 22 (for pnpm audit)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Install viewer deps (audit needs node_modules)
+        working-directory: nova-viewer
+        run: pnpm install --frozen-lockfile
+
+      - name: Run pnpm audit (production deps, moderate+)
+        working-directory: nova-viewer
+        run: pnpm audit --prod --audit-level=moderate
+        # Continue on error — audit findings shouldn't block PRs (yet),
+        # but they should be visible. Tighten to fail-on-error in Phase 5
+        # when we're closer to production.
+        continue-on-error: true
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Pre-commit hooks (runs the same hooks that fire locally)
+  # ─────────────────────────────────────────────────────────────────────────
+  pre-commit:
+    name: pre-commit hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11 (for pre-commit)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+        with:
+          # Skip the local hooks that need pnpm/node — those are
+          # already covered by the viewer job. Skip markdownlint until
+          # we add .markdownlint.yaml.
+          extra_args: --all-files --hook-stage pre-commit
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Composite "all-green" gate for branch protection
+  # ─────────────────────────────────────────────────────────────────────────
+  all-green:
+    name: All checks passed
+    needs: [agent, viewer, security, pre-commit]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Verify all dependent jobs passed
+        run: |
+          if [[ "${{ needs.agent.result }}" != "success" ]]; then
+            echo "::error::nova-agent job failed"
+            exit 1
+          fi
+          if [[ "${{ needs.viewer.result }}" != "success" ]]; then
+            echo "::error::nova-viewer job failed"
+            exit 1
+          fi
+          if [[ "${{ needs.security.result }}" != "success" ]]; then
+            echo "::error::security job failed"
+            exit 1
+          fi
+          if [[ "${{ needs.pre-commit.result }}" != "success" ]]; then
+            echo "::error::pre-commit job failed"
+            exit 1
+          fi
+          echo "All CI jobs passed."
