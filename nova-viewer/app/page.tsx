@@ -34,8 +34,7 @@ export default function Home() {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
       if (e.event === "memory_retrieved") {
-        const data = e.data as { items?: RetrievedMemoryDTO[] };
-        if (Array.isArray(data.items)) return data.items;
+        return e.data.items;
       }
     }
     return [];
@@ -44,7 +43,7 @@ export default function Home() {
   const affect = useMemo<AffectVectorDTO>(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
-      if (e.event === "affect") return e.data as AffectVectorDTO;
+      if (e.event === "affect") return e.data;
     }
     return NEUTRAL_AFFECT;
   }, [events]);
@@ -53,7 +52,7 @@ export default function Home() {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
       if (e.event === "decision") {
-        const d = e.data as { affect_text?: string };
+        const d = e.data;
         if (d.affect_text) return d.affect_text;
       }
     }
@@ -63,10 +62,7 @@ export default function Home() {
   const mode = useMemo<AgentMode>(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
-      if (e.event === "mode") {
-        const d = e.data as { mode?: AgentMode };
-        if (d.mode === "tot" || d.mode === "react") return d.mode;
-      }
+      if (e.event === "mode") return e.data.mode;
     }
     return "react";
   }, [events]);
@@ -75,8 +71,7 @@ export default function Home() {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
       if (e.event === "trauma_active") {
-        const d = e.data as { active?: boolean };
-        return Boolean(d.active);
+        return e.data.active;
       }
     }
     return false;
@@ -89,12 +84,10 @@ export default function Home() {
     let games = 1;
     for (const e of events) {
       if (e.event === "perception") {
-        const d = e.data as { score?: number; step?: number };
-        if (typeof d.score === "number") {
-          score = d.score;
-          if (d.score > best) best = d.score;
-        }
-        if (typeof d.step === "number") move = d.step;
+        const d = e.data;
+        score = d.score;
+        if (d.score > best) best = d.score;
+        move = d.step;
       } else if (e.event === "game_over") {
         games += 1;
       }
