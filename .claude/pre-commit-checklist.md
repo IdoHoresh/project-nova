@@ -9,21 +9,21 @@
 > commit starts fresh.
 >
 > If a step doesn't apply, write a one-sentence reason after the
-> bracket (e.g. `- [x] /review — skipped, doc-only change`) and check
-> the box. Silent skipping is forbidden.
+> bracket (e.g. mark `[x]` and add `/review — skipped, doc-only change`)
+> and check the box. Silent skipping is forbidden.
 
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 147 lines, under the 500 threshold
-- [x] Atomic commit — single logical change: workflow research findings encoded into project memory
+- [x] `git diff --cached --stat` reviewed — ~346 lines (10 add to competitive-landscape.md + 336-line new casterai-deep-dive.md), under the 500 threshold
+- [x] Atomic commit — single logical change: Alignment Day dossier update (CasterAI red-team flag → nunu.ai realistic competitor)
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — markdown only, none found
-- [x] `nova-agent/` not touched — N/A
-- [x] `nova-viewer/` not touched — N/A
-- [x] Docs / config only (CLAUDE.md + .claude/rules/workflow.md) — N/A on test runs
+- [x] `git diff --cached` scanned for secrets — only false-positive matches on "task-execution" and PlaytestCloud "video tokens" pricing copy
+- [x] `nova-agent/` not touched — N/A, docs-only
+- [x] `nova-viewer/` not touched — N/A, docs-only
+- [x] Docs / config only (`docs/product/`) — N/A on test runs
 
 ## Review
 
@@ -32,13 +32,13 @@
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, the workflow-research lessons are encoded in CLAUDE.md instead
-- [x] CLAUDE.md "Common gotchas" — N/A, this commit adds workflow guidance, not gotchas
+- [x] LESSONS.md — N/A, this commit IS the dossier update; the catch-all-hides-variants lesson lands with the AgentEvent validator commits, not here
+- [x] CLAUDE.md "Common gotchas" — N/A, no new engineering gotcha; the competitive shift is captured in the dossier itself
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, no Nova architectural decision; workflow guidance derived from external research
+- [x] New ADR — N/A, no Nova architectural decision; competitive-landscape update is product-strategy, not architecture
 
 ## Commit message
 
-- [x] Conventional Commits format: `docs: encode workflow research findings into project memory`
-- [x] Body explains *why* — research-driven gap closure (Plan Mode triggers, MCP inventory, phase signals, context hygiene)
+- [x] Conventional Commits format: `docs(product): replace CasterAI red-team flag with nunu.ai`
+- [x] Body explains *why* — original CasterAI flag did not resolve to a real entity; nunu.ai is the realistic Goliath in vision-based game-agent QA, with counter-positioning around Nova's Product/UA buyer vs nunu's QA buyer
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
