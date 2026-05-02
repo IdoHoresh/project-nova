@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — single source file `nova-viewer/app/page.tsx` (six `e.data as X` cast removals + dependent body simplifications) plus this checklist; ~14 insertions / ~24 deletions on the source file
-- [x] Atomic commit — single logical change: "drop e.data casts in app/page.tsx now that the AgentEvent catch-all is gone"
+- [x] `git diff --cached --stat` reviewed — `nova-viewer/lib/stream/__tests__/fixtures.ts` (+ImportTypeAdd, +14 lines for the new fixture), `nova-viewer/lib/stream/__tests__/deriveStream.test.ts` (+1 fixture import, +14 lines for the new test) plus this checklist; small, additive
+- [x] Atomic commit — single logical change: "add tot_branch.api_error fixture + deriveStream test that asserts the api_error variant collapses to parse_error in ToTBranchEntry"
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — pure refactor of memo selectors; no env / API keys / tokens / URLs touched
+- [x] `git diff --cached` scanned for secrets — pure test additions; no env / API keys / tokens / URLs touched
 - [x] `nova-agent/` not touched — N/A, viewer-only change
-- [x] `nova-viewer/` — `pnpm test` green (97/97), `npx tsc --noEmit` clean (cast removals are identity ops because Task 1 already dropped the catch-all), `pnpm run lint` zero warnings
+- [x] `nova-viewer/` — `pnpm test` green (98/98, +1 from the new test), `npx tsc --noEmit` clean (fixture returns the tightly-typed `{event:"tot_branch"; data: ToTBranchApiErrorData}` so the union narrowing is exercised end-to-end), `pnpm run lint` zero warnings
 - [x] Docs / config — N/A, no config / docs changes
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, this is Task 7 of an in-flight plan; the plan-level review pass runs at Task 9 once the LESSONS update lands
-- [x] `security-reviewer` — N/A by trigger; this refactor only removes redundant identity-casts in a memo derivation layer, no security surface touched
+- [x] `code-reviewer` subagent — N/A, this is Task 8 of an in-flight plan; the plan-level review pass runs at Task 9 alongside the LESSONS update
+- [x] `security-reviewer` — N/A by trigger; test-only addition, no security surface touched
 
 ## Documentation
 
 - [x] LESSONS.md — N/A, the catch-all-hides-variants lesson lands in Task 9 per the plan's "documentation lands at the wrap" convention
 - [x] CLAUDE.md "Common gotchas" — N/A, gotcha #9 will be flipped to "resolved" in Task 9
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, no architectural decision; Task 7 is the cleanup pass that mirrors Task 6 for app/page.tsx
+- [x] New ADR — N/A, no architectural decision; Task 8 is regression coverage for Task 1 (union narrowing) and Task 6 (explicit api_error → parse_error collapse in `applyBranch`)
 
 ## Commit message
 
-- [x] Conventional Commits format: `refactor(viewer): drop e.data casts in app/page.tsx`
-- [x] Body explains *why* — same reasoning as deriveStream cleanup (Task 6): with the AgentEvent catch-all gone (Task 1) the discriminator narrowing handles every accessor, so the casts were redundant identity-casts. Defensive guards (`Boolean(d.active)`, `typeof d.score === "number"`, `d.mode === "tot" || d.mode === "react"`) collapse to direct reads now that fields are exhaustively typed.
+- [x] Conventional Commits format: `test(viewer): cover tot_branch api_error rendering`
+- [x] Body explains *why* — nova-agent's `tot.py:166` emits `tot_branch.api_error` when an LLM call fails. The old `AgentEvent` catch-all silently dropped these into `unknown` so they never rendered as failed-branch cards. With Task 1's union narrowing + Task 6's explicit `applyBranch` collapse to `parse_error`, the api_error variant now renders alongside parse_error branches; this test pins that behavior so a regression in either spot fails fast.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`

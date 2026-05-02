@@ -7,6 +7,7 @@ import {
   makeMemory,
   memoryRetrievedEv,
   modeEv,
+  totBranchApiErrEv,
   totBranchEv,
   totBranchParseErrEv,
   totSelectedEv,
@@ -165,6 +166,20 @@ describe("deriveStream — ToT block", () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0].branches[0].action).toBe("swipe_down");
     expect(blocks[1].branches[0].action).toBe("swipe_left");
+  });
+
+  it("renders an api_error tot_branch as a failed branch card", () => {
+    const stream = deriveStream([
+      modeEv("tot"),
+      totBranchEv("swipe_down", 0.7, "merges 4s"),
+      totBranchApiErrEv("swipe_left"),
+      totSelectedEv("swipe_down", { swipe_down: 0.7 }),
+    ]);
+    const block = stream.find((e) => e.kind === "tot_block") as ToTBlockEntry;
+    expect(block.branches).toHaveLength(2);
+    const failed = block.branches.find((b) => b.action === "swipe_left");
+    expect(failed?.status).toBe("parse_error");
+    expect(failed?.value).toBeNull();
   });
 
   it("tot_branch retry: a complete branch replaces an earlier parse_error for same direction", () => {

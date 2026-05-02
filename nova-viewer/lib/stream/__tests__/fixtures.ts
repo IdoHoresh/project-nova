@@ -3,6 +3,7 @@ import type {
   AgentEvent,
   RetrievedMemoryDTO,
   SwipeAction,
+  ToTBranchApiErrorData,
 } from "@/lib/types";
 
 export const NEUTRAL_AFFECT: AffectVectorDTO = {
@@ -70,6 +71,22 @@ export function totBranchParseErrEv(direction: SwipeAction, moveIdx = 1): AgentE
       direction,
       status: "parse_error",
       error: "no JSON in response",
+    },
+  };
+}
+
+export function totBranchApiErrEv(
+  direction: SwipeAction,
+  moveIdx = 1,
+): { event: "tot_branch"; data: ToTBranchApiErrorData } {
+  return {
+    event: "tot_branch",
+    data: {
+      game_id: "g1",
+      move_idx: moveIdx,
+      direction,
+      status: "api_error",
+      error: "RetryError: 429 quota exhausted",
     },
   };
 }
