@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — third-pass CI fix; mostly mechanical pre-existing-file fixes (eof newlines on 5 SVGs + 1 plan + pyproject.toml; trailing whitespace on 2 docs/learn pages) plus the ruff-pre-commit hook version bump from 0.8.6 → 0.15.12
-- [x] Atomic commit — single logical change: align repo state with what the pre-commit hooks would auto-fix on a `--all-files` run
+- [x] `git diff --cached --stat` reviewed — single-byte fix to `nova-agent/pyproject.toml` + checklist
+- [x] Atomic commit — single logical change: strip extra trailing newline from pyproject.toml that survived 907f189's eof-fixer pass
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens (pure whitespace + eof + version-pin changes)
-- [x] `nova-agent/`: only `pyproject.toml` eof newline; full `uv run pytest && uv run mypy && uv run ruff check && uv run ruff format --check` clean
-- [x] `nova-viewer/` source not touched — only static asset SVGs in `public/` got eof newlines
-- [x] Docs / config — `.pre-commit-config.yaml` ruff hook bumped to v0.15.12 to match local ruff 0.15.x; without this, the pre-commit-managed ruff (0.8.6) makes different formatting decisions than nova-agent's own ruff and CI re-flagged formatting that local check had cleared
+- [x] `git diff --cached` scanned for secrets — no env / API keys / tokens
+- [x] `nova-agent/`: only the trailing-newline byte; full check trio still clean (no logic touched)
+- [x] `nova-viewer/` not touched — N/A
+- [x] Docs / config — N/A; this is the byte that pre-commit's end-of-file-fixer hook objects to (file ended with TWO `\n`, the hook wants exactly one)
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, mechanical whitespace + version-pin change with zero behavior risk
+- [x] `code-reviewer` subagent — N/A, single trailing-byte fix
 - [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, third-round CI plumbing fix
-- [x] CLAUDE.md "Common gotchas" — N/A, the ruff-version-mismatch lesson is captured implicitly by the inline comment in `.pre-commit-config.yaml`
+- [x] LESSONS.md — N/A, mechanical follow-up to 907f189
+- [x] CLAUDE.md "Common gotchas" — N/A
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, no architectural decision
+- [x] New ADR — N/A
 
 ## Commit message
 
-- [x] Conventional Commits format: `ci: fix repo whitespace/eof + bump ruff-pre-commit to match local`
-- [x] Body explains *why* — pre-commit `--all-files` on CI surfaced 8 pre-existing files with missing eof newlines or trailing whitespace; ruff-pre-commit at v0.8.6 disagreed with the project's pinned ruff 0.15.x on formatting; both were artifacts of CI never having exercised `--all-files` on this repo before
+- [x] Conventional Commits format: `ci: strip extra trailing newline from nova-agent/pyproject.toml`
+- [x] Body explains *why* — 907f189's eof script appended a newline only when missing; pyproject.toml already had one but had a SECOND blank line after it, which end-of-file-fixer rejects. Truncate any trailing `\n+` and rewrite with a single `\n`
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
