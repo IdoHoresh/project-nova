@@ -74,11 +74,11 @@ A 2D point on a circular disk (Russell's circumplex):
        HIGH AROUSAL
             ↑
             ●  ←── Nova's current mood is here
-            
+
    ←──── ──── ──── ──── ──→
 NEG VAL              POS VAL
    ←──── ──── ──── ──── ──→
-            
+
             ↓
        LOW AROUSAL
 ```

@@ -85,29 +85,29 @@ The decision loop lives here. Pseudocode:
 async def main():
     components = bootstrap_all_modules()
     bus = components.bus
-    
+
     while True:
         board = components.perception.capture_and_perceive()
         bus.publish("perception", board)
-        
+
         memories = components.memory.retrieve(board, top_k=5)
         bus.publish("retrieval", memories)
-        
+
         affect = components.affect.appraise(board, memories)
         bus.publish("affect", affect)
-        
+
         decision = components.decision.decide(board, memories, affect)
         bus.publish("decision", decision)
-        
+
         components.action.execute(decision.action)
-        
+
         new_board = components.perception.capture_and_perceive()
         outcome = components.affect.evaluate_outcome(board, new_board, decision)
         bus.publish("outcome", outcome)
-        
+
         components.memory.write(board, decision, outcome)
         bus.publish("memory_write", ...)
-        
+
         if components.perception.detect_game_over(new_board):
             reflection = components.reflection.run(this_game)
             components.memory.write_semantic(reflection)

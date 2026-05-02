@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — small CI-fix patch (~20 lines across `.github/workflows/ci.yml` + `nova-agent/src/nova_agent/decision/tot.py` + checklist), well under the 500 threshold
-- [x] Atomic commit — single logical change: second-pass CI fixes after `d69e855` resolved 2 of 4 (viewer + security green now)
+- [x] `git diff --cached --stat` reviewed — third-pass CI fix; mostly mechanical pre-existing-file fixes (eof newlines on 5 SVGs + 1 plan + pyproject.toml; trailing whitespace on 2 docs/learn pages) plus the ruff-pre-commit hook version bump from 0.8.6 → 0.15.12
+- [x] Atomic commit — single logical change: align repo state with what the pre-commit hooks would auto-fix on a `--all-files` run
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
-- [x] `nova-agent/`: only a 4-line `ruff format` cosmetic break (line wrap on a `; ".join(...)` ternary in `tot.py`); no logic change. `uv run ruff format --check` is clean post-fix
-- [x] `nova-viewer/` not touched — N/A, viewer + security jobs already green from `d69e855`
-- [x] Docs / config — `.github/workflows/ci.yml` `pre-commit` job now sets `SKIP=eslint-viewer,tsc-viewer,prettier-viewer,claude-checklist-check` so the Python-only pre-commit runner doesn't try to invoke node-dependent hooks
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens (pure whitespace + eof + version-pin changes)
+- [x] `nova-agent/`: only `pyproject.toml` eof newline; full `uv run pytest && uv run mypy && uv run ruff check && uv run ruff format --check` clean
+- [x] `nova-viewer/` source not touched — only static asset SVGs in `public/` got eof newlines
+- [x] Docs / config — `.pre-commit-config.yaml` ruff hook bumped to v0.15.12 to match local ruff 0.15.x; without this, the pre-commit-managed ruff (0.8.6) makes different formatting decisions than nova-agent's own ruff and CI re-flagged formatting that local check had cleared
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, CI-config + cosmetic ruff format change with no behavior risk
+- [x] `code-reviewer` subagent — N/A, mechanical whitespace + version-pin change with zero behavior risk
 - [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, second-round CI plumbing fix
-- [x] CLAUDE.md "Common gotchas" — N/A, the pre-commit-runner-has-no-node and dev-only-hook semantics are now self-explanatory in the workflow's `SKIP` env block
+- [x] LESSONS.md — N/A, third-round CI plumbing fix
+- [x] CLAUDE.md "Common gotchas" — N/A, the ruff-version-mismatch lesson is captured implicitly by the inline comment in `.pre-commit-config.yaml`
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
 - [x] New ADR — N/A, no architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `ci: skip node-only pre-commit hooks + apply ruff format`
-- [x] Body explains *why* — pre-commit runner is Python-only; eslint/tsc/prettier hooks need node_modules and would always fail there. Also commits the ruff format that the local hook would have applied if it had been run before pushing
+- [x] Conventional Commits format: `ci: fix repo whitespace/eof + bump ruff-pre-commit to match local`
+- [x] Body explains *why* — pre-commit `--all-files` on CI surfaced 8 pre-existing files with missing eof newlines or trailing whitespace; ruff-pre-commit at v0.8.6 disagreed with the project's pinned ruff 0.15.x on formatting; both were artifacts of CI never having exercised `--all-files` on this repo before
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
