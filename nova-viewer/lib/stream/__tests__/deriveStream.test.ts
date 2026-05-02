@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { deriveStream } from "../deriveStream";
 import {
+  affectEv,
   decisionEv,
   modeEv,
   totBranchEv,
   totBranchParseErrEv,
   totSelectedEv,
 } from "./fixtures";
-import type { DecisionEntry, ModeFlipEntry, ToTBlockEntry } from "../types";
+import type { AffectVectorDTO } from "@/lib/types";
+import type {
+  AffectCrossingEntry,
+  DecisionEntry,
+  ModeFlipEntry,
+  ToTBlockEntry,
+} from "../types";
 
 describe("deriveStream — scaffold", () => {
   it("returns empty stream for empty events", () => {
@@ -165,5 +172,62 @@ describe("deriveStream — ToT block", () => {
     expect(up).toHaveLength(1);
     expect(up[0].status).toBe("complete");
     expect(up[0].value).toBe(0.4);
+  });
+});
+
+describe("deriveStream — affect crossings", () => {
+  it("emits anxiety_high when anxiety rises above 0.6", () => {
+    const stream = deriveStream([
+      affectEv({ anxiety: 0.5 }),
+      affectEv({ anxiety: 0.7 }),
+    ]);
+    const crossings = stream.filter((e) => e.kind === "affect_crossing") as AffectCrossingEntry[];
+    expect(crossings).toHaveLength(1);
+    expect(crossings[0].dimension).toBe("anxiety_high");
+    expect(crossings[0].text).toMatch(/anxious|tense|tight/i);
+  });
+
+  it("does not re-emit anxiety_high while anxiety stays high", () => {
+    const stream = deriveStream([
+      affectEv({ anxiety: 0.7 }),
+      affectEv({ anxiety: 0.8 }),
+      affectEv({ anxiety: 0.65 }),
+    ]);
+    expect(stream.filter((e) => e.kind === "affect_crossing")).toHaveLength(1);
+  });
+
+  it("re-emits anxiety_high after hysteresis (dropping below 0.5 then back up)", () => {
+    const stream = deriveStream([
+      affectEv({ anxiety: 0.7 }),
+      affectEv({ anxiety: 0.4 }), // releases
+      affectEv({ anxiety: 0.7 }), // re-fires
+    ]);
+    expect(stream.filter((e) => e.kind === "affect_crossing")).toHaveLength(2);
+  });
+
+  it("emits valence_low when valence drops below -0.4", () => {
+    const stream = deriveStream([
+      affectEv({ valence: 0 }),
+      affectEv({ valence: -0.5 }),
+    ]);
+    const crossings = stream.filter((e) => e.kind === "affect_crossing") as AffectCrossingEntry[];
+    expect(crossings.find((c) => c.dimension === "valence_low")).toBeTruthy();
+  });
+
+  it("emits dopamine_high when dopamine rises above 0.6", () => {
+    const stream = deriveStream([
+      affectEv({ dopamine: 0.3 }),
+      affectEv({ dopamine: 0.7 }),
+    ]);
+    const crossings = stream.filter((e) => e.kind === "affect_crossing") as AffectCrossingEntry[];
+    expect(crossings.find((c) => c.dimension === "dopamine_high")).toBeTruthy();
+  });
+
+  it("uses prevAffect from opts when no affect events are in the array but a crossing happens on the first one", () => {
+    const stream = deriveStream(
+      [affectEv({ anxiety: 0.7 })],
+      { prevAffect: { ...(affectEv({ anxiety: 0.5 }).data as AffectVectorDTO) } },
+    );
+    expect(stream.filter((e) => e.kind === "affect_crossing")).toHaveLength(1);
   });
 });

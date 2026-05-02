@@ -8,6 +8,7 @@ import type {
 } from "@/lib/types";
 import type {
   StreamEntry,
+  AffectCrossingEntry,
   DecisionEntry,
   ModeFlipEntry,
   ToTBlockEntry,
@@ -31,6 +32,59 @@ const MODE_FLIP_TEXT: Record<`${AgentMode}->${AgentMode}`, string> = {
 
 const TOT_LEAD = "Let me slow down and deliberate over all four moves.";
 const PARSE_ERROR_REASONING = "couldn't see this clearly";
+
+interface ThresholdState {
+  anxietyArmed: boolean;
+  valenceArmed: boolean;
+  dopamineArmed: boolean;
+}
+
+const ANXIETY_FIRE = 0.6;
+const ANXIETY_REARM = 0.5;
+const VALENCE_FIRE = -0.4;
+const VALENCE_REARM = -0.3;
+const DOPAMINE_FIRE = 0.6;
+const DOPAMINE_REARM = 0.5;
+
+const CROSSING_TEXT: Record<AffectCrossingEntry["dimension"], string> = {
+  anxiety_high: "Anxiety just spiked. The board feels tight.",
+  valence_low: "Things are slipping. I don't like where this is going.",
+  dopamine_high: "That landed better than I expected.",
+};
+
+function initThresholdState(prev: AffectVectorDTO | null): ThresholdState {
+  return {
+    anxietyArmed: !prev || prev.anxiety < ANXIETY_FIRE,
+    valenceArmed: !prev || prev.valence > VALENCE_FIRE,
+    dopamineArmed: !prev || prev.dopamine < DOPAMINE_FIRE,
+  };
+}
+
+function detectCrossings(
+  state: ThresholdState,
+  next: AffectVectorDTO,
+): AffectCrossingEntry["dimension"][] {
+  const fired: AffectCrossingEntry["dimension"][] = [];
+  if (state.anxietyArmed && next.anxiety > ANXIETY_FIRE) {
+    fired.push("anxiety_high");
+    state.anxietyArmed = false;
+  } else if (!state.anxietyArmed && next.anxiety < ANXIETY_REARM) {
+    state.anxietyArmed = true;
+  }
+  if (state.valenceArmed && next.valence < VALENCE_FIRE) {
+    fired.push("valence_low");
+    state.valenceArmed = false;
+  } else if (!state.valenceArmed && next.valence > VALENCE_REARM) {
+    state.valenceArmed = true;
+  }
+  if (state.dopamineArmed && next.dopamine > DOPAMINE_FIRE) {
+    fired.push("dopamine_high");
+    state.dopamineArmed = false;
+  } else if (!state.dopamineArmed && next.dopamine < DOPAMINE_REARM) {
+    state.dopamineArmed = true;
+  }
+  return fired;
+}
 
 function makeToTBlock(seq: number, ts: string): ToTBlockEntry {
   return {
@@ -86,6 +140,7 @@ export function deriveStream(
   let seq = 0;
   let currentMode: AgentMode | null = null;
   let openBlock: ToTBlockEntry | null = null;
+  const thresholds = initThresholdState(_prevAffect);
 
   for (const e of events) {
     if (e.event === "mode") {
@@ -134,6 +189,21 @@ export function deriveStream(
       applySelected(openBlock, d);
       continue;
     }
+    if (e.event === "affect") {
+      const d = e.data as AffectVectorDTO & { rpe: number; trauma_triggered: boolean };
+      const fired = detectCrossings(thresholds, d);
+      for (const dim of fired) {
+        const entry: AffectCrossingEntry = {
+          kind: "affect_crossing",
+          id: `affect_crossing-${seq++}`,
+          ts: now().toISOString(),
+          text: CROSSING_TEXT[dim],
+          dimension: dim,
+        };
+        entries.push(entry);
+      }
+      continue;
+    }
     if (e.event === "decision") {
       // A non-ToT decision entry. While ToT mode is open, decisions are
       // implicit (they come out of tot_selected). Only emit a decision entry
@@ -164,7 +234,6 @@ export function deriveStream(
     }
   }
 
-  void _prevAffect;
   return entries.slice(-MAX_ENTRIES);
 }
 
