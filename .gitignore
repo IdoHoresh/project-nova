@@ -1,5 +1,12 @@
-# Claude Code harness state — DO NOT COMMIT
-.claude/
+# Claude Code harness state
+# Track team-wide settings (settings.json) and slash commands (commands/)
+# but ignore personal settings, history, and cache.
+.claude/*
+!.claude/settings.json
+!.claude/commands/
+.claude/settings.local.json
+.claude/.last_session_id
+.claude/cache/
 
 # macOS
 .DS_Store
