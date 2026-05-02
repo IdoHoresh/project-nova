@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentEvent } from "./types";
+import { parseAgentEvent } from "./eventGuards";
 
 /**
  * AgentEvent stamped with a wall-clock arrival time.
@@ -18,6 +19,7 @@ export type StampedAgentEvent = AgentEvent & { ts: string };
 export function useNovaSocket() {
   const [events, setEvents] = useState<StampedAgentEvent[]>([]);
   const [connected, setConnected] = useState(false);
+  const seenInvalidEventsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const url = `ws://${process.env.NEXT_PUBLIC_WS_HOST ?? "127.0.0.1"}:${
@@ -27,13 +29,35 @@ export function useNovaSocket() {
     ws.onopen = () => setConnected(true);
     ws.onclose = () => setConnected(false);
     ws.onmessage = (e) => {
+      let raw: unknown;
       try {
-        const parsed = JSON.parse(e.data) as AgentEvent;
-        const msg: StampedAgentEvent = { ...parsed, ts: new Date().toISOString() };
-        setEvents((prev) => [...prev.slice(-99), msg]);
+        raw = JSON.parse(e.data);
       } catch {
-        // ignore malformed frames
+        // Malformed JSON — drop without further parsing.
+        return;
       }
+      const parsed = parseAgentEvent(raw);
+      if (parsed === null) {
+        // Frame parsed as JSON but failed schema validation. Log once per
+        // session per event name to avoid flooding the console on bad
+        // streams. The agent should never emit malformed events; if this
+        // fires the agent code or this validator is out of sync.
+        const evName =
+          raw && typeof raw === "object" && "event" in raw
+            ? String((raw as { event: unknown }).event)
+            : "<no event>";
+        const seen = seenInvalidEventsRef.current;
+        if (!seen.has(evName)) {
+          seen.add(evName);
+          console.warn(
+            `[useNovaSocket] dropped invalid frame for event="${evName}"`,
+            raw,
+          );
+        }
+        return;
+      }
+      const msg: StampedAgentEvent = { ...parsed, ts: new Date().toISOString() };
+      setEvents((prev) => [...prev.slice(-99), msg]);
     };
     return () => ws.close();
   }, []);
