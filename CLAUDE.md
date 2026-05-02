@@ -249,6 +249,102 @@ change`). Silent skipping is forbidden.
 
 ---
 
+## MCP servers
+
+No project-scoped MCPs are committed to this repo (no `.mcp.json` /
+`.claude/.mcp.json`). The dev session inherits user-scope MCPs, the
+relevant ones for Nova being:
+
+- `computer-use` — for emulator screenshots / desktop control during
+  the v1.0.0 demo recording
+- `claude-in-chrome` — for browser-side brain-panel inspection
+- `ccd_session_mgmt`, `ccd_session`, `ccd_directory` — session continuity
+
+If you need a project-scoped MCP later (e.g., Playwright for end-to-end
+viewer tests, GitHub MCP for PR automation, a SQLite MCP for memory
+introspection), add it to `.mcp.json` at the repo root and document it
+here.
+
+---
+
+## Plan Mode + thinking budget
+
+For non-trivial design work, prepend the prompt with a thinking trigger
+that buys deeper deliberation BEFORE the first action:
+
+- **`think hard`** — modest deliberation budget (default tier)
+- **`think harder`** — bigger budget; use for cross-file refactors
+- **`ultrathink`** — maximum budget; reserve for architectural choices
+  (new ADR territory, new game adapter, new cognitive subsystem)
+
+Combine with **Plan Mode** (`Shift+Tab` in interactive sessions) for
+designs that would benefit from a written plan you can critique before
+execution begins.
+
+Don't reflexively use these for trivial work — they cost cycles for no
+gain on mechanical changes.
+
+---
+
+## When to use which workflow skill
+
+Project Nova layers two complementary workflow systems:
+
+- **Project contract** (this file + `.claude/`): what *this* repo is
+- **Methodology library** (`superpowers:*` skills): how to *think
+  about* a task
+
+The project contract is auto-loaded. The methodology skills must be
+invoked. Here's the canonical signal-to-skill mapping. **As Claude pair
+working on Nova, you should proactively flag the user when one of these
+signals fires** — don't silently default to "just start coding."
+
+| Signal — "I'm about to..." | Invoke |
+|----------------------------|--------|
+| ...build a new surface area / feature with unclear scope | `superpowers:brainstorming` |
+| ...write code that touches 3+ files or has multiple steps | `superpowers:writing-plans` |
+| ...execute a plan with mostly-independent atomic tasks | `superpowers:subagent-driven-development` |
+| ...investigate two or more independent questions in parallel | `superpowers:dispatching-parallel-agents` |
+| ...write or change cognitive-layer code, decision logic, bus protocol | `superpowers:test-driven-development` |
+| ...declare something "done" before commit | `superpowers:verification-before-completion` |
+| ...debug a non-obvious failure | `superpowers:systematic-debugging` |
+| ...respond to review feedback (human or `code-reviewer` subagent) | `superpowers:receiving-code-review` |
+| ...wrap up a feature branch / open the PR | `superpowers:finishing-a-development-branch` |
+| ...write a new skill (rare) | `superpowers:writing-skills` |
+| ...review code in this repo | `.claude/agents/code-reviewer.md` (Nova-tuned) |
+| ...review code touching secrets / env / LLM / bus | `.claude/agents/security-reviewer.md` |
+| ...run the per-subproject quality gate before commit | `/check-agent` or `/check-viewer` |
+
+The deprecated superpowers commands (`/brainstorm`, `/write-plan`,
+`/execute-plan`) just print a deprecation notice. Invoke the named
+skills directly instead.
+
+---
+
+## Context hygiene — `/clear` after major work
+
+Long sessions degrade performance. After any of the following, the
+Claude pair should **proactively suggest `/clear`** with a short
+hand-off prompt for the next session:
+
+- Feature shipped (PR merged or commit pushed that closes a roadmap
+  item)
+- Major refactor finished
+- Phase milestone hit (Phase 0.7 cliff test passes, etc.)
+- Long debugging session resolved
+- ~2+ hours of continuous work in one session
+- Switching to an unrelated task
+
+The hand-off prompt should include: what just shipped (commit / PR),
+what the next task is (from the roadmap), and which workflow skill to
+start with (`superpowers:brainstorming`, `superpowers:writing-plans`,
+or direct implementation).
+
+`/compact` is also available but considered opaque by the field — prefer
+explicit `/clear` + a curated next-session prompt.
+
+---
+
 ## Pre-task checklist (use for any non-trivial change)
 
 Before starting work on a non-trivial change:
@@ -271,9 +367,13 @@ For larger changes, use the workflow:
 2. **Plan** — `superpowers:writing-plans` skill for multi-step work
 3. **Implement** — `superpowers:subagent-driven-development` skill for
    dispatching fresh subagents per task with formal review cycles
-4. **Verify** — pytest + mypy + ruff (Python) or vitest + tsc + lint
-   (TS) before commit
-5. **Commit** — atomic, conventional, with co-author tag, push immediately
+4. **Verify before "done"** — `superpowers:verification-before-completion`
+   at mid-task "I'm done" moments (don't wait for the pre-commit gate)
+5. **Run gate trio** — `/check-agent` or `/check-viewer` before commit
+6. **Commit** — atomic, conventional, with co-author tag, push
+   immediately
+7. **Clear context** — when a feature ships or a phase milestone hits,
+   suggest `/clear` with a curated next-session prompt
 
 ---
 

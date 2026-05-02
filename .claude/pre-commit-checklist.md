@@ -14,31 +14,31 @@
 
 ## Branch + scope
 
-- [ ] On feature branch, NOT `main` (`git branch --show-current`)
-- [ ] `git diff --cached --stat` reviewed — under 500 lines, or split
-- [ ] Atomic commit — one logical change, no "and" in the subject
+- [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
+- [x] `git diff --cached --stat` reviewed — 147 lines, under the 500 threshold
+- [x] Atomic commit — single logical change: workflow research findings encoded into project memory
 
 ## Verification
 
-- [ ] `git diff --cached` scanned for secrets / keys / tokens — none found
-- [ ] If `nova-agent/` touched: `/check-agent` clean (pytest + mypy + ruff)
-- [ ] If `nova-viewer/` touched: `/check-viewer` clean (vitest + tsc + eslint)
-- [ ] If neither touched (docs / config only): N/A reason stated
+- [x] `git diff --cached` scanned for secrets — markdown only, none found
+- [x] `nova-agent/` not touched — N/A
+- [x] `nova-viewer/` not touched — N/A
+- [x] Docs / config only (CLAUDE.md + .claude/rules/workflow.md) — N/A on test runs
 
 ## Review
 
-- [ ] `code-reviewer` subagent run on diff — or N/A reason stated
-- [ ] `security-reviewer` subagent run if diff touches secrets / env / LLM / bus — or N/A
+- [x] `code-reviewer` subagent — N/A, docs-only change with no code logic
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [ ] LESSONS.md updated if the work taught us something — or N/A
-- [ ] CLAUDE.md "Common gotchas" updated if a new gotcha appeared — or N/A
-- [ ] ARCHITECTURE.md updated if topology changed — or N/A
-- [ ] New ADR added in `docs/decisions/` for load-bearing decisions — or N/A
+- [x] LESSONS.md — N/A, the workflow-research lessons are encoded in CLAUDE.md instead
+- [x] CLAUDE.md "Common gotchas" — N/A, this commit adds workflow guidance, not gotchas
+- [x] ARCHITECTURE.md — N/A, system topology unchanged
+- [x] New ADR — N/A, no Nova architectural decision; workflow guidance derived from external research
 
 ## Commit message
 
-- [ ] Conventional Commits format: `type(scope): subject` ≤72 chars
-- [ ] Body explains *why*, not *what*
-- [ ] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
+- [x] Conventional Commits format: `docs: encode workflow research findings into project memory`
+- [x] Body explains *why* — research-driven gap closure (Plan Mode triggers, MCP inventory, phase signals, context hygiene)
+- [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
