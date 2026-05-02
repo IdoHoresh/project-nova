@@ -111,6 +111,9 @@ function applyBranch(block: ToTBlockEntry, data: ToTBranchData): void {
   } else {
     // Both parse_error and api_error render identically: failed branch with
     // no value. The distinction matters for telemetry/logs, not the card.
+    // If a future product change wants to surface api_error distinctly
+    // (e.g. tooltip "agent quota exhausted"), widen ToTBranchEntry.status
+    // in lib/stream/types.ts and route the api_error arm here.
     branch = {
       action: data.direction,
       value: null,
@@ -141,13 +144,13 @@ export function deriveStream(
   opts: DeriveOptions = {},
 ): StreamEntry[] {
   const now = opts.now ?? (() => new Date());
-  const _prevAffect = opts.prevAffect ?? null;
+  const prevAffect = opts.prevAffect ?? null;
 
   const entries: StreamEntry[] = [];
   let seq = 0;
   let currentMode: AgentMode | null = null;
   let openBlock: ToTBlockEntry | null = null;
-  const thresholds = initThresholdState(_prevAffect);
+  const thresholds = initThresholdState(prevAffect);
   let lastTraumaActive: boolean | null = null;
   let currentTraumaEntry: TraumaEntry | null = null;
 

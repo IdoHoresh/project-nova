@@ -41,9 +41,10 @@ export function useNovaSocket() {
         // Frame parsed as JSON but failed schema validation. Log once per
         // session per event name to avoid flooding the console on bad
         // streams. The agent should never emit malformed events; if this
-        // fires the agent code or this validator is out of sync.
+        // fires, either the agent code and this validator are out of sync,
+        // or the WebSocket has been spliced by something off-protocol.
         const evName =
-          raw && typeof raw === "object" && "event" in raw
+          raw && typeof raw === "object" && !Array.isArray(raw) && "event" in raw
             ? String((raw as { event: unknown }).event)
             : "<no event>";
         const seen = seenInvalidEventsRef.current;
