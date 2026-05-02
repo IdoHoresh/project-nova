@@ -21,6 +21,16 @@
 
 ## Engineering / debugging gotchas
 
+### Discriminated-union catch-alls hide missing variants
+
+**Date:** 2026-05-03 | **Cost:** ~2 hours of audit-trail work; surfaced one real api_error → parse_error rendering bug that had been live in the agent for weeks.
+
+**What happened:** `nova-viewer/lib/types.ts` had a `{event: string; data: unknown}` catch-all arm at the bottom of the `AgentEvent` discriminated union. It was added "for safety" so the union would accept any frame the agent might emit, even shapes the viewer hadn't modelled yet. Removing it surfaced a third `tot_branch.status` variant — `"api_error"`, emitted from `nova_agent/decision/tot.py:166` whenever an LLM call fails — that the viewer had never typed. The catch-all routed those frames through `e.data as ToTBranchData` casts that compiled fine because TypeScript saw both arms (complete and parse_error) as assignable from the catch-all's `unknown`. The bus protocol was permissive enough that the bad shape rendered weirdly instead of throwing — a silent UX bug.
+
+**Lesson:** A union arm of `{ tag: string; data: unknown }` defeats discriminated narrowing in every consumer. It also defeats `grep` — you can't audit which variants are handled because the catch-all matches everything. Hand-written runtime predicates per variant + a top-level `parse(raw): T | null` is worth the boilerplate, because TypeScript narrowing then becomes a real consistency check between producer and consumer.
+
+**How to apply:** When mirroring an external protocol (Python bus → TS viewer), don't use a string-keyed catch-all "for safety." Either type every variant explicitly or fail closed (return `null`) for unknown tags. Every catch-all is a bug-hider. The validator implementation lives at `nova-viewer/lib/eventGuards.ts` (see `parseAgentEvent`); use it as the template when adding new event types.
+
 ### macOS UF_HIDDEN flag silently breaks Python venvs on Desktop
 
 **Date:** 2026-05-02 | **Cost:** ~1 hour of "why does pytest work but `uv run nova` fail?"
