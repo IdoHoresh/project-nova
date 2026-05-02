@@ -12,7 +12,7 @@ import {
   totSelectedEv,
   traumaActiveEv,
 } from "./fixtures";
-import type { AffectVectorDTO } from "@/lib/types";
+import type { AffectVectorDTO, AgentEvent } from "@/lib/types";
 import type {
   AffectCrossingEntry,
   DecisionEntry,
@@ -321,5 +321,45 @@ describe("deriveStream — game_over", () => {
     const stream = deriveStream([gameOverEv({ catastrophic: true })]);
     const g = stream.find((e) => e.kind === "game_over") as GameOverEntry;
     expect(g.catastrophic).toBe(true);
+  });
+});
+
+describe("deriveStream — 100-entry cap", () => {
+  it("returns at most the latest 100 entries", () => {
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 150; i++) {
+      events.push(decisionEv({ reasoning: `move ${i}` }));
+    }
+    const stream = deriveStream(events);
+    expect(stream).toHaveLength(100);
+    // First retained entry should be move 50, not move 0.
+    const first = stream[0] as DecisionEntry;
+    expect(first.text).toBe("move 50");
+  });
+
+  it("integration: a realistic mid-game slice produces a coherent stream", () => {
+    const events: AgentEvent[] = [
+      modeEv("react"),
+      decisionEv({ action: "swipe_down", reasoning: "consolidate down" }),
+      affectEv({ dopamine: 0.7 }),
+      decisionEv({ action: "swipe_left", reasoning: "open chain" }),
+      memoryRetrievedEv([makeMemory({ id: "old-corner" })]),
+      modeEv("tot"),
+      totBranchEv("swipe_up", 0.31, "leaves 16 exposed"),
+      totBranchEv("swipe_left", 0.42, "opens chain"),
+      totBranchEv("swipe_down", 0.58, "consolidates"),
+      totBranchEv("swipe_right", 0.19, "blocks 16"),
+      totSelectedEv("swipe_down", { swipe_up: 0.31, swipe_left: 0.42, swipe_down: 0.58, swipe_right: 0.19 }),
+      affectEv({ anxiety: 0.7 }),
+      gameOverEv({ finalScore: 1024, lesson: "Avoid the right edge." }),
+    ];
+    const stream = deriveStream(events);
+    const kinds = stream.map((e) => e.kind);
+    expect(kinds).toContain("decision");
+    expect(kinds).toContain("affect_crossing"); // dopamine_high + anxiety_high
+    expect(kinds).toContain("memory_recalled");
+    expect(kinds).toContain("mode_flip");
+    expect(kinds).toContain("tot_block");
+    expect(kinds).toContain("game_over");
   });
 });
