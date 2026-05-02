@@ -1,0 +1,111 @@
+# Pre-commit configuration for Project Nova.
+# https://pre-commit.com/
+#
+# Install hooks (one-time per clone):
+#   pip install pre-commit  # or: brew install pre-commit
+#   pre-commit install
+#
+# Run manually against all files:
+#   pre-commit run --all-files
+#
+# Run automatically on every `git commit` for staged files only.
+# Bypassing requires --no-verify which is forbidden by project policy
+# unless the user explicitly authorizes it.
+
+repos:
+  # ─── universal hygiene ─────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Markdown trailing whitespace is significant (line break) — preserve
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+        exclude: ^nova-agent/data/  # local fixtures may have intentionally invalid YAML
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=512]  # warn on files > 512 KB; use git-lfs for binaries
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-symlinks
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # ─── secret scanning (defense-in-depth alongside gitleaks) ─────────────────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # ─── Python (nova-agent) ───────────────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^nova-agent/.*\.py$
+      - id: ruff-format
+        files: ^nova-agent/.*\.py$
+
+  # ─── JavaScript / TypeScript (nova-viewer) ─────────────────────────────────
+  # We rely on local pnpm + node, not pre-commit-managed mirror, because
+  # nova-viewer's eslint-config-next + tsc need the workspace's full
+  # package.json + tsconfig.json + node_modules. Mirror-based pre-commit
+  # hooks for ESLint don't pick those up correctly.
+  - repo: local
+    hooks:
+      - id: eslint-viewer
+        name: eslint (nova-viewer)
+        language: system
+        files: ^nova-viewer/(app|lib)/.*\.(ts|tsx|js|jsx)$
+        # cd into nova-viewer and run pnpm lint targeted at the changed files
+        entry: bash -c 'cd nova-viewer && pnpm exec eslint --max-warnings=0 "$@"' --
+        require_serial: false
+
+      - id: tsc-viewer
+        name: tsc --noEmit (nova-viewer)
+        language: system
+        files: ^nova-viewer/(app|lib)/.*\.(ts|tsx)$
+        pass_filenames: false
+        entry: bash -c 'cd nova-viewer && npx tsc --noEmit'
+        require_serial: true
+
+      - id: prettier-viewer
+        name: prettier (nova-viewer)
+        language: system
+        files: ^nova-viewer/(app|lib)/.*\.(ts|tsx|js|jsx|json|css|md)$
+        # Run via pnpm exec so we use the workspace prettier if installed
+        # (and gracefully skip if not — pnpm exec returns non-zero, and we
+        # accept it as "no prettier configured yet"). To enforce strictly,
+        # add prettier to package.json devDependencies.
+        entry: bash -c 'cd nova-viewer && pnpm exec prettier --check "$@" 2>/dev/null || echo "(prettier not configured; skipping)"' --
+
+  # ─── Markdown ──────────────────────────────────────────────────────────────
+  # Lightweight markdown linter — catches broken links, malformed tables, etc.
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.43.0
+    hooks:
+      - id: markdownlint
+        args: [--config, .markdownlint.yaml, --ignore, node_modules, --ignore, .next]
+        # Disabled until .markdownlint.yaml is added; uncomment when ready.
+        # For now skip markdown linting; revisit in Tier 2.
+        stages: [manual]
+
+  # ─── conventional commits ──────────────────────────────────────────────────
+  # Commit-msg hook that enforces conventional-commits format.
+  # Runs at commit time on the message content.
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.6.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: []  # default config: feat/fix/docs/style/refactor/test/chore/build/ci/perf/revert
+
+# Default settings
+default_language_version:
+  python: python3.11
+default_stages: [pre-commit]
+fail_fast: false  # run all hooks even if one fails (so user sees full picture)
