@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 1301 lines, single new file (the implementation plan); over the 500 threshold but unsplittable as one logical artifact
-- [x] Atomic commit — single logical change: AgentEvent runtime validator implementation plan
+- [x] `git diff --cached --stat` reviewed — small docs patch (~50 lines), well under the 500 threshold
+- [x] Atomic commit — single logical change: apply code-reviewer findings to the AgentEvent validator plan
 
 ## Verification
 
 - [x] `git diff --cached` scanned for secrets — markdown only, no env values / API keys / tokens
-- [x] `nova-agent/` not touched — N/A, plan only describes future viewer-side changes
-- [x] `nova-viewer/` not touched — N/A, plan only describes future viewer-side changes
+- [x] `nova-agent/` not touched — N/A, plan-only patch
+- [x] `nova-viewer/` not touched — N/A, plan-only patch (the implementation lands when execution starts)
 - [x] Docs / config only (`docs/superpowers/plans/`) — N/A on test runs
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, no code in this commit; the plan itself self-reviewed against the spec inside the document
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
+- [x] `code-reviewer` subagent — THIS COMMIT applies its findings; running it again would be circular
+- [x] `security-reviewer` — already ran on the original plan (commit cc26a31), 3 LOW items deliberately deferred to implementation PR
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, the catch-all-hides-variants lesson is added by Task 9 of the plan itself when execution lands, not here
-- [x] CLAUDE.md "Common gotchas" — N/A, the gotcha #9 entry already references this work as scheduled for Week 0 Day 1; updating it lands with execution, not the plan
+- [x] LESSONS.md — N/A, the catch-all-hides-variants lesson still lands with execution Task 9, not here
+- [x] CLAUDE.md "Common gotchas" — N/A, gotcha #9 unchanged
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, this is an implementation plan, not an architectural decision; the underlying decision (typed bus contract) is implicit in nova-viewer/AGENTS.md "Bus contract" rule
+- [x] New ADR — N/A, no decision change; this is artifact correction
 
 ## Commit message
 
-- [x] Conventional Commits format: `docs(plan): add AgentEvent runtime validator plan`
-- [x] Body explains *why* — locks the design before code; surfaces a real bug (tot_branch.api_error missing from union) discovered during planning
+- [x] Conventional Commits format: `docs(plan): apply code-reviewer findings to AgentEvent validator plan`
+- [x] Body explains *why* — fixes 2 BLOCKING + 3 MEDIUM + 2 LOW issues a future worker would hit; avoids carrying a stack of override notes into the subagent-driven execution
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`

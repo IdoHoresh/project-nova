@@ -849,7 +849,7 @@ import type { AgentEvent } from "./types";
 import { parseAgentEvent } from "./eventGuards";
 ```
 
-(Keeping `seenInvalidEvents` in a `useRef` rather than module scope ensures it resets between hook unmount/remount cycles in tests; sharing across all socket instances would defeat the test reset.)
+(Keeping `seenInvalidEvents` in a `useRef` rather than module scope ensures it resets per hook mount-cycle. The "log once" guarantee is therefore **per-mount-cycle**, not per-session. In the live brain panel — mounted once and never remounted — this is equivalent to per-session. In tests each `renderHook` call creates a fresh mount so the set resets, which is why the rate-limit test in Task 5 is reliable. **If a future ticket adds reconnect logic that unmounts/remounts the hook**, the warning will re-fire on each remount; revisit the rate-limit semantics at that point.)
 
 - [ ] **Step 3: Type-check the file**
 
@@ -990,6 +990,7 @@ With the catch-all gone, TypeScript narrows `e.data` automatically when you disc
 In `deriveStream.ts`, edit lines 162-305 to remove every `as X` from `e.data`. Concretely:
 
 - Line 164: `const d = e.data as { mode: AgentMode; step?: number };` → `const d = e.data;`
+- **Lines 157-159 (`tsOf` function):** the `const stamped = e as AgentEvent & { ts?: string };` cast is intentional and remains. It widens the discriminated union with an optional non-protocol field (`ts`, stamped by `useNovaSocket`); this is not a discriminator-defeating cast. Leave it. (Audited 2026-05-03 — flagging here so a future reader doesn't try to "complete" the cast-removal pass.)
 - Line 190: `const d = e.data as ToTBranchData;` → `const d = e.data;`
 - Line 200: `const d = e.data as ToTSelectedData;` → `const d = e.data;`
 - Line 210: `const d = e.data as AffectVectorDTO & { rpe: number; trauma_triggered: boolean };` → `const d = e.data;`
@@ -1022,25 +1023,30 @@ const decisionMode: AgentMode | null = d.mode ?? currentMode;
 ```
 (`d.mode` is already typed `AgentMode | undefined` by narrowing; `currentMode` is `AgentMode | null`; the union is `AgentMode | null`.)
 
-- [ ] **Step 3: Replace the `action` cast on line 294**
+- [ ] **Step 3a: Add the `isSwipeAction` import at the top of the file**
 
-Replace:
-```typescript
-const action = d.action as SwipeAction;
-```
-with:
+Open `nova-viewer/lib/stream/deriveStream.ts`. Find the existing imports block at the top (currently imports from `@/lib/types`, `./types`, and `./reword`). Add a new import line directly after them:
+
 ```typescript
 import { isSwipeAction } from "@/lib/eventGuards";
-// ... at top of file ...
+```
 
-// then inside the decision branch:
+This is a separate, top-of-file edit — do NOT inline this import inside the decision branch.
+
+- [ ] **Step 3b: Replace the `action` cast on line 294 with a predicate guard**
+
+Inside the `if (e.event === "decision") { ... }` branch, find the line `const action = d.action as SwipeAction;`. Replace it with:
+
+```typescript
 if (!isSwipeAction(d.action)) continue;
 const action = d.action;
 ```
 
-The `import` line goes at the top of the file alongside the existing imports. The `if (!isSwipeAction(...))` line goes immediately before the existing `const entry: DecisionEntry = { ... }` block. This catches the (rare) case where the agent emits a string action that isn't a known swipe — instead of letting a bad frame populate the stream, we skip it. (The agent's `decide` returns `Decision.action: str`, not a `SwipeAction` Literal — so this guard is real, not theatrical.)
+The `if (!isSwipeAction(...))` line goes immediately before the existing `const entry: DecisionEntry = { ... }` block. This catches the (rare) case where the agent emits a string action that isn't a known swipe — instead of letting a bad frame populate the stream, we skip it. (The agent's `decide` returns `Decision.action: str`, not a `SwipeAction` Literal — so this guard is real, not theatrical.)
 
 - [ ] **Step 4: Handle the `api_error` arm in `applyBranch`**
+
+**Pre-condition (verify before editing):** Open `nova-viewer/lib/stream/types.ts` and confirm `ToTBranchEntry.status` is `"pending" | "complete" | "parse_error"` (verified 2026-05-03 against current state). If a future reader finds the union has gained an `"api_error"` literal, the collapse below silently drops information that downstream consumers may now distinguish — in that case, route `api_error` to its own `ToTBranchEntry.status: "api_error"` instead of folding into `"parse_error"`. As of this plan's writing, the union does NOT have that literal, so the collapse is correct.
 
 Find `applyBranch` at lines 104-128. The current `data.status === "complete"` check leaves the `else` branch handling both `parse_error` and the new `api_error`. Both render as a parse-error-style card from the user's POV (no value, generic "couldn't see this clearly" reasoning). The existing else branch already produces that shape — so the only change needed is to make the discriminator explicit so TS narrowing doesn't surprise us. Replace lines 105-118 with:
 
@@ -1103,7 +1109,7 @@ In `app/page.tsx`, edit:
 - Line 38: `if (Array.isArray(data.items)) return data.items;` → `return data.items;` (after narrowing, `data.items` is `RetrievedMemoryDTO[]`, always defined)
 - Line 47: `if (e.event === "affect") return e.data as AffectVectorDTO;` → `if (e.event === "affect") return e.data;`
 - Line 56: `const d = e.data as { affect_text?: string };` → `const d = e.data;`
-- Line 67: `const d = e.data as { mode?: AgentMode };` → `const d = e.data;` (then `d.mode` is `AgentMode`, not `AgentMode | undefined`, so the `=== "tot" || === "react"` check is no longer needed; replace lines 67-68 with `if (e.event === "mode") return e.data.mode;`)
+- Line 67: `const d = e.data as { mode?: AgentMode };` → `const d = e.data;` (then `d.mode` is `AgentMode`, not `AgentMode | undefined`, so the `=== "tot" || === "react"` check is no longer needed; replace lines 67-68 with `if (e.event === "mode") return e.data.mode;`). The dropped guard is safe because `AgentMode` is now an exhaustive narrow type (`"react" | "tot"`); the no-event-yet case is still handled by the outer `for`-loop's `return "react"` fallback, NOT by the dropped guard. Do not be tempted to add the guard back — it would now be dead code that TypeScript's exhaustiveness check should catch.
 - Line 78: `const d = e.data as { active?: boolean };` → `const d = e.data;`; line 79 `return Boolean(d.active);` → `return d.active;`
 - Line 92: `const d = e.data as { score?: number; step?: number };` → `const d = e.data;`; lines 93-97 simplify because `d.score` and `d.step` are both `number`, never undefined:
   ```typescript
@@ -1155,7 +1161,12 @@ every accessor now that the catch-all is gone."
 Append to `fixtures.ts` (after `totBranchParseErrEv`):
 
 ```typescript
-export function totBranchApiErrEv(direction: SwipeAction, moveIdx = 1): AgentEvent {
+import type { ToTBranchApiErrorData } from "@/lib/types";
+
+export function totBranchApiErrEv(
+  direction: SwipeAction,
+  moveIdx = 1,
+): { event: "tot_branch"; data: ToTBranchApiErrorData } {
   return {
     event: "tot_branch",
     data: {
@@ -1168,6 +1179,8 @@ export function totBranchApiErrEv(direction: SwipeAction, moveIdx = 1): AgentEve
   };
 }
 ```
+
+(Tightened return type per the file-structure table at the top of this plan — fixtures should return the specific event variant, not the broad `AgentEvent`, so shape regressions surface as TS errors instead of slipping through into runtime.)
 
 - [ ] **Step 2: Add a deriveStream test for the api_error branch**
 
@@ -1266,7 +1279,7 @@ git commit -m "docs(lessons): record AgentEvent catch-all anti-pattern"
 git push origin claude/practical-swanson-4b6468
 ```
 
-(The repo convention is to push after every commit, but this plan deferred pushes so the working tree never lands in an intermediate broken state mid-task. After Task 9, the branch is at parity with the convention.)
+**Cadence note:** The repo's standard convention (CLAUDE.md "Branch + commit conventions") is to push immediately after every commit. This plan **deliberately overrides** that for Tasks 1-8: each task lands a commit but DOES NOT push. The reason is type-safety integrity — after Task 1 (drops the catch-all) and before Tasks 6-7 (remove the now-broken casts), the codebase fails `tsc --noEmit`. Pushing those intermediate states would leave the public branch broken between commits, which is worse than the audit-trail benefit of per-commit pushes. After Task 9 lands, the whole sequence is pushed atomically and the branch is at parity with the convention. If executing this plan via the subagent-driven flow, treat the override as scoped to this plan only — do not generalise it to other multi-commit work.
 
 ---
 
@@ -1299,3 +1312,19 @@ git push origin claude/practical-swanson-4b6468
 - The viewer's `useNovaSocket` still doesn't reconnect on close. Out of scope (separate Day-2 ticket).
 
 **Estimated total effort:** 1.5–2 hours for an engineer with no Nova context, ~45 min for someone who's been in the codebase. Each task is independently testable and revertable.
+
+---
+
+## Post-review patches (2026-05-03)
+
+The plan was reviewed by the `code-reviewer` subagent after the initial commit (`cc26a31`). The following findings have been folded into the body above; this section exists so a future reader can see what the review caught without re-running it:
+
+- **BLOCKING — Task 6 Step 3 import placement.** Original wording put the `isSwipeAction` import inline inside the decision-branch comment, which a literal-following worker would have copy-pasted into the wrong place and produced a syntax error. Split into Steps 3a (top-of-file import) + 3b (in-branch guard).
+- **BLOCKING — Task 6 Step 4 unverified pre-condition.** The `parse_error`/`api_error` collapse silently drops information if `ToTBranchEntry.status` already has an `"api_error"` literal. Verified against `nova-viewer/lib/stream/types.ts:48` (status union: `"pending" | "complete" | "parse_error"`) — collapse is type-correct as of 2026-05-03. Added an explicit pre-condition + escape hatch for future readers.
+- **MEDIUM — Task 4 prose mixed "session" and "mount-cycle".** Clarified the rate-limit guarantee is per-mount-cycle, equivalent to per-session in the live panel, and flagged the reconnect-ticket case.
+- **MEDIUM — Task 7 dropped guard intent.** Made explicit that the outer-loop fallback (`return "react"`) handles the no-event case, NOT the dropped guard. Stops a worker from second-guessing and reverting.
+- **MEDIUM — Task 6 missed cast site.** Documented the `tsOf` function's `e as AgentEvent & { ts?: string }` intersection cast at `deriveStream.ts:157-159` as deliberate (widens with non-protocol field, not a discriminator-defeat). Audited so a future cleanup pass doesn't try to "complete" it.
+- **LOW — Push cadence override.** The plan defers pushes from Tasks 1-8 to Task 9 because intermediate commits fail `tsc --noEmit` between Task 1 (drops catch-all) and Tasks 6-7 (remove broken casts). The override is now stated explicitly with the reason and scoped to this plan only.
+- **LOW — Task 8 fixture return type.** `totBranchApiErrEv` now returns `{ event: "tot_branch"; data: ToTBranchApiErrorData }` instead of `AgentEvent`, matching the file-structure-table commitment to tighten fixture types.
+
+The 3 LOW security findings (256KB JSON-parse cap; `Object.entries(branch_values)` allowlist comment; reword "[marketing]" tag in `casterai-deep-dive.md:110`) are intentionally NOT folded into the plan — they belong to the implementation PR (security findings 1 + 2) and a future docs sweep (finding 3), not the validator scaffolding.
