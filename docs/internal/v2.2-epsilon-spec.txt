@@ -1,0 +1,362 @@
+PROJECT NOVA — v2.2 EPSILON SPEC (RAW, INTERNAL)
+==================================================
+
+STATUS:  Captured 2026-05-02. Not yet promoted to methodology.md.
+         Promotion gated on: Phase 0.7 (cliff test) PASS + Phase 0.8
+         (trauma ablation) PASS. If single-session signatures (Alpha
+         through Delta) don't validate, this entire spec is on hold
+         pending architecture rework — Epsilon is meaningless if the
+         underlying affect detection isn't predictive.
+
+PURPOSE: Preserve the architectural decisions about how Nova handles
+         encountering bugs (game crashes, soft-locks, unresponsive
+         input) WITHOUT issuing QA-style bug reports — so we don't
+         category-drift into modl.ai's territory while still extracting
+         commercial value from bug encounters.
+
+ORIGIN:  Brainstorm dialogue 2026-05-02 PM, between the two AI
+         collaborators on this branch. Triggered by Ido's question:
+         "what does Nova do when it encounters a bug?" Captured here
+         to prevent scope creep into the Week 0 validation sprint.
+
+
+==================================================
+1. THE CORE STRATEGIC FRAMING
+==================================================
+
+Bugs are encountered. Nova MUST handle them. But the deliverable shape
+determines our category placement:
+
+  - QA-style bug report (stack trace, repro steps) → we become a QA tool
+    → head-on competition with modl.ai → wrong category, wrong budget,
+    wrong buyer.
+
+  - Psychological-event report (player rage-quit, frustration plateau,
+    forced abandonment) → we stay a product-decision tool → bugs
+    become quantified retention impact → buyer (Product / Live Ops)
+    knows what to do with the report.
+
+The architectural rule: Nova reacts to a bug exactly the way a real
+human player reacts to a bug — by getting angry and quitting. The
+psychological event is the deliverable. The technical trace is an
+attached detail, not the headline.
+
+
+==================================================
+2. THE NEW DETECTOR (NOT "ZERO ARCHITECTURE")
+==================================================
+
+Honest correction to the brainstorm framing: bug detection is NOT a
+free emergent property of the existing affect system. The current
+Frustration accumulator triggers on score-delta dynamics. It cannot
+distinguish:
+
+  CASE A — Bad move. Player swiped, board changed, no merges, score
+           stayed flat. Game is responsive; player chose poorly.
+           Expected response: mild frustration. Existing system
+           handles correctly.
+
+  CASE B — Bug-frozen game. Player swiped, board did NOT change,
+           no new tile spawn, no animation. Game is unresponsive.
+           Expected response: anxiety + investigation. Existing
+           system handles INCORRECTLY (treats as Case A — mild
+           frustration only).
+
+The new detector required:
+
+  StateUnchangedAfterAction(prev_perception, current_perception, action)
+    -> bool
+
+  Returns True if perception is byte-identical (or near-identical
+  accounting for animation noise) when an action that should produce
+  a state change is issued. Threshold:
+
+    - Image perception (OCR path): pixel-diff > 95% identical pre/post
+    - SDK perception (Unity path): structured state object byte-equal
+
+Implementation cost: ~50 lines of Python in a new
+nova_agent.perception.bug_detector module. Adds to the perception
+pipeline, not the cognitive layer.
+
+WHY THIS MATTERS:
+  Without StateUnchangedAfterAction, Nova will quietly accumulate
+  Frustration in the same way for "bad move on Level 5" and "the
+  Level 5 transition broke the input handler." Both will fire
+  Signature Alpha (Churn). The bug-as-design-issue confound is real
+  and will pollute every cohort retention prediction we ship.
+
+DETECTION-DURING-EXPLORATION-LEARNING (PHASE 2 NUANCE):
+  When Nova plays an unfamiliar game, it doesn't yet know which
+  actions should produce state changes. Random tap → no state change
+  might mean "I tapped dead space" (normal) or "the game is broken"
+  (bug). Bug detection in unfamiliar games requires a learned
+  baseline — Nova needs N≥10 sessions of training data on a game
+  before bug detection becomes reliable. Scope this honestly:
+  "Nova ships bug-detection on games where it has played at least
+  N=10 sessions" — not "Nova detects bugs in any game from move 1."
+
+
+==================================================
+3. SIGNATURE EPSILON (THE FIFTH SIGNATURE)
+==================================================
+
+Originally bug-handling was framed as emergent from Signature Alpha
+(Churn). Wrong. Bug-triggered abandonment has fundamentally different
+semantics from design-driven churn:
+
+  Signature Alpha (Churn):
+    - Player gave up DESPITE the game working correctly
+    - Cause: design issue (level too hard, paywall too aggressive,
+      pacing too slow, etc.)
+    - Fix: design iteration
+    - Department: Product / Game Design
+
+  Signature Epsilon (Bug-Triggered Abandonment):
+    - Player gave up BECAUSE the game stopped working
+    - Cause: build issue (crash, soft-lock, unresponsive input,
+      logic error)
+    - Fix: engineering ticket
+    - Department: Engineering / QA
+
+Conflating them in the same signature pollutes BOTH metrics:
+  - Churn prediction overstated (some "churn" is actually bugs)
+  - Bug detection underweighted (some "bugs" lost in churn noise)
+
+FORMAL DEFINITION (drop into methodology.md §1.4.5 when promoted):
+
+  Signature Epsilon (Bug-Triggered Abandonment)
+
+  Pattern:
+    StateUnchangedAfterAction across ≥3 consecutive different
+    action types within a 10-move window
+    AND
+    Anxiety crosses 0.7 within 5 moves of first state-unchanged event
+    AND
+    Session terminates in Abandonment event (no further actions)
+
+  Predicts:
+    A build issue, NOT a design issue. Specifically: the game ignored
+    or failed to respond to player input in a way that no recovery
+    path exists from.
+
+  Falsification criterion:
+    If Epsilon fires AND the studio engineers cannot reproduce a bug
+    at that game position, the signature is misfiring. Likely cause:
+    state-comparison threshold too strict (particle effects, RNG-
+    driven tile spawn animations causing false-positive
+    state-unchanged readings). Tune, re-validate.
+
+  KPI mapping:
+    "Predicted bug-induced retention loss" — explicitly distinct
+    from Alpha's "predicted design-induced churn." Reported as a
+    separate row in the Validation Report.
+
+  Methodology section to update on promotion:
+    - §1 (Signatures): renumber subsections, add §1.4.5
+    - §1.5 ("Why four"): update to "Why five" with rationale for
+      the design-vs-build distinction
+    - §2 (KPI Translation): add Epsilon row to the translation table
+    - §6 (What this is NOT): update "not a QA bug-finder" disclaimer
+      to acknowledge "Nova does detect bug-induced abandonment as a
+      side effect of human-reaction simulation, but does not produce
+      bug reports — see Epsilon methodology"
+
+
+==================================================
+4. NAMING — DON'T USE "CATASTROPHIC CHURN EVENT"
+==================================================
+
+Original brainstorm proposed "Catastrophic Churn Event" as the report
+header for bug-triggered abandonment. WRONG. The name kills the action.
+
+  "Catastrophic Churn Event"
+    → Product reads: "well, that persona was always going to churn,
+      can't fix human nature"
+    → Action: shrug
+
+  "Forced Abandonment Event (likely build issue)"
+    → Product reads: "OH GOD WE HAVE TO FIX THIS NOW"
+    → Action: route to engineering immediately
+
+The naming determines the urgency the report creates. USE:
+  - "Forced Abandonment Event"
+  - or "Bug-Triggered Bounce"
+  - or "Build-Quality Event"
+
+Whatever signals PREVENTABILITY and URGENCY explicitly. Churn
+language signals neither.
+
+
+==================================================
+5. THE "BUG HYPOTHESIS" DELIVERABLE STRUCTURE
+==================================================
+
+Original brainstorm proposed attaching "the exact JSON trace of the
+12 moves and SDK game-states leading up to the abandonment" to the
+Product Director's report. Two failure modes:
+
+  1. Product reads engineering noise → dismisses the whole report
+  2. Engineering never sees the trace (filtered through Product)
+
+Better deliverable shape — structured Bug Hypothesis layer that's
+product-readable at the top, engineering trace tucked behind a
+"details" link:
+
+  ─── FORCED ABANDONMENT EVENT (Level 5, Move 14) ───
+    Persona: 100% of Casual Carla cohort (N=50)
+    Predicted retention impact: 35% D1 loss in this cohort
+    Likely cause: input handler unresponsive to swipe events
+                  after the level transition animation completes
+    Bug hypothesis confidence: HIGH (6 different actions tried,
+                  zero state changes recorded)
+
+    → [Engineering trace: 12-move JSON sequence] (link)
+    → [Recommended action: route to engineering, P0 priority]
+
+The headline is product-readable. The hypothesis is plain English.
+The engineering link is for the team that can fix it. Product
+Director knows what to do (forward the link); Engineering knows
+what they're getting (a focused hypothesis with reproduction steps,
+not a 1000-line stack trace).
+
+Hypothesis-confidence levels (cite in methodology when promoted):
+  HIGH:   ≥5 different actions tried, all StateUnchanged
+  MEDIUM: 3-4 different actions tried
+  LOW:    Only 1-2 actions tried (could be coincidence; Nova may
+          have just exhausted the action space at a stuck position)
+
+
+==================================================
+6. PRICING CLAIM — DON'T INVENT DOLLAR FIGURES
+==================================================
+
+Brainstorm proposed reporting "fix this bug today or lose $10K in UA
+spend tomorrow." Rhetorically powerful, quantitatively unsupported.
+We don't have access to the studio's CAC, cohort size, or LTV model.
+Picking a dollar figure is bullshit (technical sense — claims
+indifferent to truth value).
+
+HONEST VERSION (use this):
+
+  "100% of Casual Carla cohort (N=50) abandoned at Level 5 Move 14.
+  Translated to your real users: D1 retention in the Casual segment
+  drops by [X% of your D1 cohort that is Casual]. Apply your own CAC
+  and LTV to compute UA-spend impact."
+
+That's defensible, observable, and lets Product Director plug in
+their own numbers. They'll trust a tool that hands them inputs more
+than one that hands them a confidently-wrong number. Long-term moat:
+once we have validation corpus from N pilots, we publish per-genre
+"average D1 retention impact per X% of bug-affected sessions"
+benchmarks — but until then, NO INVENTED DOLLAR FIGURES.
+
+
+==================================================
+7. COHORT-AGGREGATION PRECEDENCE (CRITICAL)
+==================================================
+
+If Signature Epsilon fires in a session, that session must be
+EXCLUDED from Signature Alpha (Churn) calculations for the cohort.
+Otherwise the report says:
+
+  "Predicted Day-1 churn in Casual cohort: 40%"
+
+When the reality is:
+
+  "Predicted Day-1 churn in Casual cohort: 5% (normal) +
+   35% (bug-forced abandonment, will disappear when bug is fixed)"
+
+Different reaction from Product. The first triggers a design
+overhaul; the second triggers an engineering ticket. The first is
+catastrophic; the second is a known-fixable issue. Conflating them
+would burn the studio's trust in Nova's predictions on the very
+first bug encountered.
+
+EXPLICIT PRECEDENCE RULES (add to methodology §1.6 cohort-aggregation
+when promoted):
+
+  - Epsilon-affected sessions → flagged as "unreliable for retention
+    prediction"
+  - Cohort retention predictions (Alpha firing rate) → computed only
+    on Epsilon-clean sessions
+  - Epsilon firing rate → reported separately as the "build quality"
+    indicator
+  - Cohort report explicitly shows: "Of N=50 sessions, X had
+    Forced Abandonment Events and were excluded from retention
+    prediction. Retention figures based on N-X clean sessions."
+
+This precedence rule applies to Long-Horizon Simulation (§1.6) too.
+Day-N retention predictions on bug-affected days should report the
+day's Epsilon firing rate alongside the (Epsilon-excluded) Alpha
+rate.
+
+
+==================================================
+8. WHAT GETS BUILT, WHEN
+==================================================
+
+This spec is captured tonight to prevent scope creep into Week 0.
+Nothing is built from this spec until promoted. Promotion sequence:
+
+  WEEK 0:    v1.0.0 tagged. AgentEvent type cleanup. Demo recording.
+             This spec sits in docs/internal/ untouched.
+
+  WEEK 1:    Phase 0.7 cliff test runs in Game2048Sim. Validates
+             single-session Signature Alpha specifically. If Alpha
+             doesn't predict, this entire Epsilon spec is on hold
+             pending architecture rework.
+
+  WEEK 2:    Phase 0.8 trauma ablation. Validates the variance-
+             reduction mechanism that Epsilon will need to produce
+             defensible per-cohort firing rates.
+
+  WEEK 3:    KPI Report mockup v0.1 (4 signatures only). Epsilon NOT
+             included to avoid overcomplicating the first design
+             validation.
+
+  WEEK 4:    Phase 1 spec writing. AT THIS POINT, if Phases 0.7 +
+             0.8 both passed, this spec gets promoted:
+               - StateUnchangedAfterAction detector → Phase 1 work
+                 unit (1.X — perception layer addition)
+               - Signature Epsilon → methodology.md §1.4.5
+               - Bug Hypothesis report shape → methodology.md §2 KPI
+                 table
+               - Cohort precedence rules → methodology.md §1.6
+                 long-horizon section
+               - "What this is NOT" disclaimer updated
+
+  PHASE 1 (weeks 5-12):
+             Implement StateUnchangedAfterAction in perception layer.
+             Validate Epsilon firing on synthetic bug scenarios in
+             the Python sim (force the sim to ignore N consecutive
+             actions; verify Epsilon fires).
+
+  PHASE 4 (weeks 25-32):
+             KPI Translation Layer includes Epsilon row. Validation
+             Report has Forced Abandonment Event template. Cohort
+             aggregator implements Epsilon precedence rules.
+
+
+==================================================
+9. WHY THIS LIVES IN /docs/internal/ (NOT /docs/product/)
+==================================================
+
+The product/ docs are the externally-visible dossier. They go to
+investors, advisors, and external reviewers. Spec-creep in those
+docs dilutes the focused pitch.
+
+The internal/ directory is for in-progress thinking and architectural
+notes that should be preserved but are NOT yet ready for external
+consumption. This file lives here until promoted.
+
+Before promotion, the methodology page commits to FOUR signatures
+explicitly ("Why four (not 12, not 2)"). Adding Epsilon as a fifth
+requires updating that section title and rationale, which is real
+documentation work that should happen at the right time — when the
+basic four have been validated and we're confident about the design-
+vs-build distinction in practice, not just in theory.
+
+
+==================================================
+END OF SPEC. DO NOT PROMOTE UNTIL WEEK 4.
+==================================================
