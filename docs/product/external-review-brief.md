@@ -1,5 +1,59 @@
 # Project Nova — External Review Briefing
 
+> **[UPDATE 2026-05-02 PM] — Architecture and roadmap pivoted following
+> external review.** The brief below preserves the pre-pivot framing as
+> a record of how Nova was originally pitched. Current ground truth
+> diverges in several material ways:
+>
+> - **Category:** Nova is now positioned as a **product-decision tool**
+>   (buyer: Product Director / Live Ops Director), not an
+>   adjacent-to-QA tool. The QA framing was abandoned because it would
+>   have put Nova in head-on competition with modl.ai on their home turf
+>   while losing access to product/live-ops budgets.
+> - **Predictive primitive:** moved from 1:1 affect → KPI mappings to
+>   four named **State-Transition Signatures** (Alpha/Churn,
+>   Beta/Conversion, Gamma/Engagement, Delta/Bounce) defined as
+>   compositional state-machine patterns. Scientifically more
+>   defensible; harder for competitors to clone trivially.
+> - **Brain Panel role:** repositioned from "killer demo / the product"
+>   to "Cognitive Audit Trace" — a transparency/explainability layer
+>   under the actual product, which is the **KPI Validation Report**.
+> - **Validation approach:** original $600 + 3-week paid-playtester
+>   study replaced with a $0 + 1-week Python-simulator cliff test
+>   against documented hard 2048 scenarios (Phase 0.7), plus a
+>   statistical trauma ablation using Levene's Test for variance
+>   reduction (Phase 0.8).
+> - **Inference architecture:** moved from API-only to a **hybrid
+>   local + API stack** mirroring Kahneman's System 1 / System 2
+>   cognition — 14B-class local model (Qwen 2.5 14B or Phi-4 14B via
+>   vLLM with `guided_decoding`) for routine ReAct decisions; frontier
+>   API (Claude Haiku/Sonnet) for ToT branches and post-game
+>   reflection. ~95% of inference moves local.
+> - **Phase 1 reorder:** Unity SDK + GameAdapter abstraction is now the
+>   Phase 1 lead deliverable (was: GameAdapter + Tetris port; SDK was
+>   in Phase 5). Tetris port becomes a *test* of the abstraction.
+> - **Phase 4 reframe:** "KPI Translation Layer + Validation Report"
+>   becomes the lead deliverable (was: "Reporting + A/B comparison
+>   layer"). Affect curves become drill-down evidence; KPI predictions
+>   become headline.
+>
+> **For current ground truth, read in this order:**
+> 1. [`README.md`](./README.md) — strategic positioning and category
+>    framing
+> 2. [`methodology.md`](./methodology.md) — the four Signatures, KPI
+>    translations, hybrid inference architecture, Levene's Test math,
+>    full validation methodology
+> 3. [`product-roadmap.md`](./product-roadmap.md) — phased build plan
+>    with the 30-day validation sprint detailed week by week
+>
+> The sections below are the original briefing — preserved for
+> historical context and as a record of how the pitch evolved through
+> external red-team review. Section content describing 1:1 affect → KPI
+> mappings, brain-panel-as-product, and the original Phase 0.5 paid
+> validation study has been **superseded** by the current docs.
+
+---
+
 > **What this document is:** a self-contained briefing on Project Nova
 > intended for an external reviewer (advisor, investor, technical critic,
 > or another LLM playing critic). It covers the idea, the technology,
