@@ -4,13 +4,12 @@ import { useMemo } from "react";
 
 import { BrainPanel } from "./components/BrainPanel";
 import { GameStream } from "./components/GameStream";
+import { ModeBadge } from "./components/ModeBadge";
+import { ThoughtStream } from "./components/ThoughtStream";
 import { TraumaIndicator } from "./components/TraumaIndicator";
 import { useNovaSocket } from "@/lib/websocket";
-import type {
-  AffectVectorDTO,
-  AgentMode,
-  RetrievedMemoryDTO,
-} from "@/lib/types";
+import { deriveStream } from "@/lib/stream/deriveStream";
+import type { AffectVectorDTO, AgentMode, RetrievedMemoryDTO } from "@/lib/types";
 
 const NEUTRAL_AFFECT: AffectVectorDTO = {
   valence: 0,
@@ -45,10 +44,7 @@ export default function Home() {
   const affect = useMemo<AffectVectorDTO>(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
-      if (e.event === "affect") {
-        const d = e.data as AffectVectorDTO;
-        return d;
-      }
+      if (e.event === "affect") return e.data as AffectVectorDTO;
     }
     return NEUTRAL_AFFECT;
   }, [events]);
@@ -106,15 +102,15 @@ export default function Home() {
     return { score, move, games, best };
   }, [events]);
 
+  const streamEntries = useMemo(() => deriveStream(events), [events]);
+
   return (
     <main className="min-h-screen bg-[#1a1614] text-zinc-100 p-8 font-mono text-sm">
       <TraumaIndicator active={traumaActive} />
       <header className="flex justify-between items-baseline mb-4">
         <h1 className="text-2xl">Project Nova — brain panel</h1>
         <span
-          className={`text-xs ${
-            connected ? "text-emerald-400" : "text-zinc-500"
-          }`}
+          className={`text-xs ${connected ? "text-emerald-400" : "text-zinc-500"}`}
         >
           {connected ? "● live" : "○ disconnected"}
         </span>
@@ -125,7 +121,19 @@ export default function Home() {
           <GameStream />
         </section>
 
-        <section className="bg-zinc-900/50 rounded p-4 col-span-2">
+        <section className="bg-zinc-900/50 rounded p-4 flex flex-col gap-4 min-h-0">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm uppercase tracking-wider text-zinc-500">
+              Cognition · stream
+            </h2>
+            <ModeBadge mode={mode} />
+          </div>
+          <div className="flex-1 min-h-0">
+            <ThoughtStream entries={streamEntries} />
+          </div>
+        </section>
+
+        <section className="bg-zinc-900/50 rounded p-4">
           <BrainPanel
             affect={affect}
             affectText={affectText}
@@ -134,7 +142,6 @@ export default function Home() {
             move={stats.move}
             games={stats.games}
             best={stats.best}
-            mode={mode}
           />
         </section>
       </div>
