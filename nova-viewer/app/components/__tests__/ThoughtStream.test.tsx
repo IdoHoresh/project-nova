@@ -130,3 +130,41 @@ describe("<ThoughtStream /> — auto-scroll", () => {
     });
   });
 });
+
+describe("<ThoughtStream /> — jump-to-live chip", () => {
+  it("shows the chip when not stuck and there are unseen new entries", async () => {
+    function Harness() {
+      const [n, setN] = useState(2);
+      const list: StreamEntry[] = Array.from({ length: n }, (_, i) => ({
+        kind: "decision",
+        id: `decision-${i}`,
+        ts: baseTs,
+        text: `move ${i}`,
+        action: "swipe_down",
+        confidence: "medium",
+      }));
+      // Trigger a synthetic scroll-up to detach, then add new entries.
+      useEffect(() => {
+        const id = setTimeout(() => {
+          const list = document.querySelector("div.overflow-y-auto") as HTMLDivElement | null;
+          if (list) {
+            // Force detach: simulate scrolled-up state.
+            Object.defineProperty(list, "scrollHeight", { value: 1000, configurable: true });
+            Object.defineProperty(list, "clientHeight", { value: 200, configurable: true });
+            Object.defineProperty(list, "scrollTop", { value: 0, writable: true, configurable: true });
+            list.dispatchEvent(new Event("scroll"));
+          }
+          setN((v) => v + 1);
+        }, 0);
+        return () => clearTimeout(id);
+      }, []);
+      return <ThoughtStream entries={list} />;
+    }
+
+    render(<Harness />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(screen.queryByText(/jump to live/i)).toBeInTheDocument();
+  });
+});

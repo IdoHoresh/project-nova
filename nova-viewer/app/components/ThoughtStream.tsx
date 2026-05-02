@@ -194,6 +194,14 @@ function Row({ entry }: { entry: StreamEntry }) {
 export function ThoughtStream({ entries }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [stuckToBottom, setStuckToBottom] = useState(true);
+  // Snapshot of entries.length the last time user was at-bottom. Updated only
+  // in event handlers (scroll, jumpToLive) — never in effects — so render-time
+  // derivation of `unseen` doesn't trip set-state-in-effect.
+  const [lastSeenLength, setLastSeenLength] = useState(entries.length);
+
+  const unseen = stuckToBottom
+    ? 0
+    : Math.max(0, entries.length - lastSeenLength);
 
   // Sticky-scroll: on entries change, scroll to bottom if currently stuck.
   useEffect(() => {
@@ -204,12 +212,26 @@ export function ThoughtStream({ entries }: Props) {
     });
   }, [entries, stuckToBottom]);
 
-  // Detach: if user scrolls up by >24px from bottom, release sticky.
   function onScroll() {
     const el = containerRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setStuckToBottom(distanceFromBottom <= 24);
+    const nowStuck = distanceFromBottom <= 24;
+    setStuckToBottom(nowStuck);
+    if (nowStuck) {
+      setLastSeenLength(entries.length);
+    }
+  }
+
+  function jumpToLive() {
+    setStuckToBottom(true);
+    setLastSeenLength(entries.length);
+    if (containerRef.current) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
   }
 
   if (entries.length === 0) {
@@ -220,12 +242,23 @@ export function ThoughtStream({ entries }: Props) {
     );
   }
   return (
-    <div ref={containerRef} onScroll={onScroll} className="h-full overflow-y-auto">
-      <ul className="font-mono text-[11.5px] leading-[1.55] text-stone-200 list-none p-0 m-0">
-        {entries.map((e) => (
-          <Row key={e.id} entry={e} />
-        ))}
-      </ul>
+    <div className="relative h-full">
+      <div ref={containerRef} onScroll={onScroll} className="h-full overflow-y-auto">
+        <ul className="font-mono text-[11.5px] leading-[1.55] text-stone-200 list-none p-0 m-0">
+          {entries.map((e) => (
+            <Row key={e.id} entry={e} />
+          ))}
+        </ul>
+      </div>
+      {!stuckToBottom && (
+        <button
+          type="button"
+          onClick={jumpToLive}
+          className="absolute bottom-3 right-3 text-[10px] uppercase tracking-[0.1em] px-3 py-1 rounded bg-sky-400/15 text-sky-300 border border-sky-400/30 hover:bg-sky-400/25"
+        >
+          ↓ jump to live{unseen > 0 ? ` (${unseen} new)` : ""}
+        </button>
+      )}
     </div>
   );
 }
