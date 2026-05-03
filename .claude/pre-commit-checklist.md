@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 6 lines added to `nova-viewer/package.json` (pnpm overrides block) + `nova-viewer/pnpm-lock.yaml` regen
-- [x] Atomic commit — single logical change: pin esbuild + postcss minimum versions to resolve dependabot moderate alerts
+- [x] `git diff --cached --stat` reviewed — `nova-viewer/package.json` adds vite 6.4.2 + bumps vitest to 3.2.4 + adjusts @vitejs/plugin-react to 5.2.0; `nova-viewer/pnpm-lock.yaml` regen
+- [x] Atomic commit — single logical change: bump vitest+vite to resolve dependabot alert #2 (vite path traversal)
 
 ## Verification
 
 - [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; package.json + lockfile only
 - [x] `nova-agent/` not touched — N/A, viewer-only change
-- [x] `nova-viewer/` — gate trio green: `pnpm test` (98 tests passed), `npx tsc --noEmit` (clean), `pnpm run lint` (clean). esbuild now 0.28.0 (was 0.21.5), all postcss instances now 8.5.13 (was mix of 8.4.31 / 8.5.13). vite stays 5.4.21 — blocked by vitest 2.1.9 peer-dep on vite ^5; deferred to follow-up commit alongside vitest 3.x bump.
-- [x] Docs / config — `nova-viewer/package.json` adds `pnpm.overrides` block; lockfile regen.
+- [x] `nova-viewer/` — gate trio + build green: `pnpm test` (98 tests pass on vitest 3.2.4), `npx tsc --noEmit` (clean), `pnpm run lint` (clean), `pnpm run build` (Next 16 production build succeeds, 4 static pages prerendered). Versions resolved: vite 6.4.2 (was 5.4.21), vitest 3.2.4 (was 2.1.9), @vitejs/plugin-react 5.2.0 (was 4.7.0). No peer-dep warnings.
+- [x] Docs / config — `vitest.config.ts` unchanged, fully compatible with vitest 3.x; CJS deprecation warning from previous build also resolved.
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, single-file pin to package.json with no executable code change
-- [x] `security-reviewer` — N/A in the Nova-threat-model sense (no secrets / env / LLM / bus paths touched). This commit IS the security upgrade — closes 2 of 3 dependabot moderate alerts.
+- [x] `code-reviewer` subagent — N/A, dep-bump-only commit; no executable code touched
+- [x] `security-reviewer` — N/A in the Nova-threat-model sense; this commit IS the security upgrade. Closes the last of 3 dependabot moderate alerts (vite path-traversal in optimized-deps `.map` handling).
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, no time-cost gotcha; the override syntax is standard pnpm
-- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha
+- [x] LESSONS.md — N/A; the vitest/vite peer-dep coupling pattern is documented in this commit's body and is standard ecosystem behavior
+- [x] CLAUDE.md "Common gotchas" — N/A, no new Nova-specific gotcha
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, this is a security patch, not an architectural decision
+- [x] New ADR — N/A, security patch not architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `chore(viewer): pin esbuild/postcss minimums for dependabot alerts`
-- [x] Body explains *why* — GitHub flagged 3 moderate dependabot alerts on default branch (esbuild dev-server CORS, vite path traversal, postcss XSS). All transitive npm deps. Pinning esbuild ≥0.25.0 and postcss ≥8.5.10 via `pnpm.overrides` resolves 2/3 without touching direct deps. Vite deferred — bumping to 6.4.2 requires vitest 3.x (peer-dep coupling) and is its own commit.
+- [x] Conventional Commits format: `chore(viewer): bump vitest+vite to resolve dependabot vite alert`
+- [x] Body explains *why* — closes the deferred dependabot alert #2 (vite <=6.4.1 path traversal). Required vitest 3.x in tandem because vitest 2 peer-deps vite ^5; @vitejs/plugin-react also stepped down from 6 to 5 because plugin-react 6 wants vite ^8 (vite 8 is alpha at time of writing). Net result: all three dependabot moderate alerts now closed on this branch.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
