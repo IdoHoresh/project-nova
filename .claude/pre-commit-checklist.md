@@ -15,31 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — single new file `.github/workflows/claude-review.yml` (~85 lines, advisory PR-time review workflow)
-- [x] Atomic commit — single logical change: add Layer 2 claude-code-action GitHub workflow for PR-time advisory review
+- [x] `git diff --cached --stat` reviewed — single file `LESSONS.md` (~25 lines added)
+- [x] Atomic commit — single logical change: append a Workflow / process LESSONS.md entry covering the review-system port
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; workflow references `${{ secrets.ANTHROPIC_API_KEY }}` (an indirection, not a literal)
-- [x] `nova-agent/` not touched — N/A, CI-config-only change
-- [x] `nova-viewer/` not touched — N/A, CI-config-only change
-- [x] Docs / config — `.github/workflows/claude-review.yml` triggers on `pull_request: [opened, synchronize, reopened]`, skips drafts, runs `anthropics/claude-code-action@v1` against the PR diff with a prompt that dispatches the same `/review` orchestrator logic. Advisory only — not a required check until ≥10 PRs of signal data exist. Uses Sonnet because Layer 1.5 (pre-push hook) already runs Haiku; Layer 2's job is the deeper pass.
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown narrative only
+- [x] `nova-agent/` not touched — N/A, doc-only change
+- [x] `nova-viewer/` not touched — N/A, doc-only change
+- [x] Docs / config — `LESSONS.md`: prepend a single entry to "Workflow / process learnings" section explaining the binary path-matched trigger pattern, the three-layer review model (Layer 1 in-session /review, Layer 1.5 pre-push hook, Layer 2 PR-time GH Action), and when to promote Layer 2 to a required check (future ADR, gated on ≥10 PRs of signal data)
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — N/A: `.github/workflows/**` is the "skip with reason: CI-config-only" row of REVIEW.md path-matched trigger taxonomy
+- [x] `/review` dispatched on staged diff — N/A: doc-only change per REVIEW.md path-matched trigger taxonomy
 - [x] `code-reviewer` subagent — N/A, covered by /review skip reason above
-- [x] `security-reviewer` — N/A, no executable code; the workflow references one secret (ANTHROPIC_API_KEY) by name only — the actual value lives in GitHub Actions secrets and is never in the tracked file
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, no time-cost gotcha; final commit (5/5) appends a single LESSONS.md entry covering the full review-system port
-- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; the three-layer review model is documented in workflow.md and the SKILL.md files
+- [x] LESSONS.md — this commit IS the LESSONS.md update; nothing further needed
+- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; the lesson is workflow-shaped not gotcha-shaped
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, this is a workflow-tooling addition that can be removed by deleting one file; not a load-bearing architectural decision
+- [x] New ADR — N/A, this is a workflow lesson, not an architectural decision; the future "promote Layer 2 to required check" decision IS flagged in the lesson body as needing an ADR when it happens
 
 ## Commit message
 
-- [x] Conventional Commits format: `ci: add claude-code-action for PR-time advisory review`
-- [x] Body explains *why* — adds the third and final layer of the review system. Layer 1 = in-session /review (manual, hot context). Layer 1.5 = pre-push hook (Haiku, auto, fast). Layer 2 (this commit) = PR-time GitHub Action (Sonnet, advisory comments, deeper pass against full PR diff). Each layer catches a different failure mode; together they remove the "I forgot to dispatch the reviewer" trap that bit PR #1. Setup requires ANTHROPIC_API_KEY repo secret — documented inline. Commit 4 of 5 in the Gibor-pattern port (Week 0 Day 2). Commit 5 records the lesson.
+- [x] Conventional Commits format: `docs(lessons): record the review-system port`
+- [x] Body explains *why* — closes the 5-commit Gibor-pattern port for Week 0 Day 2 by capturing the underlying pattern (binary path-matched trigger > judgment-call review) so future contributors and Claude sessions don't have to re-derive it from the workflow.md / REVIEW.md / SKILL.md trio. Also documents the three-layer review model and the promotion-to-required-check ADR trigger.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
