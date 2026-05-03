@@ -1,0 +1,685 @@
+# Project Nova — Product Roadmap
+
+> **Read first:** [`README.md`](./README.md) for strategic context, then
+> [`methodology.md`](./methodology.md) for the technical foundation. This doc
+> assumes you've read both.
+>
+> **Status as of 2026-05-02:** Phase 0 (cognitive architecture demo) is in
+> final polish on `claude/practical-swanson-4b6468`. The 30-day validation
+> sprint detailed below starts the day v1.0.0 is tagged.
+>
+> **Audience:** the team executing the build, week-by-week.
+>
+> **Versioning:** v2 of this roadmap, incorporating the brainstorm decisions
+> documented in [`external-review-brief.md`](./external-review-brief.md):
+> Unity SDK promoted to Phase 1 lead, KPI Translation Layer becomes the
+> spine of Phase 4, Phase 0.5 (paid validation study) replaced with Phase
+> 0.7 (Python-sim cliff test) + Phase 0.8 (trauma ablation), hybrid local +
+> API inference stack added.
+
+---
+
+## Phase overview
+
+| Phase | What | Duration | Cumulative wall-clock | Cost |
+|-------|------|----------|------------------------|------|
+| **0** | Finish v1.0.0 cognitive architecture demo on 2048 | 1 week | week 1 | ~$50 LLM |
+| **0.7** | Cliff Test (Python `Game2048Sim` + documented hard boards) | 1 week | week 2 | $0 |
+| **0.8** | Trauma Ablation (N=1000, Levene's Test for variance reduction) | 1 week | week 3 | $0 |
+| **0.9** | KPI Report Mockup v0.1 (4 Signatures defined; CSV export) | 1 week | week 4 | $0 |
+| **1** | **Unity SDK** + GameAdapter abstraction + Tetris port (proof of generality) + hybrid local+API inference | 6–8 weeks | week 12 | ~$100 + $1.5K hardware |
+| **2** | Exploration learning + general perception ("drop in any game") | 8–12 weeks | week 24 | ~$200 |
+| **3** | Persona system v1 (4 personas) → v2 (10 personas) | 2–3 weeks (parallel with 2) | week 24 | ~$100 |
+| **4** | **KPI Translation Layer + Validation Report** (lead deliverable) + Long-Horizon Simulation Loop (§4.6) | 5–8 weeks | week 32 | ~$250 |
+| **5** | Production infra (headless emulators, multi-tenant API, billing) | 8–12 weeks | week 44 | $500–2K cloud |
+| **6** | First 3 paid pilots, real-user validation corpus, iterate | open-ended | from week 33 onward | revenue from here |
+
+**MVP-as-product:** Phases 0–4 → ~7.5 months wall-clock, ~$750 in
+LLM/hardware costs.
+
+**Polished v1 product:** through Phase 5 → ~10.5 months wall-clock.
+
+Estimates assume one full-time engineer plus LLM/hardware costs. With a
+second engineer hired around Phase 4, Phases 1–4 can compress to ~5 months.
+
+---
+
+## The 30-day validation sprint (Phases 0–0.9)
+
+Phases 0 through 0.9 form a single tightly-scoped 30-day sprint that
+front-loads the experiments that could *kill* the product thesis. Each week
+has a self-judged gate that determines whether to proceed or to repair.
+
+### Sprint principles
+
+- **Falsifiable gates only.** Every week ends with a binary pass/fail
+  determined by an observable metric, not a subjective judgment.
+- **No new features.** Polish, validate, document. Feature freeze on the
+  viewer UI for the entire 30 days.
+- **Failure is information, not failure.** A failed gate triggers a
+  defined repair branch (re-tune the affect logic, demote trauma to UI
+  flavor, etc.) — not a project-end signal.
+
+### Week 0 — Ship v1.0.0
+
+**Milestone:** v1.0.0 demo tagged + ≤4-minute recording.
+
+**Tasks:**
+- Final code-review pass on the cognitive architecture
+- AgentEvent type system cleanup (remove the `{event: string; data: unknown}`
+  catch-all that defeats discriminated-union narrowing; replace per-call
+  `as data as` casts with type-predicate-based narrowing)
+- Demo recording: ≤4 minutes, narrates the *Why* (cognitive reasoning) not
+  just the *What* (moves)
+- v1.0.0 git tag, draft PR retargeted to v1.0.0
+
+**Self-judged gate:**
+- Does the demo video clearly show the *Why* (decision reasoning, ToT
+  branch deliberation when triggered, post-game reflection extracting a
+  lesson)?
+- Or does it just show *What* (Nova made these moves, scored these points)?
+
+**Pass:** proceed to Week 1.
+**Fail:** re-cut the demo with reasoning narration before continuing. The
+demo IS the proof-of-architecture artifact every downstream pitch
+references; without the *Why* it's just a screen recording.
+
+### Week 1 — Cliff Test
+
+**Milestone:** Python `Game2048Sim` built; cliff test run on documented
+hard 2048 scenarios; affect-curve alignment documented.
+
+**Why this matters:** every Nova claim about predicting human behavior
+depends on this question. If Nova's affect curve only spikes *after*
+game-over, Nova is narrating outcomes (interesting but commercially
+useless). If it spikes *before* the failure point, Nova is predicting them
+(the entire product thesis works).
+
+**Tasks:**
+- Build `nova_agent.lab.Game2048Sim` (~2 days). In-process Python 2048
+  simulator with the same `BoardState` interface the cognitive architecture
+  already consumes. Removes OCR + emulator latency as a confound.
+- Identify 3-5 documented hard 2048 scenarios from community sources
+  ("snake collapse" patterns, "1024-wall" board states, dead-end
+  configurations)
+- Seed the simulator with each scenario; run Casual Carla persona N=20
+  times per scenario. Record full affect vector trajectories.
+- Compare timing of `Anxiety ↑` / `Frustration ↑` events against the
+  position of the documented struggle point.
+
+**Self-judged gate (the falsification criterion):**
+- Did the affect peak precede the failure point by at least 2 moves in
+  > 80% of trials?
+
+**Pass:** affect predicts. Architecture-as-predictor claim is alive.
+Proceed to Week 2.
+
+**Fail:** affect narrates. Two-week affect-rework branch begins:
+re-derive the RPE weights, ablate each affect dimension's update rule,
+identify which dimension is decoupled from outcomes. The schedule slips by
+2-3 weeks but the architecture gets fixed before any pitch conversations.
+A failed cliff test is a publishable result, not a kill signal.
+
+### Week 2 — Trauma Ablation
+
+**Milestone:** N=1000 trauma-on / N=1000 trauma-off games run via
+`Game2048Sim`. Levene's Test for variance reduction. Trauma keep/demote
+decision finalized.
+
+**Why this matters:** trauma-tagging is currently marketed as a
+differentiating cognitive feature. Without empirical evidence that it
+improves performance, the marketing claim is exposed. The Levene's Test
+specifically tests the *on-thesis* claim (avoidance learning produces
+consistency, not higher mean scores).
+
+**Tasks:**
+- Run N=1000 games with trauma-tagging enabled, identical seeded board
+  sequence
+- Run N=1000 games with trauma-tagging disabled, same seeded sequence
+- Compute Levene's W statistic on the score distributions (formula in
+  [`methodology.md`](./methodology.md) §4.2)
+- Run a secondary check: does the lower tail of the score distribution
+  shrink with trauma on? (The on-thesis check for catastrophic-failure
+  avoidance specifically.)
+
+**Self-judged gate:**
+- Levene's W significant at p < 0.05 AND Var(Y_on) < Var(Y_off)?
+
+**Pass:** trauma is a real mechanism. Keep marketing it as a core
+architectural feature. Add the Levene's Test result to
+[`methodology.md`](./methodology.md) §4.2 as the validation citation.
+
+**Fail:** trauma is cosmetic. Demote it from the methodology page's
+"core mechanism" section to "visual artifact in the brain panel." Keep
+the implementation (it's already shipped and the brain-panel render is
+visually compelling), but stop selling it as a competitive differentiator.
+Update marketing copy accordingly.
+
+### Week 3 — KPI Report Mockup v0.1
+
+**Milestone:** First end-to-end mockup of the studio-facing Validation
+Report. PDF + HTML versions.
+
+**Why this matters:** the report is the actual product. The brain panel,
+the cognitive architecture, the State-Transition Signatures — all of these
+are *means*. The report is the *deliverable*. Building the mockup forces
+us to confront which signals translate cleanly to KPI predictions and
+which don't.
+
+**Tasks:**
+- Wireframe the report (template in [`README.md`](./README.md) Core
+  Deliverable section)
+- Render a real example using outputs from a Week 1/2 simulator run
+- All four Signatures (Alpha/Beta/Gamma/Delta) defined and demonstrated
+- Every prediction line footnoted to a methodology citation
+- CSV/JSON export available as a first-class feature (not an afterthought)
+
+**Self-judged gate:**
+- Does the mockup look like a Firebase / Looker dashboard (information-
+  dense, KPI-led, drill-down available) or a sci-fi UI (pretty,
+  affect-curve-led, no clear KPIs)?
+- Would a Product Director who's never heard of cognitive architecture
+  understand what they're looking at in 60 seconds?
+
+**Pass:** Phase 4 (full reporting layer build, weeks 24-30) is now de-risked
+because the format is locked.
+
+**Fail:** redesign the mockup. The whole product hinges on this artifact
+being readable.
+
+### Week 4 — Phase 1 Specification
+
+**Milestone:** Detailed Phase 1 spec written. Unity SDK package structure,
+GameAdapter interface, hybrid inference router design. Public-facing
+writeup of the validation results from Weeks 1-2.
+
+**Tasks:**
+- Spec the `Nova.Studio` Unity package (install command, integration API,
+  required Unity version, OnSessionStart/OnDecision/OnSessionEnd hooks)
+- Spec the `GameAdapter` Python interface
+- Spec the hybrid inference router (`LocalLLMAdapter` using vLLM +
+  `guided_decoding`, fallback chain to API)
+- Write the validation results post (Cliff Test result, Trauma Ablation
+  result) for the company blog / future investor deck
+- Update [`competitive-landscape.md`](./competitive-landscape.md) and
+  [`personas-and-use-cases.md`](./personas-and-use-cases.md) with anything
+  the validation work surfaced
+
+**Self-judged gate:**
+- Could a developer who's never seen Nova install the (yet-to-be-built)
+  SDK and run their first simulated playtest in <30 minutes from the
+  install command?
+- Or would they need to schedule a setup call?
+
+**Pass:** Phase 1 build kicks off Week 5.
+
+**Fail:** simplify the SDK API. Production-grade developer experience
+requires shorter time-to-first-value than research-quality APIs.
+
+---
+
+## Phase 0 — Finish v1.0.0 (current week)
+
+**Status:** in flight. Don't deviate.
+
+The 57-task original implementation plan + the supplementary work this
+session (thinking-stream viewer, OCR palette, Pro thinking-budget fix,
+prompt-voice tightening, real timestamps + newest-on-top order, type
+system cleanup) IS Phase 0.
+
+What's left:
+- AgentEvent type cleanup (remove catch-all + drop `as data as` casts)
+- Final code-review pass on the cognitive architecture
+- Demo recording: ≤4 min, narrates the *Why*
+- Repo cleanup
+- v1.0.0 git tag
+
+**Exit criteria:**
+- Demo video shipped showing the *Why*
+- Memory + affect + ToT + reflection all visibly active in the recording
+- Game-over → reflection → semantic rule extraction loop demonstrably
+  working
+- v1.0.0 git tag pushed
+
+**Do not** start Phase 0.7+ until v1.0.0 is shipped.
+
+---
+
+## Phase 0.7 — Cliff Test (Week 1 of sprint)
+
+Detailed in the [Week 1 — Cliff Test](#week-1--cliff-test) section above.
+
+**Net architectural addition:** new module `nova_agent.lab.Game2048Sim`
+under `nova-agent/src/`. Pure Python, no external deps beyond what's
+already in the agent. Same `BoardState` interface. Used only for lab
+experiments; production path remains OCR + emulator (and eventually Unity
+SDK).
+
+**Why a Python sim instead of forcing the emulator:** scientific isolation.
+If the cliff test fails on the emulator stack, we don't know whether the
+failure is in perception (OCR misreads a tile), action (ADB keyevent
+doesn't register), or cognition (affect logic doesn't predict). The
+Python sim removes perception and action as confounds, leaving the
+cognitive layer as the only variable under test. This is the lab
+methodology; production deployment is something else entirely.
+
+---
+
+## Phase 0.8 — Trauma Ablation (Week 2 of sprint)
+
+Detailed in the [Week 2 — Trauma Ablation](#week-2--trauma-ablation)
+section above.
+
+**Statistical foundation:** Levene's Test for equality of variances. Full
+formula and rationale in [`methodology.md`](./methodology.md) §4.2.
+
+**Why variance, not mean:** trauma in the cognitive architecture is
+*avoidance learning* — the agent remembers what killed it and avoids
+similar situations. The expected empirical signature of avoidance
+learning is reduced variance under similar stimuli, not higher mean
+performance. Testing on mean performance would be the wrong test.
+
+**Failure mode handled:** if trauma doesn't reduce variance significantly,
+we **demote** rather than remove. The mechanism stays in the code; the
+brain-panel render stays for visual interest; the marketing claim drops
+to "trauma-tagged memories receive elevated retrieval weight (UI artifact)"
+rather than "trauma improves agent performance."
+
+---
+
+## Phase 0.9 — KPI Report Mockup (Week 3 of sprint)
+
+Detailed in the [Week 3 — KPI Report Mockup v0.1](#week-3--kpi-report-mockup-v01)
+section above.
+
+**Why this is a phase, not just a doc:** the mockup is the alignment
+artifact between the cognitive architecture (what we built) and the
+commercial product (what we sell). Building it tonight, before any
+pitches, prevents the failure mode where we discover at pitch #1 that
+the report we *think* studios want is not the report they *actually* want.
+
+---
+
+## Phase 1 — Unity SDK + GameAdapter abstraction (weeks 5–12)
+
+**Goal:** prove the cognitive architecture is game-agnostic AND
+production-deployable, by porting to a Unity-integrated game via SDK
+rather than emulator. Tetris is the second target — different action
+space (rotate + drop vs swipe), different scoring, well-known so demos
+resonate.
+
+**Reframed scope (key change in v2):** Phase 1's lead deliverable is the
+**Unity SDK**, not the GameAdapter abstraction. The SDK is the production
+integration path; the GameAdapter abstraction is the architectural
+refactor that supports both SDK-integrated and OCR-fallback paths.
+
+### Work units
+
+**1.1 — Define the `GameAdapter` interface** (3–5 days)
+Refactor everything 2048-specific into a single Python interface. Sketch:
+```python
+class GameAdapter(Protocol):
+    def perceive(self, raw_input: PerceptionInput) -> GameState: ...
+    def available_actions(self, state: GameState) -> list[Action]: ...
+    def is_game_over(self, state: GameState) -> bool: ...
+    def is_catastrophic_loss(self, state: GameState) -> bool: ...
+    def render_for_prompt(self, state: GameState) -> str: ...
+    def execute(self, action: Action) -> None: ...
+```
+Same shape supports OCR-driven (`PerceptionInput = Image`) and
+SDK-driven (`PerceptionInput = StructuredGameState`).
+
+**1.2 — Build `Nova.Studio` Unity package** (2–3 weeks)
+- C# package installable via Unity Package Manager
+- Hooks: `OnSessionStart`, `OnFrameDecision`, `OnGameOver`
+- Local server inside Unity that bridges to Python cognitive architecture
+  via WebSocket
+- Sample integration: studio drops in 3 lines of C# to instrument their
+  game
+
+**1.3 — Build `LocalLLMAdapter`** (1 week)
+- New `nova_agent.llm.local` adapter using vLLM's OpenAI-compatible API
+- `guided_decoding` with JSON-schema constraints for ReAct path (Qwen 2.5
+  14B Instruct or Phi-4 14B)
+- Fallback chain: if local fails, fall back to API; if API rate-limited,
+  fall back to cheaper API tier
+- Configured via `build_llm` factory the same way Gemini/Anthropic are
+  today
+
+**1.4 — Wrap 2048 logic in `Game2048OcrAdapter`** (2–3 days)
+Move existing OCR, BoardState, ADB swipes, game-over logic behind the
+GameAdapter interface. No behavior change. Tests still pass.
+
+**1.5 — Build `TetrisUnityAdapter`** (2–3 weeks)
+Find or build a Tetris implementation in Unity, integrate via the SDK.
+Build:
+- Tetris-specific GameState type
+- Action mapping (left/right/rotate/drop)
+- Game-over detection (top row filled)
+- Catastrophic-loss heuristic (lost without clearing 10 lines)
+- Tetris-specific decision prompt
+
+**1.6 — Verify cognitive architecture unchanged** (3–5 days)
+Memory + affect + ToT + reflection must work without ANY code change
+across (2048-OCR, 2048-Sim, Tetris-SDK) game adapters. If they don't, the
+adapter abstraction is wrong and needs revision.
+
+**1.7 — Demo recording** (2 days)
+Side-by-side: Nova plays 2048 in emulator (OCR adapter) + Nova plays
+Tetris in Unity (SDK adapter). Same brain panel UI, same cognitive
+architecture, three different perception paths.
+
+**Exit criteria for Phase 1:**
+- Cognitive architecture code unchanged across all three adapters
+- Unity SDK installable + first session running in <30 min for a developer
+  who's never seen Nova
+- Local LLM (Qwen 2.5 14B + vLLM `guided_decoding`) shipping zero JSON
+  parse errors across 1000-call test sequence
+- Hybrid inference router fully functional (System 1 local, System 2 API)
+- Tetris demo recorded
+
+---
+
+## Phase 2 — Exploration learning + general perception (weeks 13–24)
+
+**Goal:** Nova plays a game it's never seen before by watching the
+tutorial, forming hypotheses through play, and updating its memory with
+learned game rules.
+
+This phase is the highest-risk in the roadmap. Voyager-style hypothesis-
+testing works for some games, fails for others. **Honest expectations:**
+turn-based puzzles, slow strategy, narrative games all work. Real-time
+action and complex 3D do not. Don't promise universal coverage.
+
+### Work units (sketch — flesh out at the time)
+
+**2.1 — General visual perception** (2–3 weeks)
+Replace per-game OCR with a vision-LLM call that identifies score, game-
+state region, UI elements, game-over indicator. Gemini Flash-Lite or a
+local vision model.
+
+**2.2 — Action-space discovery** (2–3 weeks)
+Nova starts a new game and tries random taps/swipes/drags to learn what
+actions exist. Each trial generates "I tapped at (x,y) and the screen
+changed in this way" hypotheses stored in memory.
+
+**2.3 — Tutorial-watching pipeline** (2 weeks)
+When Nova encounters a tutorial sequence (text overlay, arrow indicator),
+it follows the instructions exactly while logging the cause-effect.
+Seeds the game-rules memory before free play.
+
+**2.4 — Skill induction loop** (2–3 weeks)
+After exploration + tutorial, the reflection LLM consolidates trial
+observations into game rules. Rules go into the semantic store. Future
+decisions retrieve relevant rules.
+
+**2.5 — Validation on 3 unseen games** (2 weeks)
+Pick three games of varying genres (e.g., a simple match-3, a tower
+defense, a narrative point-and-click). Run Nova on each from scratch.
+
+**Exit criteria:**
+- Nova succeeds on at least 2/3 of three pre-specified unseen games
+- Demo recording: "Nova learns [game name] from scratch in 15 minutes"
+
+---
+
+## Phase 3 — Persona system (weeks 13–15, parallel with Phase 2)
+
+**Goal:** turn the persona library from a doc into runtime configurations.
+
+### Work units
+
+**3.1 — `PersonaConfig` data model** (2 days)
+Schema covering: name, AffectVector baselines, decision biases, memory
+seeds, trigger thresholds, primary motivation tag.
+
+**3.2 — Persona injection** (3 days)
+- AffectState constructor takes baselines from the persona
+- Decision prompt augmented with persona-specific behavior cues
+- Reflection prompt augmented with persona-specific lesson framing
+- Memory store seeded with the persona's pre-existing experience
+
+**3.3 — Implement first 4 personas** (1 week)
+Casual Carla, Hardcore Hana, Whale Wei, First-Time Felix. Spec from
+[`personas-and-use-cases.md`](./personas-and-use-cases.md).
+
+**3.4 — Cross-persona run harness** (3–4 days)
+Run the same game session N times with N different personas. Capture all
+their stream logs. Diff them.
+
+**Exit criteria:**
+- 4 personas pluggable via config
+- Same game produces visibly different brain-panel arcs per persona
+- Demo recording: "the same level played by 4 different personas"
+
+---
+
+## Phase 4 — KPI Translation Layer + Validation Report + Long-Horizon Simulation (weeks 25–32)
+
+**Reframed scope (key change in v2):** Phase 4's lead deliverable is the
+**KPI Translation Layer**, not the affect-curves dashboard. Affect curves
+become drill-down evidence; KPI predictions become headline.
+
+### Work units
+
+**4.1 — Signature firing-rate aggregator** (1 week)
+Per-session: detect Signature Alpha/Beta/Gamma/Delta firings (per
+[`methodology.md`](./methodology.md) §1). Per-cohort: aggregate firing
+rates, mean/median/P90/P10 of each, confidence intervals.
+
+**4.2 — KPI Translation engine** (2 weeks)
+Implement the four Signature → KPI mappings from
+[`methodology.md`](./methodology.md) §2:
+- Alpha → predicted abandonment rate at game position
+- Beta → predicted spend trigger location + intensity
+- Gamma → predicted time-on-task / flow window
+- Delta → predicted D1 retention delta
+
+Each mapping is testable; each output is footnoted to a methodology
+citation.
+
+**4.3 — A/B comparator** (1 week)
+Run the same persona mix against version A and version B. Statistical diff:
+Mann-Whitney U on continuous metrics, chi-square on categorical (churn
+vs progression). Output: signature-firing-rate deltas with significance
+levels.
+
+**4.4 — Report rendering** (1 week)
+HTML output (interactive dashboards), PDF export, CSV/JSON export.
+Layout per the [`README.md`](./README.md) Core Deliverable spec.
+
+**4.5 — Pilot deck generation** (3 days)
+Combine a real Nova report (from running the architecture against a sample
+game) with the validation results from Phases 0.7/0.8 + competitive
+positioning. Pitch deck for the first studio conversations.
+
+**4.6 — Long-Horizon Simulation Loop** (1–2 weeks)
+Implements the Day-N retention prediction capability spec'd in
+[`methodology.md`](./methodology.md) §1.6. Three concrete deliverables:
+
+- **Simulated-time clock primitive.** New `nova_agent.lab.SimulatedClock`
+  service exposed via the Unity SDK as `FastForward(timedelta)`.
+  Advances the virtual game clock and Nova's internal time counter in
+  lockstep. Decay functions consume the elapsed-since-last-event reading.
+- **Multi-rate decay function on memory records.** Each `EpisodicRecord`
+  and `SemanticRule` gains `last_decay_check_at_simulated_time`.
+  Implements three-channel decay (episodic ~24h half-life, semantic
+  ~7d, affective ~30d with floor) per the Tulving / Ebbinghaus / Bahrick
+  / Yehuda literature anchors.
+- **Cross-session state persistence.** New `PlayerState` snapshot type
+  that captures `AffectVector` baselines + memory store state at
+  session-end and restores them at next-session-start with decay
+  applied for the elapsed simulated gap. Extends the existing
+  `AffectState.reset_for_new_game()` (Task 36) to soft-reset rather
+  than hard-reset.
+
+**Cohort-distribution reporting:** every long-horizon prediction is
+returned as a distribution (median, P25, P75, 95% CI) across N=50+
+personas, never as a single-trajectory point estimate. The widening CI
+*is* the prediction. Reports use the format: "Median 28% Day-30 churn
+(95% CI [22%, 38%]), driven by accumulated affective baseline drift
+over the Day 3-7 difficulty band."
+
+**Gates this phase has to clear:**
+- Phase 0.7 cliff test passed (single-session affect prediction works)
+- Phase 0.8 trauma ablation passed (Levene's variance reduction
+  significant) — confirms the affective-channel persistence mechanism
+  Nova relies on for the "scar" effect in Day-N predictions
+- Empirical CI-width check: at Day 30 in a synthetic-validation run on
+  2048 with N=50 Casual personas, the 95% CI for Signature Alpha
+  firing rate must stay below ±15 percentage points. If wider, the
+  product framing adapts to "useful Day-N prediction up to N = [the day
+  where CI crossed the threshold]" — honest framing matters more than
+  the longer horizon.
+
+**Exit criteria:**
+- End-to-end: studio uploads APK (or runs SDK-integrated build) → 50
+  personas → HTML report in their inbox
+- One real generated report committed to the repo as canonical example
+- One canonical 30-day cohort-distribution report committed as the
+  long-horizon example
+- Pilot deck ready
+
+---
+
+## Phase 5 — Production infrastructure (weeks 33–44)
+
+**Goal:** make Nova rentable at scale. Mostly cloud engineering. Defer
+until Phase 4 has produced a first paid pilot signal.
+
+### Work units (flesh out at the time)
+
+**5.1 — Headless emulator farm OR SDK-only deployment** (3–4 weeks)
+For studios with Unity SDK: no emulator needed; sessions run in
+ephemeral cloud VMs. For OCR-fallback path: Android emulator running
+headless. Auto-spin up per session.
+
+**5.2 — Local LLM inference cluster** (2–3 weeks)
+vLLM serving tier (cloud GPUs or owned hardware). Load-balanced across
+sessions. Cost model: hourly GPU rental at low traffic, owned hardware
+at high traffic.
+
+**5.3 — Job queue + session orchestrator** (2–3 weeks)
+Studio submits build + persona mix + run count. Orchestrator runs
+sessions, collects logs, generates report, notifies.
+
+**5.4 — Multi-tenant API + auth** (2 weeks)
+REST + webhook. API keys per studio. Rate limiting. Quotas.
+
+**5.5 — Billing + dashboards** (2–3 weeks)
+Stripe integration. Per-session metering. Studio dashboard.
+
+**Exit criteria:**
+- One studio (paid or pilot) can self-serve a run end-to-end without
+  engineering involvement
+- 99% uptime over a 1-month measurement window
+- Pricing model live (per-session, per-report, or subscription)
+
+---
+
+## Phase 6 — First paid pilots + iteration (open-ended)
+
+**Goal:** convert architecture + product into revenue + validation
+corpus.
+
+### What goes here
+
+- Identify 5 friendly mobile/PC studios (warm intros via game-dev Twitter,
+  GDC contacts, Discord communities)
+- Free or $5K pilots in exchange for testimonials + case studies + the
+  30-day measurement window for validation corpus
+- Each pilot: pre-arranged measurement (Nova's signature predictions vs
+  studio's actual real-user data after launch). This data feeds the
+  validation corpus that becomes Nova's primary moat.
+- Iterate on report format based on what the buyer actually opens / acts on
+- After 3 successful pilots: switch to paid tier
+
+**Pricing models to test:**
+- Per-session: $1–5
+- Per-report (50 sessions): $250–500
+- Subscription (unlimited within fair use): $5K–25K/year for mid-size
+  studio, $50K+ for enterprise
+
+**This phase doesn't end.** It's the rest of the company.
+
+---
+
+## Cross-cutting decisions
+
+### 1. Open-source vs proprietary
+
+**Recommendation:** open-core. The cognitive architecture (memory,
+affect, ToT, reflection, brain panel) under MIT. Persona library tuning
+data, KPI Translation methodology, validation corpus, hosted
+infrastructure proprietary.
+
+**Why:** open architecture attracts contributors and academic
+legitimacy; proprietary data + methodology + infra is the moat. This is
+the HashiCorp / GitLab / Vercel pattern.
+
+Decide before Phase 4. Affects all marketing and code structure.
+
+### 2. Single-provider vs multi-provider LLM
+
+**Already decided (v2):** multi-provider hybrid. Local LLM for System 1,
+frontier API for System 2. Adapter pattern in `nova_agent.llm` already
+supports it. No further decision needed.
+
+### 3. The "Nova reads our trade-secret game build" trust problem
+
+Studios will not upload pre-launch builds to a third party without
+strong NDA + data handling guarantees. Plan for:
+- On-prem deployment option (Phase 5+)
+- SOC 2 compliance roadmap (Phase 5+)
+- Opt-in vs opt-out model-training data use (Phase 4+)
+
+The local-LLM hybrid stack helps here: most inference happens local to the
+studio's infrastructure, not on third-party cloud. Smaller IP exposure
+surface.
+
+### 4. Hiring trigger points
+
+- **Engineer #2:** Phase 4 — when the build/test cycle for the reporting
+  layer + persona system is parallelizable. Before that, a second engineer
+  is more coordination cost than productivity gain.
+- **Sales/BD:** when 3 pilots are live and the bottleneck is "find more
+  studios" rather than "build features." Probably mid-Phase 6.
+
+### 5. Funding decision
+
+- **Bootstrap path:** Phases 0–4 done solo (~7 months). One paid pilot
+  funds the next quarter.
+- **Seed round path:** pitch after Phase 1 (Tetris demo + validation
+  results) for $500K–1.5M. Compress Phases 2–5 to 4 months.
+
+**Recommendation:** decide after Phase 1 demo. If the Tetris port goes
+smoothly + Phase 0.7 cliff test passed strongly, the seed pitch is
+strong. If either struggled, bootstrap and revisit at Phase 4.
+
+---
+
+## What NOT to do
+
+- **Don't pivot mid-Phase-0.** The architecture demo is the foundation. Any
+  refactor without v1.0.0 shipped first compounds complexity.
+- **Don't sell before Phase 0.7 passes.** The cliff test is the falsification
+  gate for the entire pitch. Without it, claims are theoretical. With it,
+  claims are evidence-backed.
+- **Don't try to support real-time games or 3D in Phase 2.** Out of scope
+  for the current architecture. Promise turn-based / strategy / puzzle /
+  slow live-service.
+- **Don't build a marketplace.** "Studios upload APKs, gamers download
+  Nova-generated playtests" is a different product. Stay focused on B2B
+  studio tooling.
+- **Don't over-engineer the persona library before pilot data.** 4
+  personas is enough for the first pitch. More personas after studios tell
+  you which segments they care most about.
+- **Don't pivot to RL.** RL produces optimizers; Nova produces simulators.
+  The cognitive architecture is the moat. Trading it for inference speed
+  kills the product. (See [`methodology.md`](./methodology.md) §3.3 for the
+  full rationale.)
+- **Don't promise General Intuition-scale capabilities.** They have
+  $133.7M and a 2B-clip video corpus. We have a CoALA-shaped agent with a
+  publishable trauma-tagging mechanism (if Phase 0.8 validates). Different
+  shape, different size, possibly complementary, but not the same kind of
+  competitor.

@@ -1,5 +1,15 @@
-# Claude Code harness state — DO NOT COMMIT
-.claude/
+# Claude Code harness state
+# Track team-wide config (settings.json, commands/, agents/, rules/,
+# pre-commit-checklist.md) but ignore personal state and cache.
+.claude/*
+!.claude/settings.json
+!.claude/commands/
+!.claude/agents/
+!.claude/rules/
+!.claude/pre-commit-checklist.md
+.claude/settings.local.json
+.claude/.last_session_id
+.claude/cache/
 
 # macOS
 .DS_Store
@@ -25,6 +35,7 @@ eggs/
 .eggs/
 lib/
 lib64/
+!nova-viewer/lib/
 parts/
 sdist/
 var/
@@ -143,3 +154,4 @@ lancedb/
 *.mov
 *.avi
 *.mkv
+.superpowers/

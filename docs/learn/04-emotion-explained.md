@@ -73,20 +73,21 @@ The equation is:
 
 If you expected a small win and got a big one, δ is positive — dopamine spikes — you "feel good." If you expected a win and got nothing, δ is negative — dopamine dips below baseline — you feel disappointed. If everything was as expected, δ is zero — dopamine stays at baseline — you feel nothing in particular.
 
-Nova implements this directly:
+Nova implements this as proper **online TD(0) learning** — not a static heuristic. The value function `V(s)` *learns* from experience, which is what makes the Schultz/Dayan/Montague (1997) citation honest. (Earlier drafts used a hand-tuned heuristic; that simulates the *result* of dopamine without the *mechanism*. Sutton (1988) and Sutton & Barto (2018) provide the algorithm anchor — TD-learning is exactly the math the brain appears to be doing.)
 
-```python
-delta = actual_score_gain − expected_score_gain
+```
+δ_t = r_t + γ · V(s_{t+1}) − V(s_t)        (γ = 0.99 for 2048's long horizon)
+V(s_t) ← V(s_t) + α · δ_t                  (α ≈ 0.01)
 ```
 
-`expected_score_gain` is computed by a small "value function" — either a hand-tuned heuristic that predicts how much the next move should earn, or a tiny machine-learning regressor trained on past games.
+`V` is a **linear function of 6 hand-engineered features** (empty cells, adjacent pairs, monotonicity, smoothness, max-tile-in-corner, log-max). It starts with an analytic prior `V₀` so RPE is meaningful from move 1 of game 1, and it updates online after every move.
 
-The resulting `delta` (called RPE — **reward prediction error**) drives:
-- A positive spike in `dopamine` if `delta > 0`
-- An increase in `frustration` if `delta < 0` (and a decrease if `delta > 0`)
+The resulting `δ` (called RPE — **reward prediction error**) drives:
+- A positive spike in `dopamine` if `δ > 0`
+- An increase in `frustration` if `δ < 0` (and a decrease if `δ > 0`)
 - A small shift in `valence` and `confidence`
 
-This is the most replicated finding in computational neuroscience over the past 25 years. It's the safest claim in the project.
+This is the most replicated finding in computational neuroscience over the past 25 years. It's the safest claim in the project — provided the value function actually learns. We monitor that: per-game `mean(|δ|)` should shrink across games 1→50. If it doesn't, V isn't learning and the dopamine claim is empirically broken. That's a §8 acceptance criterion.
 
 ### Worked example
 
@@ -127,9 +128,17 @@ Anxiety rises when:
 
 When anxiety is high, the prompt tells Nova: *"You feel nervous. The board is tight. You want to play safe."* The VLM responds by being more conservative.
 
-Above a threshold (`anxiety > 0.6` plus other conditions), the system triggers **Tree-of-Thoughts deliberation** — Nova generates multiple candidate moves, evaluates each, and picks the best instead of doing a single fast call. This is the analog of Kahneman's **System 2** kicking in when the situation is hard.
+Above a threshold (`anxiety > 0.6` plus other conditions), the system triggers **Tree-of-Thoughts deliberation** — Nova generates multiple candidate moves, evaluates each, and picks the best instead of doing a single fast call. This is the analog of Kahneman's (2011) **System 2** kicking in when the situation is hard. The default ReAct path is System 1 (fast intuition, "cognitive ease"); ToT is System 2 (slow deliberation, "cognitive strain"). Anxiety lowers cognitive ease and forces the switch.
 
-The Yerkes-Dodson law (1908) is the loose inspiration: at moderate arousal/anxiety, performance is best. At very high anxiety, performance breaks down ("choking under pressure" — Beilock & Carr 2001). Honest caveat: the original Yerkes-Dodson study was on mice and has had mixed replications in humans, so we cite it as inspiration, not law.
+The proper science here is **Attentional Control Theory** (Eysenck et al. 2007; Derakshan & Eysenck 2009): anxiety impairs the goal-directed System-1 attentional system and forces a compensatory shift to explicit, effortful, System-2 strategies. That's *exactly* what Nova does.
+
+Yerkes-Dodson (1908) — the inverted-U arousal/performance curve — is sometimes invoked here, but it's a 1908 mouse study with mixed human replication. It's a historical footnote, not the load-bearing citation. ACT is what the architecture actually maps onto.
+
+### The somatic marker — why aversive memories surface *before* deliberation
+
+Why do trauma tags bias the prompt before ToT even runs? Because that mirrors how human emotional memory actually works. Damasio's (1994) **somatic marker hypothesis** (developed with the Iowa Gambling Task — Bechara, Damasio, Damasio & Anderson 1994) shows that emotional memories physically bias choice *before* explicit reasoning starts. People in the Iowa task avoid the disadvantageous decks before they can articulate why; the body knows first.
+
+Nova's aversive-memory retrieval works the same way: the tag surfaces, anxiety rises, the prompt picks up the affect text, and *then* (optionally) ToT runs. The aversive memory has already shaped the search space before deliberation begins. This is the engineering analogue of Damasio's somatic marker.
 
 ## Confidence
 

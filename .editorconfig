@@ -1,0 +1,54 @@
+# Project Nova — editor configuration
+# Enforces consistent indentation, line endings, and whitespace across editors
+# (VS Code, Cursor, JetBrains, Vim, Sublime, etc.) without per-tool config.
+# https://editorconfig.org/
+
+root = true
+
+# Defaults — applied to everything not overridden below
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+max_line_length = 100
+
+# Python — 4-space indent, longer line length per PEP 8 / ruff defaults
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+# TypeScript / JavaScript / JSX / TSX — 2-space (matches viewer convention)
+[*.{ts,tsx,js,jsx,mjs,cjs}]
+indent_size = 2
+
+# JSON / YAML — 2-space
+[*.{json,yaml,yml}]
+indent_size = 2
+
+# Markdown — preserve trailing whitespace (it's significant for line breaks)
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+
+# Makefiles — TABS REQUIRED (make's parser will literally not work otherwise)
+[Makefile]
+indent_style = tab
+
+# Go (in case we ever add Go) — TABS, gofmt convention
+[*.go]
+indent_style = tab
+
+# Shell scripts — 2-space
+[*.{sh,bash}]
+indent_size = 2
+
+# Unity / C# (nova-game) — 4-space, common .NET convention
+[*.cs]
+indent_size = 4
+
+# .gitignore, .gitattributes — preserve as-is
+[.git*]
+trim_trailing_whitespace = true
