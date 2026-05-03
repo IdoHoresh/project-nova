@@ -308,11 +308,12 @@ signals fires** — don't silently default to "just start coding."
 | ...write or change cognitive-layer code, decision logic, bus protocol | `superpowers:test-driven-development` |
 | ...declare something "done" before commit | `superpowers:verification-before-completion` |
 | ...debug a non-obvious failure | `superpowers:systematic-debugging` |
-| ...respond to review feedback (human or `code-reviewer` subagent) | `superpowers:receiving-code-review` |
+| ...review code before commit (default entry point) | `/review` orchestrator — applies REVIEW.md path-matched trigger taxonomy and dispatches the right reviewer(s) |
+| ...review code-quality only (skip security) | `/code-review` — direct dispatch of `.claude/agents/code-reviewer.md` |
+| ...review security only (skip code-quality) | `/security-review` — direct dispatch of `.claude/agents/security-reviewer.md` |
+| ...respond to review feedback from `/review` or a subagent | `superpowers:receiving-code-review` |
 | ...wrap up a feature branch / open the PR | `superpowers:finishing-a-development-branch` |
 | ...write a new skill (rare) | `superpowers:writing-skills` |
-| ...review code in this repo | `.claude/agents/code-reviewer.md` (Nova-tuned) |
-| ...review code touching secrets / env / LLM / bus | `.claude/agents/security-reviewer.md` |
 | ...run the per-subproject quality gate before commit | `/check-agent` or `/check-viewer` |
 
 The deprecated superpowers commands (`/brainstorm`, `/write-plan`,

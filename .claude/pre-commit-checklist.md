@@ -15,30 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — three new files: `.claude/skills/review/SKILL.md`, `.claude/skills/code-review/SKILL.md`, `.claude/skills/security-review/SKILL.md` (~200 lines total)
-- [x] Atomic commit — single logical change: add /review orchestrator + /code-review and /security-review wrapper skills
+- [x] `git diff --cached --stat` reviewed — three Claude-config files: `.claude/rules/workflow.md` (insert /review step + renumber), `CLAUDE.md` (replace 2 review-table rows with 4 covering /review, /code-review, /security-review, plus dedup the receiving-code-review row), `.claude/pre-commit-checklist.md` (this file — add /review binary line in Review section)
+- [x] Atomic commit — single logical change: wire /review into workflow.md + pre-commit-checklist + CLAUDE.md so the new orchestrator is discoverable from every entry point
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown skill-frontmatter only
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown docs only
 - [x] `nova-agent/` not touched — N/A, Claude-tooling-only change
 - [x] `nova-viewer/` not touched — N/A, Claude-tooling-only change
-- [x] Docs / config — `.claude/skills/review/SKILL.md` orchestrator applies REVIEW.md path-matched trigger taxonomy and dispatches `/code-review` + `/security-review` in parallel when both fire; `/code-review` and `/security-review` are thin wrappers that read REVIEW.md + the matching `.claude/agents/*-reviewer.md` agent definition + LESSONS.md, then dispatch the subagent. Output format mirrors REVIEW.md: [BLOCK|WARN|NIT] file:line — desc + Suggestion + Confidence ≥80, plus APPROVE / REQUEST CHANGES verdict.
+- [x] Docs / config — workflow.md gains a new step 7 (`/review` invocation with REVIEW.md taxonomy reasons named) and renumbers existing steps 7-17 to 8-18; the after-commit step now classifies the auto pre-push hook as Layer 1.5 (between Layer 1 in-session /review and Layer 2 PR-time claude-code-action); CLAUDE.md "When to use which workflow skill" table replaces the two leaf-level reviewer rows with four rows covering /review (default), /code-review, /security-review, and receiving-code-review (de-duplicated against the existing leftover row).
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A per `/review` path-matched trigger taxonomy: this commit is Claude-tooling-only (`.claude/skills/**`), which is the "skip with reason: Claude-tooling-only" row of REVIEW.md. The skills themselves ARE the review machinery; reviewing them with themselves is circular.
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched in this commit
+- [x] `/review` dispatched on staged diff — N/A: Claude-tooling-only per REVIEW.md path-matched trigger taxonomy. This commit only touches `.claude/**` and `CLAUDE.md` (a doc / config file at repo root used by the Claude harness). The `/review` orchestrator itself ships in commit 2 and would skip this commit anyway.
+- [x] `code-reviewer` subagent — N/A, covered by /review skip reason above
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, no time-cost gotcha; the skills implement the rubric, no new lesson to record yet
-- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; CLAUDE.md will gain a `/review` reference in commit 3 (the workflow-wiring commit)
+- [x] LESSONS.md — N/A, no time-cost gotcha
+- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; CLAUDE.md is updated in THIS commit to expose /review in the workflow-skill table — that's the change, not a gotcha
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
 - [x] New ADR — N/A, this is a workflow-tooling addition, not an architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `feat(review): add /review, /code-review, /security-review slash skills`
-- [x] Body explains *why* — operationalizes the REVIEW.md checklist shipped in commit 1; orchestrator skill removes the "did I review?" judgment by applying the REVIEW.md path-matched trigger taxonomy as a binary check; thin wrapper skills let the user invoke a focused pass directly when the orchestrator overhead isn't needed; commit 2 of 5 in the Gibor-pattern port queued in the resume-point memory for Week 0 Day 2
+- [x] Conventional Commits format: `feat(workflow): wire /review into workflow.md, checklist, and CLAUDE.md`
+- [x] Body explains *why* — completes the substrate→orchestrator→workflow chain. REVIEW.md (commit 1) is the rubric; /review and friends (commit 2) operationalize it; this commit makes them discoverable from every entry point Claude or a human will look at: workflow.md (step 7), CLAUDE.md (signal table), pre-commit-checklist (binary check). Layer 1 (in-session /review) + Layer 1.5 (auto pre-push hook) + Layer 2 (PR-time GH Action coming in commit 4) are now explicit in the workflow doc. Commit 3 of 5 in the Gibor-pattern port (Week 0 Day 2).
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`

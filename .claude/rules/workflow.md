@@ -41,39 +41,52 @@ signals; they live in CLAUDE.md "Context hygiene".
 
 ### Before commit
 
-7. **`/check-agent` or `/check-viewer`** — run the appropriate gate
+7. **`/review`** — dispatch the review orchestrator (or skip with a
+   stated REVIEW.md taxonomy reason). `/review` reads `REVIEW.md`'s
+   path-matched trigger taxonomy and decides BINARY whether
+   `code-reviewer` and/or `security-reviewer` should run, then
+   dispatches them. "Did I review?" is yes/no on file paths, not
+   judgment. If skipping, name the row that matched (e.g. `N/A:
+   doc-only`, `N/A: CI-config-only`, `N/A: Claude-tooling-only`,
+   `N/A: mechanical`).
+8. **`/check-agent` or `/check-viewer`** — run the appropriate gate
    trio (pytest+mypy+ruff or vitest+tsc+eslint). Both must be clean
    before commit.
-8. **`git diff --cached`** — actually scan it for secrets/keys/tokens
+9. **`git diff --cached`** — actually scan it for secrets/keys/tokens
    even though gitleaks runs on commit. State "no secrets found" or
    fix.
-9. **`git diff --cached --stat`** — review line count. Warn if >500
-   lines; consider splitting the commit.
-10. **Pre-commit hooks** — let them run. NEVER `--no-verify` without
+10. **`git diff --cached --stat`** — review line count. Warn if >500
+    lines; consider splitting the commit.
+11. **Pre-commit hooks** — let them run. NEVER `--no-verify` without
     explicit user authorisation in the same session.
-11. **Conventional Commits subject** — `type(scope): subject`, ≤72
+12. **Conventional Commits subject** — `type(scope): subject`, ≤72
     chars. Body explains *why*, not *what*.
-12. **Co-author tag** on Claude-generated commits:
+13. **Co-author tag** on Claude-generated commits:
     `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
-13. **Atomic commit** — one logical change. If you find yourself
+14. **Atomic commit** — one logical change. If you find yourself
     writing "and" in the subject, split.
 
 ### After commit
 
-14. **Push immediately.** Established cadence — never batch.
+15. **Push immediately.** Established cadence — never batch.
     A `PreToolUse` agent hook (`.claude/settings.json`) auto-runs
     Nova-tuned code-review + conditional security-review on the
     commits-since-last-push. Critical findings block the push;
-    medium/high surface as warnings. The hook is a backstop, NOT a
-    license to skip step 8.
-15. **CI check** (when on a branch with PR) — wait for CI green
+    medium/high surface as warnings. The hook is a backstop AT
+    PUSH TIME, NOT a license to skip step 7 (in-session `/review`)
+    or step 9 (manual secret scan). Layer 1 (in-session) catches
+    things while context is hot; the hook is Layer 1.5; PR-time
+    `claude-code-action` is Layer 2.
+16. **CI check** (when on a branch with PR) — wait for CI green
     before starting the next task.
 
 ### Periodic — every ~5 commits or weekly
 
-16. **LESSONS.md sweep** — anything from recent work worth capturing?
+17. **LESSONS.md sweep** — anything from recent work worth capturing?
     Use `/lessons-add`. Better to over-capture than under-capture.
-17. **CLAUDE.md gotchas** — any new gotcha that cost time? Add it to
+    Also: did `/review` surface any new "always check" rule that
+    should be promoted into `REVIEW.md`?
+18. **CLAUDE.md gotchas** — any new gotcha that cost time? Add it to
     the "Common gotchas" section.
 
 ## Why this matters
