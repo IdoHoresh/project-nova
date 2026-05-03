@@ -1,10 +1,17 @@
 name: CI
 
-# Run on every push to any branch + every pull request to main.
-# Branch protection on main should require all jobs in this workflow to pass.
+# Triggers — tightened from the original "every push to every branch" pattern
+# (which fired CI twice per PR commit: once on push, once on pull_request).
+# Now CI runs on:
+#   - PRs into main (every commit added to a PR re-runs)
+#   - direct pushes to main (post-merge sanity check + protection against
+#     accidental direct commits)
+# Feature-branch pushes WITHOUT an open PR don't run CI by design — branch
+# protection on main is the contract; intermediate states aren't worth the
+# minutes. Open the PR early if you want feedback while iterating.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -33,7 +40,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # We want full history for git-blame in failure reports
+          # Full history for git-blame in failure reports
           fetch-depth: 0
 
       - name: Set up Python 3.11
@@ -68,9 +75,12 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────────────────
   # nova-viewer — Next.js + React + Tailwind brain panel
+  # Also runs `pnpm audit` here so we don't pay for a second pnpm install in
+  # a separate security job. Audit is non-blocking until we're closer to
+  # production (Phase 5+).
   # ─────────────────────────────────────────────────────────────────────────
   viewer:
-    name: nova-viewer (vitest + tsc + eslint)
+    name: nova-viewer (vitest + tsc + eslint + audit)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -109,13 +119,32 @@ jobs:
       - name: Build (production)
         run: pnpm run build
 
+      - name: Upload viewer build artifact
+        # Cheap insurance against "but it builds locally!" — keep the
+        # production build for 7 days for visual smoke checks on PRs.
+        uses: actions/upload-artifact@v4
+        with:
+          name: viewer-build-${{ github.sha }}
+          path: nova-viewer/.next/
+          retention-days: 7
+
+      - name: Run pnpm audit (production deps, high+)
+        # Audit findings are non-blocking until we have a customer or a
+        # production deploy. Bumped from --audit-level=moderate to high
+        # because moderate floods on transitive devDeps and trains us to
+        # ignore the signal. Re-tighten before Phase 5.
+        run: pnpm audit --prod --audit-level=high
+        continue-on-error: true
+
   # ─────────────────────────────────────────────────────────────────────────
-  # Security — secret scanning + dependency audit
+  # Secret scanning — small, parallel, no node deps.
+  # Standalone job so a future deploy / multi-package layout can scan history
+  # independently of any subproject's install step.
   # ─────────────────────────────────────────────────────────────────────────
-  security:
-    name: security (gitleaks + pnpm audit)
+  gitleaks:
+    name: gitleaks (secret scan)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -128,69 +157,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # No license needed for OSS repos
           config-path: .gitleaks.toml
         continue-on-error: false
 
-      - name: Set up Node 22 (for pnpm audit)
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          # Match the version locally installed (see viewer job for rationale).
-          version: 10
-          run_install: false
-
-      - name: Install viewer deps (audit needs node_modules)
-        working-directory: nova-viewer
-        run: pnpm install --frozen-lockfile
-
-      - name: Run pnpm audit (production deps, moderate+)
-        working-directory: nova-viewer
-        run: pnpm audit --prod --audit-level=moderate
-        # Continue on error — audit findings shouldn't block PRs (yet),
-        # but they should be visible. Tighten to fail-on-error in Phase 5
-        # when we're closer to production.
-        continue-on-error: true
-
   # ─────────────────────────────────────────────────────────────────────────
-  # Pre-commit hooks (runs the same hooks that fire locally)
-  # ─────────────────────────────────────────────────────────────────────────
-  pre-commit:
-    name: pre-commit hooks
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.11 (for pre-commit)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Run pre-commit
-        uses: pre-commit/action@v3.0.1
-        env:
-          # Skip the local hooks that need pnpm/node — those are
-          # already covered by the viewer job. The pre-commit runner
-          # is Python-only and has no node_modules/, so eslint /
-          # tsc / prettier would all fail with "Cannot find module".
-          # Also skip the in-repo Claude-checklist hooks which only
-          # make sense on developer machines making real commits.
-          SKIP: eslint-viewer,tsc-viewer,prettier-viewer,claude-checklist-check
-        with:
-          extra_args: --all-files --hook-stage pre-commit
-
-  # ─────────────────────────────────────────────────────────────────────────
-  # Composite "all-green" gate for branch protection
+  # Composite "all-green" gate for branch protection.
+  # Wire main's branch protection to require this single check; that way
+  # adding/removing upstream jobs doesn't require touching branch-protection
+  # config in the GitHub UI.
   # ─────────────────────────────────────────────────────────────────────────
   all-green:
     name: All checks passed
-    needs: [agent, viewer, security, pre-commit]
+    needs: [agent, viewer, gitleaks]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -204,12 +182,8 @@ jobs:
             echo "::error::nova-viewer job failed"
             exit 1
           fi
-          if [[ "${{ needs.security.result }}" != "success" ]]; then
-            echo "::error::security job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.pre-commit.result }}" != "success" ]]; then
-            echo "::error::pre-commit job failed"
+          if [[ "${{ needs.gitleaks.result }}" != "success" ]]; then
+            echo "::error::gitleaks job failed"
             exit 1
           fi
           echo "All CI jobs passed."

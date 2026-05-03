@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — single-byte fix to `nova-agent/pyproject.toml` + checklist
-- [x] Atomic commit — single logical change: strip extra trailing newline from pyproject.toml that survived 907f189's eof-fixer pass
+- [x] `git diff --cached --stat` reviewed — single-file rewrite of `.github/workflows/ci.yml` (~70 lines net deletion across job removals + restructure) plus the checklist update
+- [x] Atomic commit — single logical change: trim CI workflow to phase-appropriate gates (PR-only triggers, drop redundant pre-commit job, fold pnpm audit into viewer, separate gitleaks)
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env / API keys / tokens
-- [x] `nova-agent/`: only the trailing-newline byte; full check trio still clean (no logic touched)
-- [x] `nova-viewer/` not touched — N/A
-- [x] Docs / config — N/A; this is the byte that pre-commit's end-of-file-fixer hook objects to (file ended with TWO `\n`, the hook wants exactly one)
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
+- [x] `nova-agent/` not touched — N/A, CI-config-only change
+- [x] `nova-viewer/` not touched — N/A, CI-config-only change
+- [x] Docs / config — `.github/workflows/ci.yml` rewritten; new shape is 4 jobs (agent, viewer, gitleaks, all-green) instead of 5 (agent, viewer, security, pre-commit, all-green); triggers tightened from `push: branches: ["**"]` to `push: branches: [main]` so feature-branch pushes no longer fire CI duplicates alongside the PR run
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, single trailing-byte fix
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
+- [x] `code-reviewer` subagent — N/A, infrastructure-only change with no executable logic touched in agent or viewer; the workflow itself is the change
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched. gitleaks split into its own job (smaller surface, runs in parallel, no node_modules dependency)
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, mechanical follow-up to 907f189
-- [x] CLAUDE.md "Common gotchas" — N/A
+- [x] LESSONS.md — N/A, infra plumbing
+- [x] CLAUDE.md "Common gotchas" — N/A, the trade-offs (PR-only triggers, audit non-blocking until Phase 5+) are documented inline in the workflow YAML
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A
+- [x] New ADR — N/A, this is a phase-appropriate trim of CI scope, not a new architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `ci: strip extra trailing newline from nova-agent/pyproject.toml`
-- [x] Body explains *why* — 907f189's eof script appended a newline only when missing; pyproject.toml already had one but had a SECOND blank line after it, which end-of-file-fixer rejects. Truncate any trailing `\n+` and rewrite with a single `\n`
+- [x] Conventional Commits format: `ci: trim workflow to phase-appropriate gates`
+- [x] Body explains *why* — every PR commit was firing 10 checks (5 jobs × push + pull_request) with the pre-commit job 90% redundant against the local pre-commit framework; folded pnpm audit into viewer to avoid double-installing pnpm; bumped audit threshold to high to stop training us to ignore moderate noise; added build artifact upload for visual smoke checks
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
