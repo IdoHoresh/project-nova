@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — `nova-viewer/package.json` adds vite 6.4.2 + bumps vitest to 3.2.4 + adjusts @vitejs/plugin-react to 5.2.0; `nova-viewer/pnpm-lock.yaml` regen
-- [x] Atomic commit — single logical change: bump vitest+vite to resolve dependabot alert #2 (vite path traversal)
+- [x] `git diff --cached --stat` reviewed — single new file `REVIEW.md` at repo root (~150 lines, project-specific review checklist + path-matched trigger taxonomy)
+- [x] Atomic commit — single logical change: add Nova-specific REVIEW.md as the binary-decision review checklist
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; package.json + lockfile only
-- [x] `nova-agent/` not touched — N/A, viewer-only change
-- [x] `nova-viewer/` — gate trio + build green: `pnpm test` (98 tests pass on vitest 3.2.4), `npx tsc --noEmit` (clean), `pnpm run lint` (clean), `pnpm run build` (Next 16 production build succeeds, 4 static pages prerendered). Versions resolved: vite 6.4.2 (was 5.4.21), vitest 3.2.4 (was 2.1.9), @vitejs/plugin-react 5.2.0 (was 4.7.0). No peer-dep warnings.
-- [x] Docs / config — `vitest.config.ts` unchanged, fully compatible with vitest 3.x; CJS deprecation warning from previous build also resolved.
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown rules-doc only
+- [x] `nova-agent/` not touched — N/A, repo-root doc only
+- [x] `nova-viewer/` not touched — N/A, repo-root doc only
+- [x] Docs / config — `REVIEW.md` adopts the structure from Gibor's review pattern, adapted to Nova: 4 block-on-violation sections (security, cognitive architecture invariants, bus contract, code quality with explicit path-matched trigger taxonomy), Python + TypeScript language-specific sections, testing section, output format spec ([BLOCK|WARN|NIT] file:line — desc + Suggestion + Confidence ≥80), verdict (APPROVE / REQUEST CHANGES), and an after-review loop pointing at LESSONS.md (uppercase per Nova convention).
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, dep-bump-only commit; no executable code touched
-- [x] `security-reviewer` — N/A in the Nova-threat-model sense; this commit IS the security upgrade. Closes the last of 3 dependabot moderate alerts (vite path-traversal in optimized-deps `.map` handling).
+- [x] `code-reviewer` subagent — N/A, doc-only addition; no executable logic. /review skill doesn't exist yet (this PR establishes the substrate; the skill ships in commit 2).
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A; the vitest/vite peer-dep coupling pattern is documented in this commit's body and is standard ecosystem behavior
-- [x] CLAUDE.md "Common gotchas" — N/A, no new Nova-specific gotcha
+- [x] LESSONS.md — N/A, this commit IS the rubric that future LESSONS.md entries cross-reference; nothing to add here
+- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; CLAUDE.md will be updated to reference REVIEW.md when commit 3 wires it into the workflow
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, security patch not architectural decision
+- [x] New ADR — N/A, this is a workflow-tooling addition, not an architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `chore(viewer): bump vitest+vite to resolve dependabot vite alert`
-- [x] Body explains *why* — closes the deferred dependabot alert #2 (vite <=6.4.1 path traversal). Required vitest 3.x in tandem because vitest 2 peer-deps vite ^5; @vitejs/plugin-react also stepped down from 6 to 5 because plugin-react 6 wants vite ^8 (vite 8 is alpha at time of writing). Net result: all three dependabot moderate alerts now closed on this branch.
+- [x] Conventional Commits format: `feat(review): add REVIEW.md project-specific checklist`
+- [x] Body explains *why* — adopts Gibor's review-pattern checklist structure (proven to remove the "did I review?" judgment call) and adapts it to Nova's two-reviewer split (code-reviewer + security-reviewer) and polyglot Python/TS shape; the path-matched trigger taxonomy makes review a yes/no on file paths, not a vibes call; this is commit 1 of the 5-commit Gibor-port queued in the resume-point memory for Week 0 Day 2
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
