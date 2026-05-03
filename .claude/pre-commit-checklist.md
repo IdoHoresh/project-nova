@@ -15,30 +15,30 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — single new file `REVIEW.md` at repo root (~150 lines, project-specific review checklist + path-matched trigger taxonomy)
-- [x] Atomic commit — single logical change: add Nova-specific REVIEW.md as the binary-decision review checklist
+- [x] `git diff --cached --stat` reviewed — three new files: `.claude/skills/review/SKILL.md`, `.claude/skills/code-review/SKILL.md`, `.claude/skills/security-review/SKILL.md` (~200 lines total)
+- [x] Atomic commit — single logical change: add /review orchestrator + /code-review and /security-review wrapper skills
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown rules-doc only
-- [x] `nova-agent/` not touched — N/A, repo-root doc only
-- [x] `nova-viewer/` not touched — N/A, repo-root doc only
-- [x] Docs / config — `REVIEW.md` adopts the structure from Gibor's review pattern, adapted to Nova: 4 block-on-violation sections (security, cognitive architecture invariants, bus contract, code quality with explicit path-matched trigger taxonomy), Python + TypeScript language-specific sections, testing section, output format spec ([BLOCK|WARN|NIT] file:line — desc + Suggestion + Confidence ≥80), verdict (APPROVE / REQUEST CHANGES), and an after-review loop pointing at LESSONS.md (uppercase per Nova convention).
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown skill-frontmatter only
+- [x] `nova-agent/` not touched — N/A, Claude-tooling-only change
+- [x] `nova-viewer/` not touched — N/A, Claude-tooling-only change
+- [x] Docs / config — `.claude/skills/review/SKILL.md` orchestrator applies REVIEW.md path-matched trigger taxonomy and dispatches `/code-review` + `/security-review` in parallel when both fire; `/code-review` and `/security-review` are thin wrappers that read REVIEW.md + the matching `.claude/agents/*-reviewer.md` agent definition + LESSONS.md, then dispatch the subagent. Output format mirrors REVIEW.md: [BLOCK|WARN|NIT] file:line — desc + Suggestion + Confidence ≥80, plus APPROVE / REQUEST CHANGES verdict.
 
 ## Review
 
-- [x] `code-reviewer` subagent — N/A, doc-only addition; no executable logic. /review skill doesn't exist yet (this PR establishes the substrate; the skill ships in commit 2).
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
+- [x] `code-reviewer` subagent — N/A per `/review` path-matched trigger taxonomy: this commit is Claude-tooling-only (`.claude/skills/**`), which is the "skip with reason: Claude-tooling-only" row of REVIEW.md. The skills themselves ARE the review machinery; reviewing them with themselves is circular.
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched in this commit
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, this commit IS the rubric that future LESSONS.md entries cross-reference; nothing to add here
-- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; CLAUDE.md will be updated to reference REVIEW.md when commit 3 wires it into the workflow
+- [x] LESSONS.md — N/A, no time-cost gotcha; the skills implement the rubric, no new lesson to record yet
+- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; CLAUDE.md will gain a `/review` reference in commit 3 (the workflow-wiring commit)
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
 - [x] New ADR — N/A, this is a workflow-tooling addition, not an architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `feat(review): add REVIEW.md project-specific checklist`
-- [x] Body explains *why* — adopts Gibor's review-pattern checklist structure (proven to remove the "did I review?" judgment call) and adapts it to Nova's two-reviewer split (code-reviewer + security-reviewer) and polyglot Python/TS shape; the path-matched trigger taxonomy makes review a yes/no on file paths, not a vibes call; this is commit 1 of the 5-commit Gibor-port queued in the resume-point memory for Week 0 Day 2
+- [x] Conventional Commits format: `feat(review): add /review, /code-review, /security-review slash skills`
+- [x] Body explains *why* — operationalizes the REVIEW.md checklist shipped in commit 1; orchestrator skill removes the "did I review?" judgment by applying the REVIEW.md path-matched trigger taxonomy as a binary check; thin wrapper skills let the user invoke a focused pass directly when the orchestrator overhead isn't needed; commit 2 of 5 in the Gibor-pattern port queued in the resume-point memory for Week 0 Day 2
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
