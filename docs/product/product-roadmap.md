@@ -60,29 +60,26 @@ has a self-judged gate that determines whether to proceed or to repair.
   defined repair branch (re-tune the affect logic, demote trauma to UI
   flavor, etc.) — not a project-end signal.
 
-### Week 0 — Ship v1.0.0
+### Week 0 — Pre-Phase-0.7 hardening (demo deferred per ADR-0005)
 
-**Milestone:** v1.0.0 demo tagged + ≤4-minute recording.
+**Milestone:** Cognitive architecture clean, review system shipped, `Game2048Sim` scaffolded so Week 1 cliff test can start on Day 1.
 
-**Tasks:**
-- Final code-review pass on the cognitive architecture
-- AgentEvent type system cleanup (remove the `{event: string; data: unknown}`
-  catch-all that defeats discriminated-union narrowing; replace per-call
-  `as data as` casts with type-predicate-based narrowing)
-- Demo recording: ≤4 minutes, narrates the *Why* (cognitive reasoning) not
-  just the *What* (moves)
-- v1.0.0 git tag, draft PR retargeted to v1.0.0
+**Demo recording is deferred** until Phase 0.7 cliff test passes — see [ADR-0005](../decisions/0005-defer-v1-demo-until-phase-0.7.md). The v1.0.0 git tag is parked until then; the demo records the full story (cognitive architecture + cliff-test result), not the architecture in isolation. Days 3–7 originally budgeted for demo prep + recording reallocate to direct Phase 0.7 work.
+
+**Tasks (revised):**
+- ✅ Final code-review pass on the cognitive architecture (covered by the new `/review` orchestrator + Layer 2 GitHub Action shipped 2026-05-04)
+- ✅ AgentEvent type system cleanup (shipped via PR #1)
+- Live validation run of the AgentEvent validator on a full 50-move game; final cog-arch review pass with `/review`
+- Begin `nova_agent.lab.Game2048Sim` build early (originally Week 1 Day 1–2) — pull this work forward into the freed Days 3–7 of Week 0
+- Synthetic "demo dry run" (no recording, just a walk-through to surface brain-panel UX gaps the same way an actual recording would)
 
 **Self-judged gate:**
-- Does the demo video clearly show the *Why* (decision reasoning, ToT
-  branch deliberation when triggered, post-game reflection extracting a
-  lesson)?
-- Or does it just show *What* (Nova made these moves, scored these points)?
+- Cognitive architecture review pass clean (no BLOCK findings from `/review`)?
+- `Game2048Sim` boots and consumes the existing `BoardState` interface end-to-end on at least one canned scenario?
+- Brain-panel walk-through surfaces no critical UX regressions?
 
 **Pass:** proceed to Week 1.
-**Fail:** re-cut the demo with reasoning narration before continuing. The
-demo IS the proof-of-architecture artifact every downstream pitch
-references; without the *Why* it's just a screen recording.
+**Fail:** address the failing item(s) before Week 1 begins. Do NOT proceed to cliff-test work with an unreviewed cognitive architecture or a non-functional simulator.
 
 ### Week 1 — Cliff Test
 
@@ -227,27 +224,29 @@ session (thinking-stream viewer, OCR palette, Pro thinking-budget fix,
 prompt-voice tightening, real timestamps + newest-on-top order, type
 system cleanup) IS Phase 0.
 
-What's left:
-- AgentEvent type cleanup (remove catch-all + drop `as data as` casts)
-- Final code-review pass on the cognitive architecture
-- Demo recording: ≤4 min, narrates the *Why*
-- Repo cleanup
-- v1.0.0 git tag
+What's left (revised per [ADR-0005](../decisions/0005-defer-v1-demo-until-phase-0.7.md) — demo deferred until Phase 0.7 passes):
+- ✅ AgentEvent type cleanup (shipped via PR #1)
+- ✅ Final code-review pass on the cognitive architecture (covered by the new `/review` orchestrator)
+- Live validation run + brain-panel walk-through (no recording)
+- Pull `Game2048Sim` work forward from Week 1 into the freed Days 3–7 of Week 0
+- ~~Demo recording: ≤4 min~~ → deferred to post-Phase-0.7
+- ~~v1.0.0 git tag~~ → parked, re-tag when demo records
 
-**Exit criteria:**
-- Demo video shipped showing the *Why*
-- Memory + affect + ToT + reflection all visibly active in the recording
-- Game-over → reflection → semantic rule extraction loop demonstrably
-  working
-- v1.0.0 git tag pushed
+**Revised exit criteria:**
+- `/review` pass clean on cognitive architecture (no BLOCK findings)
+- Memory + affect + ToT + reflection all functionally working end-to-end on a real 50-move game (verified via the dry-run walk-through, not a recording)
+- Game-over → reflection → semantic rule extraction loop demonstrably working in the dry run
+- `Game2048Sim` scaffold compiles, consumes `BoardState`, and runs at least one canned hard-scenario seed end-to-end
 
-**Do not** start Phase 0.7+ until v1.0.0 is shipped.
+**Do not** record the v1.0.0 demo until Phase 0.7 passes. Architecture polish without the cliff-test result is the wrong artifact for the product story (per ADR-0005). Phase 0.7 work begins as soon as the revised exit criteria are met — no separate "Week 1 boot" step needed.
 
 ---
 
 ## Phase 0.7 — Cliff Test (Week 1 of sprint)
 
 Detailed in the [Week 1 — Cliff Test](#week-1--cliff-test) section above.
+
+**Phase 0.7 is now also the demo-recording gate** per [ADR-0005](../decisions/0005-defer-v1-demo-until-phase-0.7.md). The v1.0.0 demo records on the back of a passed cliff test, not on the architecture in isolation. If Phase 0.7 fails, the affect-rework branch begins per the Week 1 fail path; no demo recording until the rework completes and a follow-up cliff test passes.
 
 **Net architectural addition:** new module `nova_agent.lab.Game2048Sim`
 under `nova-agent/src/`. Pure Python, no external deps beyond what's
