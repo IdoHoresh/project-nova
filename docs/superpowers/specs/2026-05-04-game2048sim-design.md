@@ -5,7 +5,7 @@
 **Status:** Approved (brainstorm) → ready for implementation plan
 **Successor:** to be authored via `superpowers:writing-plans`
 **Related ADRs:** [ADR-0005](../../decisions/0005-defer-v1-demo-until-phase-0.7.md), [ADR-0006](../../decisions/0006-cost-tier-discipline-and-record-replay.md), [ADR-0007](../../decisions/0007-blind-control-group-for-cliff-test.md)
-**Companion ADR (to be authored before implementation lands):** ADR-0008 — `GameIO` abstraction + brutalist renderer rationale
+**Companion ADR:** [ADR-0008](../../decisions/0008-game-io-abstraction-and-brutalist-renderer.md) — `GameIO` abstraction + brutalist renderer rationale (Accepted, 2026-05-04)
 
 ---
 
@@ -509,7 +509,7 @@ anything in `main.py`'s loop.
 4. Manual smoke: `NOVA_IO_SOURCE=sim uv run nova` plays a full game
    without ADB or emulator running, publishes the same bus events as
    live, brain panel renders identically.
-5. ADR-0008 written + committed before implementation merges.
+5. ADR-0008 written + committed (Accepted 2026-05-04, ref `b743eef`) — implementation chain references it for context on every load-bearing decision.
 6. `LESSONS.md` entry added if any non-obvious surprise surfaces during
    implementation (e.g. RNG cross-version determinism caveat, Pillow
    version-specific font behaviour).

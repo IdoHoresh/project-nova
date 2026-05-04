@@ -15,31 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 1 new file: `docs/decisions/0008-game-io-abstraction-and-brutalist-renderer.md` (~165 lines, ADR documenting the GameIO protocol abstraction + brutalist renderer rationale that the Game2048Sim spec depends on)
-- [x] Atomic commit — single logical change: ADR-0008 captures two coupled architectural commitments (GameIO seam + brutalist renderer policy) per the ADR template + red-team correction that ADRs must be written BEFORE implementation, not post-hoc
+- [x] `git diff --cached --stat` reviewed — 1 modified file: `docs/superpowers/specs/2026-05-04-game2048sim-design.md` (2 small line edits — header + acceptance criterion #5 — flipping ADR-0008 from "to be written" to "Accepted, ref b743eef")
+- [x] Atomic commit — single logical change: spec catches up to the now-existing ADR-0008 so a reader doesn't see contradictory deferred-vs-accepted statuses
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; pure ADR markdown referencing existing ADR-0005/0006/0007 + spec at docs/superpowers/specs/2026-05-04-game2048sim-design.md
-- [x] `nova-agent/` not touched — N/A, ADR is decision-record-only; implementation lands in a separate plan-driven commit chain
-- [x] `nova-viewer/` not touched — N/A, cognitive layer + viewer don't change with this ADR
-- [x] Docs / config — `docs/decisions/0008-game-io-abstraction-and-brutalist-renderer.md` follows the existing ADR template at `docs/decisions/0000-template.md` with the Status/Date/Deciders header, Context, Decision, Alternatives considered (6 options), Consequences (positive/negative/neutral/reversibility), and References sections. Mirrors the depth of ADR-0007 (the most recent multi-decision ADR).
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; 2-line markdown text edit only
+- [x] `nova-agent/` not touched — N/A, doc-only edit
+- [x] `nova-viewer/` not touched — N/A, doc-only edit
+- [x] Docs / config — minimal text edit to keep the spec internally consistent with the just-merged ADR-0008. No structural change to the spec.
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — N/A: `docs/decisions/**` (subset of `docs/**`) is the "skip with reason: doc-only" row of the REVIEW.md path-matched trigger taxonomy
-- [x] `code-reviewer` subagent — N/A, covered by skip reason above. The ADR documents future code; that code's review happens when it lands.
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched. ADR mentions LLM payload structure (PNG-bytes-base64) at the architectural level only; no credentials or sensitive surfaces.
+- [x] `/review` dispatched on staged diff — N/A: `docs/**` is the "skip with reason: doc-only" row of the REVIEW.md path-matched trigger taxonomy
+- [x] `code-reviewer` subagent — N/A, covered by skip reason above
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A on this commit; the ADR IS the architectural decision record. Lessons get added during/after implementation if non-obvious surprises surface.
-- [x] CLAUDE.md "Common gotchas" — N/A, no setup-time environment gotcha; the ADR's own consequences section captures expected behavior.
-- [x] ARCHITECTURE.md — N/A on this commit; the new GameIO protocol is documented in the ADR and the spec. ARCHITECTURE.md update lands with the implementation PR.
-- [x] New ADR — THIS commit IS the new ADR. Companion to the spec at docs/superpowers/specs/2026-05-04-game2048sim-design.md committed in 1001be5.
+- [x] LESSONS.md — N/A, trivial cross-reference update
+- [x] CLAUDE.md "Common gotchas" — N/A
+- [x] ARCHITECTURE.md — N/A
+- [x] New ADR — N/A, this commit is the spec catching up to the just-landed ADR-0008 (b743eef)
 
 ## Commit message
 
-- [x] Conventional Commits format: `docs(decisions): add ADR-0008 — GameIO abstraction + brutalist renderer`
-- [x] Body explains *why* — Phase 0.7 cliff test (per ADR-0007) requires byte-identical seeded scenarios both arms can consume; live emulator pipeline can't deliver that. ADR-0008 documents the two coupled architectural commitments that make the sim land cleanly: GameIO protocol as the only acceptable seam (alternatives rejected: branched main, env-polymorphic Capture, image-drop, pixel-faithful render, finer-grained protocols, parallel bus path) + brutalist renderer to keep the prompt template a controlled variable across Week-0 calibration and Phase-0.7 cliff test. Written BEFORE the implementation plan per the discipline that ADRs lose value when written post-hoc.
+- [x] Conventional Commits format: `docs(specs): point Game2048Sim spec at the now-Accepted ADR-0008`
+- [x] Body explains *why* — ADR-0008 (b743eef) flipped from "to be written" to "Accepted". The spec previously said the ADR was deferred to "before implementation merges"; that's now stale. Two-line update keeps the spec internally consistent so readers don't see contradictory status statements.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
