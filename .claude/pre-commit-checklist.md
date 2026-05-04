@@ -15,31 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 2 files in repo: `.claude/rules/workflow.md` (new "Session hygiene" section between PR cadence and Periodic, ~80 lines), `.claude/settings.json` (new third command hook for /clear-reminder, ~5 lines). Plus 3 files in cross-session memory (not in repo): two new feedback files + MEMORY.md index update.
-- [x] Atomic commit — single logical change: codify session-hygiene discipline (when to /clear, when to /compact, when NOT to manually dispatch subagents) + add structural /clear-reminder hook so the discipline survives without requiring user vigilance
+- [x] `git diff --cached --stat` reviewed — 1 new file: `docs/superpowers/specs/2026-05-04-game2048sim-design.md` (~565 lines, brainstorm spec for `Game2048Sim` Phase 0.7 cliff-test infrastructure)
+- [x] Atomic commit — single logical change: spec doc for `Game2048Sim` per superpowers brainstorming skill output. Successor artifacts (writing-plans implementation plan, ADR-0008, code) ship in separate commits.
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown rules-doc + settings.json shell-pipeline command (calls `gh pr list` already authenticated via the user's `gh` CLI session); no new credential surface
-- [x] `nova-agent/` not touched — N/A, Claude-tooling-only change
-- [x] `nova-viewer/` not touched — N/A, Claude-tooling-only change
-- [x] Docs / config — workflow.md gains a "Session hygiene" section covering /clear triggers (PR merges, concern switches, >150k context, >2h continuous work) + the curated handoff prompt template + /compact triggers + the manual-subagent-dispatch policy (4 allowed cases, NOT every-commit-on-sensitive-paths). settings.json gains a third command hook on `Bash(git push:*)` that emits a `systemMessage` reminder when the branch is 0 commits ahead of origin/main AND a PR for the branch was merged in the last 30 minutes. Both hooks share the same outer `2>/dev/null` pattern for error tolerance. JQ schema validated: 3 hooks total (1 agent + 2 command), all with `if: "Bash(git push:*)"`. Pipe-tested under bash explicitly: with PR #3 merged ~10 hours ago the new hook stays correctly silent (outside the 30-min window); the comparison logic is verified working.
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; pure brainstorm-design markdown referencing existing env var NAMES (`NOVA_IO_SOURCE`, `NOVA_SIM_SCENARIO`) and palette hex colors only
+- [x] `nova-agent/` not touched — N/A, doc-only spec; implementation lands in a separate plan-driven commit chain
+- [x] `nova-viewer/` not touched — N/A, doc-only spec; cognitive layer doesn't change with this design
+- [x] Docs / config — `docs/superpowers/specs/2026-05-04-game2048sim-design.md` follows the same shape as the prior spec at `docs/superpowers/specs/2026-05-02-thinking-stream-design.md` (date prefix, status, owner, goals, non-goals, architecture, components, test plan, acceptance criteria, risk register). Self-reviewed for placeholders, internal consistency, scope, and ambiguity per brainstorming skill checklist.
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — N/A: `.claude/rules/**` and `.claude/settings.json` are both "skip with reason: Claude-tooling-only" rows of the REVIEW.md path-matched trigger taxonomy
-- [x] `code-reviewer` subagent — N/A, covered by skip reason above. Also: this commit IS the codification of the "don't over-dispatch manual reviewers" policy; reviewing it via manual dispatch would directly contradict the policy it ships.
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
+- [x] `/review` dispatched on staged diff — N/A: `docs/**` is the "skip with reason: doc-only" row of the REVIEW.md path-matched trigger taxonomy
+- [x] `code-reviewer` subagent — N/A, covered by skip reason above. The spec describes future code; that code's review happens when it lands.
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched (paths are described in the spec but no implementation is committed here)
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, the session-hygiene rules are workflow-shaped (live in workflow.md) not lesson-shaped (LESSONS.md is for past-incident gotchas). The over-dispatch + 89%-context cost data point IS captured in the workflow.md "Session hygiene" section as the precedent that motivated the rule.
-- [x] CLAUDE.md "Common gotchas" — N/A; the session-hygiene rules are workflow contract, not setup-time environment gotchas
-- [x] ARCHITECTURE.md — N/A, system topology unchanged; this is a Claude-pair-discipline addition only
-- [x] New ADR — N/A, this is a workflow-doc addition + a hook extension, not a new architectural decision. Well within ADR-0006's existing cost-tier discipline scope; ADR-0006 already framed the layered review system that this commit clarifies the discipline for.
+- [x] LESSONS.md — N/A on this commit; lessons get added during/after implementation if non-obvious surprises surface
+- [x] CLAUDE.md "Common gotchas" — N/A, no setup-time environment gotcha; the spec's own risk register captures implementation-time risks
+- [x] ARCHITECTURE.md — N/A on this commit; the new `GameIO` protocol abstraction is design-only here. ARCHITECTURE.md update lands with the implementation PR.
+- [x] New ADR — DEFERRED: ADR-0008 (`GameIO` abstraction + brutalist renderer rationale) is explicitly required per the spec's acceptance criteria #5, to be authored before the implementation PR merges. Not on this commit because the spec is the WHAT-and-WHY artifact; the ADR is the formal architectural-decision record that the implementation chain will reference.
 
 ## Commit message
 
-- [x] Conventional Commits format: `feat(claude): add session-hygiene discipline + /clear reminder hook`
-- [x] Body explains *why* — `/usage` showed 100% subagent-heavy + 89% at >150k context on 2026-05-04. Both drivers are session-shape problems, not model-choice problems. Codifying when to /clear, when to /compact, and when NOT to manually dispatch subagents in `.claude/rules/workflow.md` "Session hygiene" puts the discipline in the auto-loaded contract. Adding a third PreToolUse command hook on `git push:*` that emits a `systemMessage` reminder when a PR for the current branch merged within the last 30 minutes makes the /clear suggestion structural — fires automatically at the exact moment a /clear is most valuable. Two new feedback memories cross-session reinforce both rules for future Claude sessions.
+- [x] Conventional Commits format: `docs(specs): add Game2048Sim brainstorm design spec`
+- [x] Body explains *why* — Phase 0.7 cliff test (per ADR-0007) needs deterministic, OCR-and-emulator-free game I/O so both Carla and Baseline Bot consume byte-identical seeded scenarios. ADR-0005 deferred the v1.0.0 demo and reallocated Week 0 Days 3-4 to early `Game2048Sim` build. Spec pins: `GameIO` protocol abstraction (the seam that lets sim land cleanly without branching `main.py`), `Game2048Sim` engine (4 canonical merge edge cases pinned in tests), brutalist renderer (400×400 PNG, ~30 LoC, structural-identity-not-pixel-perfect), `Scenario` dataclass + library, deterministic-seed contract with explicit "same seed ≠ identical games" caveat, ~31 new tests (TDD-first), acceptance criteria. ADR-0008 to be written before implementation merges.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
