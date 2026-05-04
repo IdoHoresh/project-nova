@@ -15,31 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — single file `docs/product/product-roadmap.md` (Phase 1 hard constraints + Phase 5 hosting strategy sections inserted, ~80 lines net)
-- [x] Atomic commit — single logical change: capture three load-bearing scope-clamp decisions surfaced by the principal engineer's red-team sweep into the roadmap so they are committed-to before the relevant phase begins (rather than re-derived under pressure later)
+- [x] `git diff --cached --stat` reviewed — single file `CLAUDE.md` (Active phase + next task section rewritten, ~50 lines net)
+- [x] Atomic commit — single logical change: refresh CLAUDE.md "Active phase + next task" so Claude's auto-load reflects post-Day-2 state (not the 2026-05-02 stale prompt about CasterAI research and v1.0.0 demo prep that's been overtaken by 10 commits and 3 ADRs)
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; roadmap-doc only
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; CLAUDE.md doc only
 - [x] `nova-agent/` not touched — N/A, doc-only change
 - [x] `nova-viewer/` not touched — N/A, doc-only change
-- [x] Docs / config — Phase 1 entry gains a "Phase 1 hard constraints" subsection covering (a) the Zero-PII guarantee for the Unity SDK (allowlist of permitted payload fields, rejection-on-violation contract, the 3-month sales-cycle compression rationale because Nova bypasses the typical AI-vendor DPA negotiation entirely), and (b) the Unity 2022.3 LTS version lock (single-version MVP scope clamp, upgrade-criteria gate). Phase 5 entry gains a "Phase 5 hosting strategy" subsection naming Modal as the serverless-Python default + RunPod as the GPU fallback, with the per-second billing rationale that fits the lumpy ablation-run demand shape and the explicit escalation triggers (sustained >1000 concurrent containers, platform engineer on team, compliance regime requiring VPC isolation) for when to move to managed Kubernetes.
+- [x] Docs / config — CLAUDE.md "Active phase + next task" section now reflects: (a) Week 0 Day 2 done with 10 commits shipped today, (b) the ADR-0005 demo deferral and the Week 0 Days 3-7 reallocation to early `Game2048Sim` build, (c) the full list of today's deliverables (review-system port, pre-push hook, dependabot fixes, record-replay, schema enforcement, plumbing tier + ADR-0006, Blind Control Group + ADR-0007, Phase 1/5 roadmap additions), (d) the four next-session tasks (live 50-move + dry-run + /review + start Game2048Sim), (e) the two one-time setup items (`/hooks` reload + `ANTHROPIC_API_KEY` repo secret). The CasterAI prompt is gone (already shipped via PR #1's nunu.ai pivot); the v1.0.0 demo prep is gone (deferred per ADR-0005).
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — N/A: `docs/**` is the "skip with reason: doc-only" row of REVIEW.md path-matched trigger taxonomy
-- [x] `code-reviewer` subagent — N/A, doc-only addition with no executable logic
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched. Note: the Zero-PII guarantee added to Phase 1 IS a security commitment, but it commits FUTURE design (Phase 1 SDK code that does not yet exist) and does not change current code paths
+- [x] `/review` dispatched on staged diff — N/A: `CLAUDE.md` is at repo root but is a Claude-tooling configuration file; per REVIEW.md path-matched trigger taxonomy this falls under "Claude-tooling-only" (the same row that exempts `.claude/**`). Strategic / methodology / operator-facing prose docs are reviewed by the user, not by the code-quality rubric.
+- [x] `code-reviewer` subagent — N/A, covered by skip reason above
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A; the rationale for each constraint is captured inline in the roadmap section
-- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha (CLAUDE.md "Active phase + next task" gets refreshed in commit 3 of tonight's plan)
-- [x] ARCHITECTURE.md — N/A, system topology unchanged; these are future-phase commitments
-- [x] New ADR — deferred. Each of the three Phase 1 + Phase 5 commitments will get its own ADR at the start of the relevant phase (when the decision is being implemented and the consequences are concrete). Capturing them now in the roadmap is sufficient to lock the scope; the ADR will follow at implementation time
+- [x] LESSONS.md — N/A, no time-cost gotcha; this commit IS a documentation-currency update, not a lesson
+- [x] CLAUDE.md "Common gotchas" — N/A, untouched in this commit; the Active-phase rewrite is the change
+- [x] ARCHITECTURE.md — N/A, system topology unchanged
+- [x] New ADR — N/A, this is a documentation-currency update; the underlying decisions live in ADR-0005 / ADR-0006 / ADR-0007
 
 ## Commit message
 
-- [x] Conventional Commits format: `docs(roadmap): add Phase 1 hard constraints (Zero-PII, Unity 2022.3 LTS) and Phase 5 hosting strategy (Modal/RunPod)`
-- [x] Body explains *why* — principal engineer's red-team sweep on 2026-05-04 surfaced three blind spots in the long-tail roadmap that, if not committed-to in advance, become urgent decisions made under pressure. Zero-PII guarantee and Unity LTS lock collapse the Phase 1 sales-cycle and engineering-scope respectively; Modal/RunPod replaces the implicit "AWS by default" assumption with a pay-per-second model that fits the lumpy ablation-run demand shape and a solo dev's ops capacity.
+- [x] Conventional Commits format: `docs(claude): refresh Active phase + next task to reflect post-Day-2 state`
+- [x] Body explains *why* — Claude auto-loads CLAUDE.md on every session start. The previous "Active phase" section was timestamped 2026-05-02 and pointed at first-task work that has since shipped (CasterAI/nunu.ai research) or been deferred (v1.0.0 demo). Stale auto-loaded context is worse than none — it would point a future session at completed work and miss the current next-task list. This commit updates the section to reflect today's actual state and the four-item next-session task list per the revised Week 0 plan.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
