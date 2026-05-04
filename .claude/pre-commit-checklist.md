@@ -14,17 +14,17 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 2 files, ~35 lines added (scenario literal + sim integration test)
-- [x] Atomic commit — single logical change: add corner-abandonment-256 scenario + its sim integration test
+- [x] `git diff --cached --stat` reviewed — 2 files: scenarios.py (+9 lines MAX_MOVES) + test_lab_scenarios.py (+86 lines corpus tests)
+- [x] Atomic commit — single logical change: add MAX_MOVES constant + corpus invariant tests
 
 ## Verification
 - [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
-- [x] `nova-agent/` — pytest + mypy + ruff all green (203 passed, mypy clean, ruff clean)
+- [x] `nova-agent/` — pytest (210 passed) + mypy (clean) + ruff (clean) all green
 - [x] `nova-viewer/` not touched — N/A vitest/tsc/eslint
 - [x] Docs / config — none touched
 
 ## Review
-- [x] `/review` dispatched — N/A: REVIEW.md taxonomy mechanical; TDD scenario literal + matching test, no logic change
+- [x] `/review` dispatched — N/A: REVIEW.md taxonomy mechanical; TDD new test file + constant addition, no logic change
 - [x] `code-reviewer` subagent — N/A; mechanical TDD task, Layer 1.5 pre-push hook covers it
 - [x] `security-reviewer` — N/A: no secrets / env / LLM / bus paths
 
@@ -32,9 +32,9 @@
 - [x] LESSONS.md — N/A this commit
 - [x] CLAUDE.md "Common gotchas" — N/A
 - [x] ARCHITECTURE.md — N/A
-- [x] New ADR — N/A; adding a scenario literal is not an architectural decision
+- [x] New ADR — N/A; adding MAX_MOVES constant + corpus tests is not an architectural decision
 
 ## Commit message
-- [x] Conventional Commits format: `feat(scenarios): add corner-abandonment-256 cliff-test scenario`
-- [x] Body explains why — third cliff-test scenario per spec §4.3; casual-player 256 corner-abandonment failure mode
+- [x] Conventional Commits format: `feat(scenarios): add MAX_MOVES cap and corpus invariant tests`
+- [x] Body explains why — closes cliff-test scenarios spec implementation; invariants catch authoring errors before agent runs
 - [x] Co-author tag present

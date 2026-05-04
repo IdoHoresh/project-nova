@@ -7,7 +7,15 @@ docs/superpowers/specs/2026-05-05-cliff-test-scenarios-design.md.
 
 from __future__ import annotations
 
+from typing import Final
+
 from nova_agent.lab.sim import Scenario
+
+# Per cliff-test scenarios spec §2.8: hard cap of 50 moves per trial.
+# Trials reaching this cap right-censor (recorded but flagged as
+# scenario-invalidation evidence). Calibration: ~3× the upper safety
+# margin above the maximum expected_cliff_window upper bound (~17).
+MAX_MOVES: Final[int] = 50
 
 SCENARIOS: dict[str, Scenario] = {
     "fresh-start": Scenario(
