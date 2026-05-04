@@ -338,6 +338,51 @@ resonate.
 integration path; the GameAdapter abstraction is the architectural
 refactor that supports both SDK-integrated and OCR-fallback paths.
 
+### Phase 1 hard constraints (added 2026-05-04 per principal engineer red-team)
+
+Two architectural commitments locked into the Phase 1 spec before any
+SDK code is written. Both reduce future sales-cycle friction by
+removing objections studios will raise during procurement / security
+review.
+
+- **Zero-PII guarantee.** The Unity SDK MUST ingest zero
+  Personally-Identifiable Information from the host game build.
+  Permitted payload: board state, tile/piece coordinates, score,
+  health/resource bars, action enums, RNG seeds. Forbidden payload:
+  player IDs, device IDs (advertising IDs, IDFA, Android Ad ID),
+  IP addresses, account email, geolocation, session tokens, push
+  notification IDs. The SDK is architecturally a JSON pipe over a
+  schema validated at the Python boundary; if a studio's game build
+  attempts to send a forbidden field, the SDK rejects the payload at
+  serialization time and logs a structured warning to the studio's
+  own log channel — never to a Nova-controlled endpoint. This is
+  the "Dumb Pipes" architecture: the SDK does no cognition and
+  carries no PII; cognition + storage stays in the Python backend
+  the studio runs themselves (or that we run for them under their
+  data agreement). Hardcoding the guarantee at the SDK layer drops
+  the procurement / cybersecurity review timeline by an estimated 3
+  months because Nova bypasses the typical AI-vendor data-processing
+  agreement (DPA) negotiation entirely — there is no PII to process.
+  An ADR captures the field allowlist and the rejection-on-violation
+  contract before the first commit of SDK code.
+
+- **Unity LTS version lock — Unity 2022.3 LTS.** Unity is notoriously
+  fragmented across versions (2019 LTS, 2020 LTS, 2021 LTS, 2022 LTS,
+  6.x). Supporting the full matrix means drowning in C# compilation
+  errors and runtime API differences. Nova v1 supports **only Unity
+  2022.3 LTS** — declared explicitly in the SDK README, the package
+  manifest, and the studio onboarding doc. Studios on older or newer
+  versions are told "we will support your version when we have a
+  paying customer on it"; that is honest scope clamp, not a
+  limitation. The choice of 2022.3 specifically: it is the most
+  recent LTS at the time of writing with the broadest mid-2026
+  studio penetration, includes the C# 9 features the SDK relies on
+  for source generators, and has long-term support extending into
+  2026-2027 so the lock survives the v1.x lifecycle without forcing
+  a Unity version migration mid-pilot. An ADR captures the version
+  decision + the upgrade-criteria the studio team will use to decide
+  when v2 should support a newer LTS.
+
 ### Work units
 
 **1.1 — Define the `GameAdapter` interface** (3–5 days)
@@ -571,6 +616,46 @@ over the Day 3-7 difficulty band."
 
 **Goal:** make Nova rentable at scale. Mostly cloud engineering. Defer
 until Phase 4 has produced a first paid pilot signal.
+
+### Phase 5 hosting strategy (added 2026-05-04 per principal engineer red-team)
+
+**Default hosting target: Modal** for serverless Python execution
+(GPU and CPU), with **RunPod** as the GPU-tier fallback if Modal's
+A100/H100 capacity becomes a bottleneck. Both are serverless container
+platforms purpose-built for Python / AI workloads, billed per compute-
+second, scaling 0 → 1000 parallel containers in seconds without an ops
+team.
+
+Why this default (vs AWS / GCP):
+
+- A 2000-game ablation run (Phase 0.8 today, repeated per studio in
+  Phase 5) needs 0 → 1000 parallel containers for ~30 minutes, then
+  back to 0. AWS Lambda / GCP Cloud Run technically can do it but
+  require Kubernetes / IAM / networking expertise a solo dev does not
+  have time for. Modal hides every one of those concerns behind a
+  Python decorator (`@app.function(gpu="A100")`).
+- Modal's pricing model is pay-per-second of actual compute, not
+  reserved capacity. Idle Phase 5 cost = $0; spike cost = ~$1-3 per
+  ablation run at A100 prices. Matches the lumpy per-pilot demand
+  shape exactly.
+- Modal's image cache + cold-start optimizations are < 5s, fast
+  enough that interactive studio dashboards (one-off persona runs)
+  feel responsive without a permanent warm pool.
+
+When to escalate from Modal to a managed-Kubernetes setup (EKS / GKE):
+
+- Sustained > 1000 concurrent containers across multiple studios
+- A dedicated platform engineer is on the team
+- A specific compliance regime (SOC 2 Type II, HIPAA-adjacent gaming)
+  requires VPC isolation Modal cannot offer
+
+Until any of those triggers fires, Modal is the right tool — and
+defaulting to it now (rather than to AWS) avoids the solo-founder
+trap of "we built our infra on AWS because that's what real companies
+do" and burning weeks on ops work that doesn't move the product.
+
+An ADR captures the Modal decision + the escalation criteria + the
+RunPod GPU-fallback contract before the first deployment.
 
 ### Work units (flesh out at the time)
 
