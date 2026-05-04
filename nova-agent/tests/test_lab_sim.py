@@ -491,3 +491,14 @@ def test_512_wall_loads_into_sim() -> None:
     assert sim.board.score == s.initial_score
     assert sim.board.score == 8152
     assert s.high_tile_magnitude == 512
+
+
+def test_corner_abandonment_256_loads_into_sim() -> None:
+    from nova_agent.lab.scenarios import SCENARIOS
+
+    s = SCENARIOS["corner-abandonment-256"]
+    sim = Game2048Sim(seed=s.seed(0), scenario=s)
+    assert sim.board.grid == s.initial_grid
+    assert sim.board.score == s.initial_score
+    assert sim.board.score == 4364
+    assert s.high_tile_magnitude == 256

@@ -61,6 +61,27 @@ SCENARIOS: dict[str, Scenario] = {
             "URL pinning deferred per scenarios spec §9."
         ),
     ),
+    "corner-abandonment-256": Scenario(
+        id="corner-abandonment-256",
+        initial_grid=[
+            [0, 4, 8, 2],
+            [4, 8, 16, 32],
+            [16, 32, 64, 128],
+            [64, 256, 128, 4],
+        ],
+        initial_score=4364,
+        seed_base=20260505003,
+        pattern_name="corner-abandonment",
+        high_tile_magnitude=256,
+        expected_cliff_window=(12, 18),
+        source_citation=(
+            "r/2048 community posts on corner-abandonment failures and "
+            "strategy walkthroughs describing high-tile mobility "
+            "consequences (e.g. the 'never let the high tile leave the "
+            "corner' rule and cascade-failure mode). URL pinning "
+            "deferred per scenarios spec §9."
+        ),
+    ),
 }
 
 
