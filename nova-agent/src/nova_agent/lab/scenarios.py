@@ -20,6 +20,26 @@ SCENARIOS: dict[str, Scenario] = {
         expected_cliff_window=(11, 50),
         source_citation="N/A — sim-bootstrapping placeholder, not a cliff-test scenario",
     ),
+    "snake-collapse-128": Scenario(
+        id="snake-collapse-128",
+        initial_grid=[
+            [0, 0, 0, 2],
+            [4, 2, 4, 8],
+            [0, 4, 16, 32],
+            [2, 8, 64, 128],
+        ],
+        initial_score=1308,
+        seed_base=20260505001,
+        pattern_name="snake-collapse",
+        high_tile_magnitude=128,
+        expected_cliff_window=(11, 16),
+        source_citation=(
+            "2048 strategy guides describing snake-formation collapse "
+            "(e.g. Hak.is 'How to beat 2048' walkthrough; r/2048 community "
+            "discussions of snake-stall failure). URL pinning deferred "
+            "per scenarios spec §9."
+        ),
+    ),
 }
 
 

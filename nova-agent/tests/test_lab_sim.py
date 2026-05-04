@@ -466,3 +466,17 @@ def test_scenario_seed_method_returns_seed_base_plus_trial_index() -> None:
     s = Scenario(**kwargs)  # type: ignore[arg-type]
     assert s.seed(0) == 1000
     assert s.seed(19) == 1019
+
+
+# ---- Per-cliff-scenario sim integration ----
+
+
+def test_snake_collapse_128_loads_into_sim() -> None:
+    from nova_agent.lab.scenarios import SCENARIOS
+
+    s = SCENARIOS["snake-collapse-128"]
+    sim = Game2048Sim(seed=s.seed(0), scenario=s)
+    assert sim.board.grid == s.initial_grid
+    assert sim.board.score == s.initial_score
+    assert sim.board.score == 1308  # explicit cross-check of the formula
+    assert s.high_tile_magnitude == 128
