@@ -15,31 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — single file `.claude/rules/workflow.md` (~70 lines added: new "PR cadence" section between After-commit and Periodic)
-- [x] Atomic commit — single logical change: codify the "one PR per coherent unit of work" rule in workflow.md so the cadence is part of the auto-loaded contract, not implicit conversation knowledge
+- [x] `git diff --cached --stat` reviewed — single file `LESSONS.md` (~25 lines added: new "Engineering / debugging gotchas" entry at top)
+- [x] Atomic commit — single logical change: capture the by-design constraint that `claude-code-action@v1` cannot self-review PRs that modify the workflow file, so it doesn't surprise the next contributor (or the next session) when it happens again
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown rules-doc only
-- [x] `nova-agent/` not touched — N/A, Claude-rules-only change
-- [x] `nova-viewer/` not touched — N/A, Claude-rules-only change
-- [x] Docs / config — `.claude/rules/workflow.md` gains a "PR cadence — when to actually open a PR" section that codifies the rule (one PR per coherent unit of work), defines a "unit" (single logical story + gate trio green + comfortable handoff + natural stopping point), gives explicit yes/no examples, names both backstops (PR-cadence guardrail hook at >30 commits + branch protection on main forbidding direct commits), explains why one-PR-per-unit beats every-commit-PR (ceremony / cost spike) and one-big-PR (drift trap, citing PR #2's 125-commit history), and ends with a discipline rule ("if you can't write a single ≤70-char PR title, it's not a unit — split")
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown narrative only
+- [x] `nova-agent/` not touched — N/A, doc-only change
+- [x] `nova-viewer/` not touched — N/A, doc-only change
+- [x] Docs / config — `LESSONS.md` gains an "Engineering / debugging gotchas" entry at the top of that section (newest-on-top per the file's convention) describing what failed (App Token Exchange 401 with "Workflow validation failed" message), why (anti-tampering: workflow on PR branch must be byte-identical to main's version so a PR can't modify the workflow during its own review), and the four how-to-apply rules (expect failure on workflow-modifying PRs, don't split, manually review, dispatch /security-review for sensitive changes).
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — N/A: `.claude/rules/**` is the "skip with reason: Claude-tooling-only" row of REVIEW.md path-matched trigger taxonomy
+- [x] `/review` dispatched on staged diff — N/A: `LESSONS.md` is a doc-only change at repo root; per REVIEW.md path-matched trigger taxonomy this falls under "doc-only" (the same row that exempts `docs/**` and `*.md`)
 - [x] `code-reviewer` subagent — N/A, covered by skip reason above
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched. Note: the lesson IS about a security-relevant constraint (anti-tampering on workflow files), but the lesson text itself is documentation, not code that handles secrets
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, the lesson "PR cadence must be explicit, not implicit" is captured in the workflow.md section itself + cross-references PR #2's 125-commit history as the precedent
-- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; the cadence rule is workflow-shaped, not gotcha-shaped, and lives in workflow.md
+- [x] LESSONS.md — this commit IS the LESSONS.md update; nothing further needed
+- [x] CLAUDE.md "Common gotchas" — N/A; LESSONS.md is the right home for engineering gotchas (CLAUDE.md "Common gotchas" is for setup-time issues like UF_HIDDEN, pnpm vs npm, gemini quota — environmental gotchas, not workflow-system constraints)
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, this is a workflow-doc clarification of an already-implicit rule, not a new architectural decision. The PR-cadence guardrail HOOK shipped earlier (commit 7ce1039) was the structural change; this commit documents the discipline that the hook backstops
+- [x] New ADR — N/A, this is a lesson capturing an external system's by-design behavior, not a Nova architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `docs(workflow): codify PR cadence rule (one PR per coherent unit of work)`
-- [x] Body explains *why* — the cadence had been implicit in conversation only. Next session wouldn't see it. PR #2 happened because the rule was never written down, and the branch drifted 125 commits ahead of main before anyone surfaced the problem. This commit puts the rule in `.claude/rules/workflow.md` (the auto-loaded workflow contract) so it survives session boundaries and applies to anyone working in this repo. The PR-cadence guardrail hook (`.claude/settings.json`, shipped earlier) is the technical backstop; this is the discipline it backstops.
+- [x] Conventional Commits format: `docs(lessons): record claude-code-action workflow self-review constraint`
+- [x] Body explains *why* — PR #3's Layer 2 run failed with `401 Unauthorized — Workflow validation failed` because the action requires byte-identical workflow file between PR branch and main (anti-tampering). The error is structural, not fixable, and the action's own message says it's "normal" — but it cost ~10 minutes to read the error carefully and recognize the constraint. Capturing it in LESSONS.md so the next workflow-modifying PR doesn't surprise anyone.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
