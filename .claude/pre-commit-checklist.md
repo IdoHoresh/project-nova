@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 2 files: `nova-agent/src/nova_agent/action/live_io.py` (add structlog warning), `nova-agent/tests/test_action_live_io.py` (+1 test pinning the warning)
-- [x] Atomic commit — single fix: restore the perception.calibration_failed warning log lost in the LiveGameIO extraction
+- [x] `git diff --cached --stat` reviewed — 4 files: `nova-agent/src/nova_agent/lab/__init__.py` (empty), `nova-agent/src/nova_agent/lab/sim.py` (Game2048Sim + Scenario), `nova-agent/tests/test_lab_sim.py` (17 tests), `nova-agent/src/nova_agent/main.py` (drop now-stale `# type: ignore[import-untyped]` on the lab.sim import — Task 1 added it as temporary, Task 2 makes it real)
+- [x] Atomic commit — single logical change: add Game2048Sim engine with seeded RNG and the 4 canonical merge edge cases (the main.py 1-line change is a forced consequence of the new module resolving an import previously gated by `# type: ignore`)
 
 ## Verification
 - [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
-- [x] `nova-agent/` touched — yes; ran `uv run pytest --tb=short -p no:warnings && uv run mypy && uv run ruff check`, all green (162 tests: 161 prior + 1 new IMP-1 regression test)
+- [x] `nova-agent/` touched — yes; ran `uv run pytest --tb=short -p no:warnings && uv run mypy && uv run ruff check`, all green (179 tests: 162 prior + 17 new sim)
 - [x] `nova-viewer/` not touched — N/A
-- [x] Docs / config — none
+- [x] Docs / config — none for this commit; ARCHITECTURE.md update bundled into Task 5
 
 ## Review
-- [x] `/review` dispatched — N/A: targeted single-file fix in response to code-quality review of cf105be (IMP-1). Layer 1.5 pre-push hook will re-pass on the new commit.
-- [x] `code-reviewer` subagent — N/A, fix applied per existing reviewer's IMP-1 instructions
+- [x] `/review` dispatched — N/A: relying on Layer 1.5 (auto pre-push Sonnet) per `.claude/rules/workflow.md` "Manual subagent dispatch policy"; pure-Python new module with TDD coverage of all 4 edge cases, no LLM/bus/secret/env paths touched
+- [x] `code-reviewer` subagent — N/A, covered by skip reason above
 - [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
-- [x] LESSONS.md — N/A on this commit; observation deferred to Task 7 sweep
+- [x] LESSONS.md — N/A on this commit; Task 7 collects any non-obvious surprises (one candidate: rotation-direction sign for swipe-LEFT-canonicalization is easy to flip, caught by the UP/DOWN merge tests)
 - [x] CLAUDE.md "Common gotchas" — N/A
-- [x] ARCHITECTURE.md — N/A
-- [x] New ADR — N/A
+- [x] ARCHITECTURE.md — DEFERRED to Task 5's commit
+- [x] New ADR — N/A (ADR-0008 already covers this engine's existence + design choices)
 
 ## Commit message
-- [x] Conventional Commits format: `fix(action): restore perception.calibration_failed warning log in LiveGameIO`
-- [x] Body explains *why* — see code-quality review of cf105be (IMP-1). The pre-refactor main.py logged a structured warning when CalibrationError fired; the LiveGameIO extraction silently dropped it. Restoring the warning preserves the operator-facing signal for silent OCR failures (gotcha #6).
+- [x] Conventional Commits format: `feat(lab): add Game2048Sim engine with seeded RNG and the 4 canonical merges`
+- [x] Body explains *why* — see ADR-0008 + spec §Game2048Sim. Engine + Scenario dataclass land before SimGameIO (Task 4) so the adapter has something to wrap.
 - [x] Co-author tag present
