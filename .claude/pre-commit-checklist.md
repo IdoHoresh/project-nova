@@ -14,8 +14,8 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — Scenario dataclass extension + caller migrations across 5 files
-- [x] Atomic commit — single logical change: extend Scenario contract per scenarios spec §3
+- [x] `git diff --cached --stat` reviewed — 1 file, 3 lines changed (palette error message only)
+- [x] Atomic commit — single logical change: improve palette validator error message
 
 ## Verification
 - [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
@@ -24,17 +24,17 @@
 - [x] Docs / config — none touched
 
 ## Review
-- [x] `/review` dispatched — N/A: REVIEW.md taxonomy mechanical refactor; covered by 8 new validator tests + Layer 1.5 pre-push hook
-- [x] `code-reviewer` subagent — N/A; orchestrator dispatches per skill review cycle
+- [x] `/review` dispatched — N/A: REVIEW.md taxonomy mechanical; 2-line error message fix, no logic change
+- [x] `code-reviewer` subagent — N/A; mechanical change, Layer 1.5 pre-push hook covers it
 - [x] `security-reviewer` — N/A: no secrets / env / LLM / bus paths
 
 ## Documentation
 - [x] LESSONS.md — N/A this commit
 - [x] CLAUDE.md "Common gotchas" — N/A
 - [x] ARCHITECTURE.md — N/A
-- [x] New ADR — N/A; spec implements ADR-0007 at the dataclass layer
+- [x] New ADR — N/A; 2-line error message improvement, no architectural decision
 
 ## Commit message
-- [x] Conventional Commits format: `feat(lab): extend Scenario dataclass with cliff-test fields`
-- [x] Body explains why — see commit body
+- [x] Conventional Commits format: `fix(lab): include offending tiles in Scenario palette error`
+- [x] Body explains why — symmetry with other validator branches; actionable for Tasks 2-5 scenario authors
 - [x] Co-author tag present

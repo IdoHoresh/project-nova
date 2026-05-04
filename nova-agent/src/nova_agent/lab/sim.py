@@ -64,8 +64,9 @@ class Scenario:
             raise ValueError(f"{self.id}: initial_grid must be 4x4")
         # Tile palette (canonical 2048 powers + zero).
         valid_tiles = {0, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048}
-        if any(v not in valid_tiles for r in self.initial_grid for v in r):
-            raise ValueError(f"{self.id}: initial_grid contains out-of-palette tile")
+        bad = [v for r in self.initial_grid for v in r if v not in valid_tiles]
+        if bad:
+            raise ValueError(f"{self.id}: initial_grid contains out-of-palette tile(s): {bad}")
         # initial_score equals minimum-implied-score derived from the grid.
         derived = sum(int((log2(v) - 1) * v) for r in self.initial_grid for v in r if v > 0)
         if self.initial_score != derived:
