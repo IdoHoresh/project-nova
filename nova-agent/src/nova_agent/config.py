@@ -4,6 +4,8 @@ from dotenv import find_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from nova_agent.llm.tiers import TierName
+
 # Walk up from cwd to locate the first `.env` (worktree root, repo root, etc.).
 # Falls back to a literal ".env" so unit tests that monkeypatch env vars without
 # a file on disk still work. Without this, `nova` invoked from the `nova-agent/`
@@ -28,12 +30,24 @@ class Settings(BaseSettings):
     google_api_key: str = Field(..., alias="GOOGLE_API_KEY")
     anthropic_api_key: str = Field(..., alias="ANTHROPIC_API_KEY")
 
-    # Per-task model selection (see spec §6 tech stack table)
+    # Per-task model selection (see spec §6 tech stack table). When the
+    # `tier` field is set, those values override the per-task defaults
+    # below — see ADR-0006 for the cost-discipline rationale and the four
+    # tiers (plumbing / dev / production / demo).
     decision_model: str = Field("gemini-2.5-flash", alias="NOVA_DECISION_MODEL")
     deliberation_model: str = Field("gemini-2.5-pro", alias="NOVA_DELIBERATION_MODEL")
     cheap_vision_model: str = Field("gemini-2.5-flash-lite", alias="NOVA_CHEAP_VISION_MODEL")
     reflection_model: str = Field("claude-sonnet-4-6", alias="NOVA_REFLECTION_MODEL")
     demo_model: str = Field("claude-opus-4-7", alias="NOVA_DEMO_MODEL")
+
+    # Cost-discipline tier (see ADR-0006 + nova_agent.llm.tiers). When set,
+    # main.py uses tiers.model_for(role) for decision/tot/reflection
+    # routing instead of the per-task fields above. Default None preserves
+    # the per-task defaults (the historical shape) for backward
+    # compatibility with existing .env files. Validated against the
+    # TierName Literal at the chokepoint per .claude/rules/security.md
+    # ("validate every external boundary with pydantic").
+    tier: TierName | None = Field(None, alias="NOVA_TIER")
 
     # Storage paths
     sqlite_path: Path = Field(Path("./data/nova.db"), alias="NOVA_SQLITE_PATH")
