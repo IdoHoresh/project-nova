@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 1 new file: `docs/superpowers/plans/2026-05-05-cliff-test-scenarios.md` (~917 lines, doc-only)
-- [x] Atomic commit — single logical change: add the cliff-test scenarios implementation plan
+- [x] `git diff --cached --stat` reviewed — Scenario dataclass extension + caller migrations across 5 files
+- [x] Atomic commit — single logical change: extend Scenario contract per scenarios spec §3
 
 ## Verification
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens (markdown only)
-- [x] `nova-agent/` not touched — N/A pytest/mypy/ruff (doc-only)
-- [x] `nova-viewer/` not touched — N/A vitest/tsc/eslint (doc-only)
-- [x] Docs / config — `docs/superpowers/plans/` only
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
+- [x] `nova-agent/` — pytest + mypy + ruff all green (200 passed, mypy clean, ruff clean)
+- [x] `nova-viewer/` not touched — N/A vitest/tsc/eslint
+- [x] Docs / config — none touched
 
 ## Review
-- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: doc-only`. Plan markdown with no code surface, no security surface.
-- [x] `code-reviewer` subagent — N/A, doc-only
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
+- [x] `/review` dispatched — N/A: REVIEW.md taxonomy mechanical refactor; covered by 8 new validator tests + Layer 1.5 pre-push hook
+- [x] `code-reviewer` subagent — N/A; orchestrator dispatches per skill review cycle
+- [x] `security-reviewer` — N/A: no secrets / env / LLM / bus paths
 
 ## Documentation
-- [x] LESSONS.md — N/A on this commit; this is itself a doc deliverable
+- [x] LESSONS.md — N/A this commit
 - [x] CLAUDE.md "Common gotchas" — N/A
 - [x] ARCHITECTURE.md — N/A
-- [x] New ADR — N/A; the plan implements the cliff-test scenarios spec at the dataclass + library layer
+- [x] New ADR — N/A; spec implements ADR-0007 at the dataclass layer
 
 ## Commit message
-- [x] Conventional Commits format: `docs(plans): add Phase 0.7 cliff-test scenarios implementation plan`
-- [x] Body explains *why* — see commit body
+- [x] Conventional Commits format: `feat(lab): extend Scenario dataclass with cliff-test fields`
+- [x] Body explains why — see commit body
 - [x] Co-author tag present

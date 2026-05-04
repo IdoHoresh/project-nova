@@ -51,8 +51,12 @@ def test_merge_single_per_tile_swipe_left() -> None:
         scenario=Scenario(
             id="t",
             initial_grid=[[2, 2, 4, 0], [0] * 4, [0] * 4, [0] * 4],
-            initial_score=0,
-            seed=42,
+            initial_score=4,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=4,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     sim.apply_move(SwipeDirection.LEFT)
@@ -70,7 +74,11 @@ def test_merge_leftmost_priority_swipe_left() -> None:
             id="t",
             initial_grid=[[2, 2, 2, 2], [0] * 4, [0] * 4, [0] * 4],
             initial_score=0,
-            seed=42,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=2,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     sim.apply_move(SwipeDirection.LEFT)
@@ -84,7 +92,11 @@ def test_merge_leftmost_priority_swipe_right() -> None:
             id="t",
             initial_grid=[[2, 2, 2, 2], [0] * 4, [0] * 4, [0] * 4],
             initial_score=0,
-            seed=42,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=2,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     sim.apply_move(SwipeDirection.RIGHT)
@@ -98,7 +110,11 @@ def test_merge_leftmost_priority_swipe_up() -> None:
             id="t",
             initial_grid=[[2, 0, 0, 0], [2, 0, 0, 0], [2, 0, 0, 0], [2, 0, 0, 0]],
             initial_score=0,
-            seed=42,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=2,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     sim.apply_move(SwipeDirection.UP)
@@ -113,7 +129,11 @@ def test_merge_leftmost_priority_swipe_down() -> None:
             id="t",
             initial_grid=[[2, 0, 0, 0], [2, 0, 0, 0], [2, 0, 0, 0], [2, 0, 0, 0]],
             initial_score=0,
-            seed=42,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=2,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     sim.apply_move(SwipeDirection.DOWN)
@@ -131,7 +151,11 @@ def test_no_op_swipe_returns_false_no_spawn() -> None:
             id="t",
             initial_grid=[[2, 0, 0, 0], [0] * 4, [0] * 4, [0] * 4],
             initial_score=0,
-            seed=42,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=2,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     pre_grid = [row[:] for row in sim.board.grid]
@@ -161,8 +185,12 @@ def test_no_op_swipe_does_not_advance_rng() -> None:
         scenario=Scenario(
             id="t",
             initial_grid=base_grid,
-            initial_score=0,
-            seed=42,
+            initial_score=776,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=64,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     sim_b = Game2048Sim(
@@ -170,8 +198,12 @@ def test_no_op_swipe_does_not_advance_rng() -> None:
         scenario=Scenario(
             id="t",
             initial_grid=base_grid,
-            initial_score=0,
-            seed=42,
+            initial_score=776,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=64,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
 
@@ -206,7 +238,11 @@ def test_spawn_ratio_2_vs_4_distribution_over_10000_spawns() -> None:
                 id="t",
                 initial_grid=[[2, 0, 0, 0], [0] * 4, [0] * 4, [0] * 4],
                 initial_score=0,
-                seed=seed,
+                seed_base=seed,
+                pattern_name="test",
+                high_tile_magnitude=2,
+                expected_cliff_window=(1, 1),
+                source_citation="test",
             ),
         )
         moved = sim.apply_move(SwipeDirection.DOWN)
@@ -239,12 +275,17 @@ def test_score_increments_by_merged_tile_value() -> None:
         scenario=Scenario(
             id="t",
             initial_grid=[[8, 8, 0, 0], [0] * 4, [0] * 4, [0] * 4],
-            initial_score=0,
-            seed=42,
+            initial_score=32,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=8,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     sim.apply_move(SwipeDirection.LEFT)
-    assert sim.board.score == 16
+    # initial_score=32 (min-implied for two 8s) + 16 (8+8 merge) = 48.
+    assert sim.board.score == 48
 
 
 def test_score_sums_multiple_merges_in_one_move() -> None:
@@ -253,13 +294,17 @@ def test_score_sums_multiple_merges_in_one_move() -> None:
         scenario=Scenario(
             id="t",
             initial_grid=[[2, 2, 4, 4], [0] * 4, [0] * 4, [0] * 4],
-            initial_score=0,
-            seed=42,
+            initial_score=8,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=4,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     sim.apply_move(SwipeDirection.LEFT)
-    # 2+2=4 (+4), 4+4=8 (+8). Total +12.
-    assert sim.board.score == 12
+    # initial_score=8 (min-implied) + 4 (2+2 merge) + 8 (4+4 merge) = 20.
+    assert sim.board.score == 20
 
 
 # ---- Game-over (authoritative; sim is silent oracle) ----
@@ -277,8 +322,12 @@ def test_game_over_when_no_merges_and_no_empty_cells() -> None:
         scenario=Scenario(
             id="t",
             initial_grid=grid,
-            initial_score=0,
-            seed=42,
+            initial_score=32,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=4,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     assert sim.is_game_over() is True
@@ -291,7 +340,11 @@ def test_game_over_false_when_empty_cells_exist() -> None:
             id="t",
             initial_grid=[[0] * 4 for _ in range(4)],
             initial_score=0,
-            seed=42,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=0,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     assert sim.is_game_over() is False
@@ -309,8 +362,12 @@ def test_game_over_false_when_full_but_merges_possible() -> None:
         scenario=Scenario(
             id="t",
             initial_grid=grid,
-            initial_score=0,
-            seed=42,
+            initial_score=60,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=8,
+            expected_cliff_window=(1, 1),
+            source_citation="test",
         ),
     )
     assert sim.is_game_over() is False
@@ -333,3 +390,79 @@ def test_scenario_load_unknown_raises_keyerror() -> None:
 
     with pytest.raises(KeyError, match="unknown scenario"):
         load("not-a-real-scenario")
+
+
+# ---- Scenario validator tests (per scenarios spec §3) ----
+
+
+def _valid_scenario_kwargs() -> dict[str, object]:
+    """Minimum-valid kwargs for a Scenario whose grid has one 8 tile.
+
+    8 = 2^3, so minimum-implied-score = (3-1) * 8 = 16.
+    """
+    return {
+        "id": "t",
+        "initial_grid": [[8, 0, 0, 0], [0] * 4, [0] * 4, [0] * 4],
+        "initial_score": 16,
+        "seed_base": 1,
+        "pattern_name": "test-pattern",
+        "high_tile_magnitude": 8,
+        "expected_cliff_window": (11, 14),
+        "source_citation": "test citation",
+    }
+
+
+def test_scenario_rejects_non_4x4_grid() -> None:
+    kwargs = _valid_scenario_kwargs()
+    kwargs["initial_grid"] = [[0, 0, 0]] * 4  # 4×3, not 4×4
+    with pytest.raises(ValueError, match="4x4"):
+        Scenario(**kwargs)  # type: ignore[arg-type]
+
+
+def test_scenario_rejects_out_of_palette_tile() -> None:
+    kwargs = _valid_scenario_kwargs()
+    kwargs["initial_grid"] = [[7, 0, 0, 0], [0] * 4, [0] * 4, [0] * 4]
+    with pytest.raises(ValueError, match="palette"):
+        Scenario(**kwargs)  # type: ignore[arg-type]
+
+
+def test_scenario_rejects_initial_score_mismatch() -> None:
+    kwargs = _valid_scenario_kwargs()
+    kwargs["initial_score"] = 0  # board has an 8 (min-implied = 16), 0 is wrong
+    with pytest.raises(ValueError, match="initial_score"):
+        Scenario(**kwargs)  # type: ignore[arg-type]
+
+
+def test_scenario_accepts_initial_score_matching_min_implied() -> None:
+    kwargs = _valid_scenario_kwargs()
+    # Already valid (initial_score=16 for one 8-tile); should construct cleanly.
+    Scenario(**kwargs)  # type: ignore[arg-type]
+
+
+def test_scenario_rejects_high_tile_magnitude_mismatch() -> None:
+    kwargs = _valid_scenario_kwargs()
+    kwargs["high_tile_magnitude"] = 16  # board's max is 8, not 16
+    with pytest.raises(ValueError, match="high_tile_magnitude"):
+        Scenario(**kwargs)  # type: ignore[arg-type]
+
+
+def test_scenario_rejects_cliff_window_inverted() -> None:
+    kwargs = _valid_scenario_kwargs()
+    kwargs["expected_cliff_window"] = (14, 11)  # hi < lo
+    with pytest.raises(ValueError, match="cliff_window"):
+        Scenario(**kwargs)  # type: ignore[arg-type]
+
+
+def test_scenario_rejects_cliff_window_zero_lower_bound() -> None:
+    kwargs = _valid_scenario_kwargs()
+    kwargs["expected_cliff_window"] = (0, 5)  # lower must be > 0
+    with pytest.raises(ValueError, match="cliff_window"):
+        Scenario(**kwargs)  # type: ignore[arg-type]
+
+
+def test_scenario_seed_method_returns_seed_base_plus_trial_index() -> None:
+    kwargs = _valid_scenario_kwargs()
+    kwargs["seed_base"] = 1000
+    s = Scenario(**kwargs)  # type: ignore[arg-type]
+    assert s.seed(0) == 1000
+    assert s.seed(19) == 1019

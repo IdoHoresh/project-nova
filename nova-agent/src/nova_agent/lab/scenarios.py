@@ -1,9 +1,8 @@
 """Phase 0.7 cliff-test scenario library.
 
 Each Scenario is a frozen, JSON-serializable starting condition for a
-Game2048Sim run. The 3-5 hard cliff-test scenarios are a SEPARATE spec
-under Phase 0.7 prep — this module starts with a single `fresh-start`
-entry so the sim is end-to-end testable from day one.
+Game2048Sim run. Cliff-test scenarios per
+docs/superpowers/specs/2026-05-05-cliff-test-scenarios-design.md.
 """
 
 from __future__ import annotations
@@ -15,7 +14,11 @@ SCENARIOS: dict[str, Scenario] = {
         id="fresh-start",
         initial_grid=[[0] * 4 for _ in range(4)],
         initial_score=0,
-        seed=20260504,
+        seed_base=20260504,
+        pattern_name="empty-board",
+        high_tile_magnitude=0,
+        expected_cliff_window=(11, 50),
+        source_citation="N/A — sim-bootstrapping placeholder, not a cliff-test scenario",
     ),
 }
 

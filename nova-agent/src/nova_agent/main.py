@@ -57,7 +57,10 @@ def _build_io(s: Settings) -> GameIO:
         from nova_agent.lab.sim import Game2048Sim  # noqa: PLC0415
 
         scenario = load_scenario(s.sim_scenario)
-        sim = Game2048Sim(seed=scenario.seed, scenario=scenario)
+        # Live runs are single-game; trial_index=0 by convention. The Test
+        # Runner spec will override this with the real trial index per cliff-
+        # test trial when it lands.
+        sim = Game2048Sim(seed=scenario.seed(0), scenario=scenario)
         return SimGameIO(sim=sim)
     capture = Capture(adb_path=s.adb_path, device_id=s.adb_device_id)
     adb = ADB(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from io import BytesIO
+from math import log2
 
 from PIL import Image
 
@@ -15,13 +16,20 @@ from nova_agent.lab.sim import Game2048Sim, Scenario
 def _sim(grid: list[list[int]] | None = None) -> Game2048Sim:
     if grid is None:
         return Game2048Sim(seed=42)
+    # Compute minimum-implied-score so the validator passes.
+    derived_score = sum(int((log2(v) - 1) * v) for r in grid for v in r if v > 0)
+    max_tile = max((v for r in grid for v in r), default=0)
     return Game2048Sim(
         seed=42,
         scenario=Scenario(
             id="t",
             initial_grid=grid,
-            initial_score=0,
-            seed=42,
+            initial_score=derived_score,
+            seed_base=42,
+            pattern_name="test",
+            high_tile_magnitude=max_tile,
+            expected_cliff_window=(11, 14),
+            source_citation="test",
         ),
     )
 
