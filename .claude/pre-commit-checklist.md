@@ -15,31 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — single file `.claude/settings.json` (3 small edits: explanation comment update, `model: "claude-sonnet-4-6"` field added to the agent hook, timeout 120s → 180s for Sonnet's slower turnaround, statusMessage suffix updated)
-- [x] Atomic commit — single logical change: bump Layer 1.5 pre-push agent hook from default Haiku 4.5 to Sonnet 4.6 for stronger architectural recall on every push, per user "best results" preference
+- [x] `git diff --cached --stat` reviewed — single file `.claude/rules/workflow.md` (~70 lines added: new "PR cadence" section between After-commit and Periodic)
+- [x] Atomic commit — single logical change: codify the "one PR per coherent unit of work" rule in workflow.md so the cadence is part of the auto-loaded contract, not implicit conversation knowledge
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; settings.json adds a model name string only
-- [x] `nova-agent/` not touched — N/A, Claude-config-only change
-- [x] `nova-viewer/` not touched — N/A, Claude-config-only change
-- [x] Docs / config — `.claude/settings.json` agent hook gains `"model": "claude-sonnet-4-6"` (was using the schema default Haiku 4.5). Timeout bumped from 120s to 180s to accommodate Sonnet's longer turnaround on the deeper-rubric pass. `_hooks_explanation` comment updated to reflect the new model + cost line (~$0.06-0.12 per push, ~$38 over the 6-week sprint at 10 pushes/day) and to make explicit the layered-model story (Sonnet at L1.5 backstop / Opus at L2 final gate). JQ schema validated: `.hooks.PreToolUse[].hooks[].model = "claude-sonnet-4-6"`, `.timeout = 180`. JSON parses cleanly.
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown rules-doc only
+- [x] `nova-agent/` not touched — N/A, Claude-rules-only change
+- [x] `nova-viewer/` not touched — N/A, Claude-rules-only change
+- [x] Docs / config — `.claude/rules/workflow.md` gains a "PR cadence — when to actually open a PR" section that codifies the rule (one PR per coherent unit of work), defines a "unit" (single logical story + gate trio green + comfortable handoff + natural stopping point), gives explicit yes/no examples, names both backstops (PR-cadence guardrail hook at >30 commits + branch protection on main forbidding direct commits), explains why one-PR-per-unit beats every-commit-PR (ceremony / cost spike) and one-big-PR (drift trap, citing PR #2's 125-commit history), and ends with a discipline rule ("if you can't write a single ≤70-char PR title, it's not a unit — split")
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — N/A: `.claude/settings.json` is the "skip with reason: Claude-tooling-only" row of REVIEW.md path-matched trigger taxonomy
+- [x] `/review` dispatched on staged diff — N/A: `.claude/rules/**` is the "skip with reason: Claude-tooling-only" row of REVIEW.md path-matched trigger taxonomy
 - [x] `code-reviewer` subagent — N/A, covered by skip reason above
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched. Note: this is a model UPGRADE for security-relevant analysis at push time (Sonnet > Haiku on subtle prompt-injection-adjacent and bus-protocol-violation patterns). Defense improves.
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, no time-cost gotcha; the inline `_hooks_explanation` comment in `.claude/settings.json` documents the model choice + cost trade-off + the layered-model story so a future contributor reading the JSON doesn't downgrade back to Haiku without seeing the reasoning
-- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; the hook re-activation requirement (`/hooks` reload OR session restart so the settings watcher picks up the new model field) is the same caveat that already applies to any settings.json change
-- [x] ARCHITECTURE.md — N/A, system topology unchanged; the three-layer review model now is Sonnet/L1.5 → Sonnet/Opus L1 (operator-tuned) → Opus/L2 (final gate)
-- [x] New ADR — N/A, this is a model-tuning change inside the existing Layer 1.5 hook shipped under ADR-0006's cost-tier discipline. Could be considered a minor amendment to ADR-0006 but doesn't rise to a new ADR; the `_hooks_explanation` comment captures the trade-off
+- [x] LESSONS.md — N/A, the lesson "PR cadence must be explicit, not implicit" is captured in the workflow.md section itself + cross-references PR #2's 125-commit history as the precedent
+- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; the cadence rule is workflow-shaped, not gotcha-shaped, and lives in workflow.md
+- [x] ARCHITECTURE.md — N/A, system topology unchanged
+- [x] New ADR — N/A, this is a workflow-doc clarification of an already-implicit rule, not a new architectural decision. The PR-cadence guardrail HOOK shipped earlier (commit 7ce1039) was the structural change; this commit documents the discipline that the hook backstops
 
 ## Commit message
 
-- [x] Conventional Commits format: `feat(claude): bump pre-push hook model to Sonnet 4.6`
-- [x] Body explains *why* — user expressed "not confident in Haiku" preference and asked for the strongest reasonable model at every-push cadence. Sonnet is the right middle: meaningfully more capable than Haiku on multi-file synthesis and subtle architectural smells; ~5x cheaper than Opus per push; preserves the layered model story (Layer 1.5 backstop at every push, Layer 2 Opus at every PR for the final gate). Cost goes from ~$13 sprint cost on the hook to ~$38 — well within the $110-130 sprint LLM budget. Bumping all the way to Opus would have created redundant flagship reasoning between Layer 1.5 and Layer 2 (Opus reviews a diff, then Opus reviews the same diff again on PR open) without proportional value. Sonnet at L1.5 + Opus at L2 is the right asymmetry: catch fast at push, deep at PR.
+- [x] Conventional Commits format: `docs(workflow): codify PR cadence rule (one PR per coherent unit of work)`
+- [x] Body explains *why* — the cadence had been implicit in conversation only. Next session wouldn't see it. PR #2 happened because the rule was never written down, and the branch drifted 125 commits ahead of main before anyone surfaced the problem. This commit puts the rule in `.claude/rules/workflow.md` (the auto-loaded workflow contract) so it survives session boundaries and applies to anyone working in this repo. The PR-cadence guardrail hook (`.claude/settings.json`, shipped earlier) is the technical backstop; this is the discipline it backstops.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
