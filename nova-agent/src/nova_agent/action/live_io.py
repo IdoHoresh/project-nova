@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import base64
 
+import structlog
 from PIL import Image
 
 from nova_agent.action.adb import ADB, SwipeDirection
 from nova_agent.perception.capture import Capture
 from nova_agent.perception.ocr import BoardOCR, CalibrationError
 from nova_agent.perception.types import BoardState
+
+log = structlog.get_logger()
 
 
 class LiveGameIO:
@@ -34,7 +37,8 @@ class LiveGameIO:
         self._last_image = self._capture.grab_stable()
         try:
             return self._ocr.read(self._last_image)
-        except CalibrationError:
+        except CalibrationError as exc:
+            log.warning("perception.calibration_failed", error=str(exc))
             return BoardState(grid=[[0] * 4 for _ in range(4)], score=0)
 
     def apply_move(self, direction: SwipeDirection) -> None:

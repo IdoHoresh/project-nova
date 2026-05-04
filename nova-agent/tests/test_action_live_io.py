@@ -51,6 +51,36 @@ def test_read_board_returns_empty_on_calibration_error() -> None:
     assert board.score == 0
 
 
+def test_read_board_logs_warning_on_calibration_error(monkeypatch) -> None:
+    """IMP-1 fix: silent perception failure used to be logged in main.py;
+    after the LiveGameIO refactor the warning must still fire so operators
+    see the cause when an OCR calibration error fills the board with zeros.
+    """
+    from nova_agent.action import live_io
+
+    captured: list[tuple[str, dict[str, object]]] = []
+
+    class _StubLogger:
+        def warning(self, event: str, **kwargs: object) -> None:
+            captured.append((event, kwargs))
+
+    monkeypatch.setattr(live_io, "log", _StubLogger())
+
+    capture = MagicMock()
+    capture.grab_stable.return_value = _fake_image()
+    ocr = MagicMock()
+    ocr.read.side_effect = CalibrationError("test-calibration-msg")
+    adb = MagicMock()
+
+    io = LiveGameIO(capture=capture, ocr=ocr, adb=adb)
+    io.read_board()
+
+    assert len(captured) == 1
+    event, kwargs = captured[0]
+    assert event == "perception.calibration_failed"
+    assert kwargs == {"error": "test-calibration-msg"}
+
+
 def test_apply_move_invokes_adb_swipe() -> None:
     capture = MagicMock()
     capture.grab_stable.return_value = _fake_image()
