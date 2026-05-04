@@ -149,6 +149,78 @@ on the branch since the last merge, it's a unit. If the title
 needs an "and" or "plus" or "also," split into separate PRs (or
 keep working on one half until the other half is shippable).
 
+### Session hygiene — when to `/clear` and `/compact`
+
+Long-running conversations are the dominant cost driver in
+Claude Code sessions, more than model selection. Today's `/usage`
+showed 89% of usage at >150k context — driven entirely by one
+all-day conversation that crossed ~5 natural break points
+without ever resetting. Session hygiene is a discipline, not a
+nice-to-have.
+
+**`/clear` triggers** (reset context with a curated handoff
+prompt):
+
+- After every PR merges to `main` — branch is synced, work chapter
+  complete, natural break. A `PreToolUse` command hook in
+  `.claude/settings.json` fires on the next `git push:*` after a
+  merge and emits a `systemMessage` reminder; you can also `/clear`
+  proactively the moment the merge lands.
+- When switching to a different concern (e.g., from review-system
+  tooling to `Game2048Sim` build).
+- When the context window exceeds ~150k tokens (visible via
+  `/usage`).
+- After ~2 hours of continuous work in one session.
+
+**Curated handoff prompt template** (paste into the new session
+after `/clear`):
+
+```
+Last shipped: <PR # + 1-line summary>
+Next task: <from CLAUDE.md "Active phase + next task">
+Read: CLAUDE.md, project_nova_resume_point memory, recent git log
+```
+
+The auto-loaded `CLAUDE.md` + the resume-point memory file +
+`git log --oneline -10` together reconstruct ~95% of what the
+prior session knew. The remaining 5% (mid-feature flow context)
+is what `/compact` is for.
+
+**`/compact` triggers** (middle ground — keep continuity but
+free context):
+
+- Mid-feature when you want flow but context is heavy (>200k).
+- Long debugging session that's still ongoing.
+
+**Manual subagent dispatch policy** — when NOT to dispatch
+`code-reviewer` / `security-reviewer` manually:
+
+The three layers cover the surface automatically:
+
+- Layer 1.5 — auto pre-push hook (Sonnet) on every `git push:*`
+- Layer 2 — auto PR workflow (Opus) on every PR open / sync
+- Layer 1 — manual dispatch for operator judgment
+
+Manual Layer 1 dispatches are reserved for **four cases**, NOT
+for "every commit on a sensitive path":
+
+1. About to open a PR with a non-trivial diff and want a final
+   pre-PR sanity pass.
+2. Mid-feature uncertainty about an architectural choice (e.g.,
+   does this design fit ADR-0001's invariant?).
+3. Explicit user request.
+4. ADR-worthy decisions where Sonnet review at L1.5 isn't
+   enough — invoke `security-reviewer` manually for Opus-tier
+   security analysis on sensitive diffs.
+
+`REVIEW.md`'s path-matched trigger taxonomy is for the `/review`
+**orchestrator's** dispatch decision when the orchestrator is
+invoked. It is NOT a blanket every-commit-on-a-sensitive-path
+rule. Over-dispatching for "every commit" is the failure mode
+that drove a 100% subagent-heavy session reading on 2026-05-04.
+Trust the auto layers; reserve manual dispatch for high-leverage
+moments.
+
 ### Periodic — every ~5 commits or weekly
 
 17. **LESSONS.md sweep** — anything from recent work worth capturing?

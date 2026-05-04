@@ -147,6 +147,13 @@
             "command": "{ ahead=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0); if [ \"${ahead:-0}\" -gt 30 ]; then branch=$(git branch --show-current 2>/dev/null); if [ -n \"$branch\" ] && [ \"$branch\" != \"main\" ]; then pr_open=$(gh pr list --head \"$branch\" --state open --json number 2>/dev/null | grep -c number || echo 0); if [ \"${pr_open:-0}\" = \"0\" ]; then printf '{\"systemMessage\":\"PR overdue: %s commits ahead of origin/main on %s without an open PR. Open one before the merge cost spirals — see ADR-0007-style cadence. (gh pr create --base main)\"}' \"$ahead\" \"$branch\"; fi; fi; fi; } 2>/dev/null",
             "timeout": 10,
             "statusMessage": "Checking PR cadence..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git push:*)",
+            "command": "{ ahead=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0); branch=$(git branch --show-current 2>/dev/null); if [ \"${ahead:-0}\" = \"0\" ] && [ -n \"$branch\" ] && [ \"$branch\" != \"main\" ]; then recent_merge=$(gh pr list --state merged --search \"head:$branch\" --limit 1 --json mergedAt --jq '.[0].mergedAt // \"\"' 2>/dev/null); if [ -n \"$recent_merge\" ]; then cutoff=$(date -u -v-30M +%FT%TZ 2>/dev/null || date -u -d \"30 minutes ago\" +%FT%TZ 2>/dev/null); if [ -n \"$cutoff\" ] && [ \"$recent_merge\" \\> \"$cutoff\" ]; then printf '{\"systemMessage\":\"PR just merged on %s, branch synced with origin/main. Natural break point — consider /clear with curated handoff before starting the next unit. (Template in workflow.md Session hygiene section.)\"}' \"$branch\"; fi; fi; fi; } 2>/dev/null",
+            "timeout": 10,
+            "statusMessage": "Checking session hygiene..."
           }
         ]
       }
