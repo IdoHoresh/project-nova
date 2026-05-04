@@ -15,11 +15,11 @@
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
 - [x] `git diff --cached --stat` reviewed — 2 files, ~35 lines added (scenario literal + sim integration test)
-- [x] Atomic commit — single logical change: add snake-collapse-128 scenario + its sim integration test
+- [x] Atomic commit — single logical change: add 512-wall scenario + its sim integration test
 
 ## Verification
 - [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
-- [x] `nova-agent/` — pytest + mypy + ruff all green (201 passed, mypy clean, ruff clean)
+- [x] `nova-agent/` — pytest + mypy + ruff all green (202 passed, mypy clean, ruff clean)
 - [x] `nova-viewer/` not touched — N/A vitest/tsc/eslint
 - [x] Docs / config — none touched
 
@@ -35,6 +35,6 @@
 - [x] New ADR — N/A; adding a scenario literal is not an architectural decision
 
 ## Commit message
-- [x] Conventional Commits format: `feat(scenarios): add snake-collapse-128 cliff-test scenario`
-- [x] Body explains why — first cliff-test scenario per spec §4.1; snake formation near-cliff state
+- [x] Conventional Commits format: `feat(scenarios): add 512-wall cliff-test scenario`
+- [x] Body explains why — second cliff-test scenario per spec §4.2; 1024-wall pattern adapted to 512 for Casual-Carla fidelity
 - [x] Co-author tag present

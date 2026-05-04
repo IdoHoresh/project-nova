@@ -480,3 +480,14 @@ def test_snake_collapse_128_loads_into_sim() -> None:
     assert sim.board.score == s.initial_score
     assert sim.board.score == 1308  # explicit cross-check of the formula
     assert s.high_tile_magnitude == 128
+
+
+def test_512_wall_loads_into_sim() -> None:
+    from nova_agent.lab.scenarios import SCENARIOS
+
+    s = SCENARIOS["512-wall"]
+    sim = Game2048Sim(seed=s.seed(0), scenario=s)
+    assert sim.board.grid == s.initial_grid
+    assert sim.board.score == s.initial_score
+    assert sim.board.score == 8152
+    assert s.high_tile_magnitude == 512

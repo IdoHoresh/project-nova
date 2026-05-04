@@ -40,6 +40,27 @@ SCENARIOS: dict[str, Scenario] = {
             "per scenarios spec §9."
         ),
     ),
+    "512-wall": Scenario(
+        id="512-wall",
+        initial_grid=[
+            [0, 4, 8, 2],
+            [4, 8, 16, 32],
+            [8, 16, 32, 128],
+            [256, 64, 128, 512],
+        ],
+        initial_score=8152,
+        seed_base=20260505002,
+        pattern_name="high-tile-wall",
+        high_tile_magnitude=512,
+        expected_cliff_window=(12, 17),
+        source_citation=(
+            "2048 strategy guides describing the 1024-wall pattern "
+            "(e.g. 2048 wiki, speedrun community guides on stack-blocking "
+            "failures). Spec adapts the cited 1024-wall pattern to 512 "
+            "for Casual-Carla persona-fidelity per scenarios spec §2.5; "
+            "URL pinning deferred per scenarios spec §9."
+        ),
+    ),
 }
 
 
