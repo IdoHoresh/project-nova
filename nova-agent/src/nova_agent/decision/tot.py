@@ -152,6 +152,7 @@ class ToTDecider:
                 messages=messages,
                 max_tokens=3000,
                 temperature=self.branch_temperature,
+                response_schema=_ToTBranch,
             )
         except Exception as exc:
             # Catch ANY failure from the LLM call — quota errors (429),

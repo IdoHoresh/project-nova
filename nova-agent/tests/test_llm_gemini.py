@@ -1,5 +1,12 @@
 from unittest.mock import MagicMock, patch
+
+from pydantic import BaseModel
+
 from nova_agent.llm.gemini_client import GeminiLLM
+
+
+class _SchemaForTest(BaseModel):
+    answer: str
 
 
 def _make_fake_client():
@@ -55,3 +62,37 @@ def test_gemini_thinking_budget_zero_disables(mock_cls):
     config = fake_client.models.generate_content.call_args.kwargs["config"]
     assert config.thinking_config is not None
     assert config.thinking_config.thinking_budget == 0
+
+
+@patch("nova_agent.llm.gemini_client.genai.Client")
+def test_gemini_response_schema_propagated_to_config(mock_cls):
+    """When `response_schema` is passed, GeminiLLM must forward it to
+    GenerateContentConfig so the API enforces JSON shape at generation time.
+    Critical for cheap models (flash-lite) where prompt-only JSON mode
+    drifts under structural complexity."""
+    fake_client = _make_fake_client()
+    mock_cls.return_value = fake_client
+
+    llm = GeminiLLM(api_key="AIzaSy-test", model="gemini-2.5-flash-lite", daily_cap_usd=0)
+    llm.complete(
+        system="x",
+        messages=[{"role": "user", "content": "hi"}],
+        response_schema=_SchemaForTest,
+    )
+
+    config = fake_client.models.generate_content.call_args.kwargs["config"]
+    assert getattr(config, "response_schema", None) is _SchemaForTest
+
+
+@patch("nova_agent.llm.gemini_client.genai.Client")
+def test_gemini_response_schema_omitted_when_none(mock_cls):
+    """When `response_schema` is None (default), no schema is set on the
+    config so existing JSON-mode behavior is preserved."""
+    fake_client = _make_fake_client()
+    mock_cls.return_value = fake_client
+
+    llm = GeminiLLM(api_key="AIzaSy-test", model="gemini-2.5-flash", daily_cap_usd=0)
+    llm.complete(system="x", messages=[{"role": "user", "content": "hi"}])
+
+    config = fake_client.models.generate_content.call_args.kwargs["config"]
+    assert getattr(config, "response_schema", None) is None

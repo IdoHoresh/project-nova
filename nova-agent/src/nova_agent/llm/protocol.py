@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from pydantic import BaseModel
+
 
 # Per-1M-token pricing in USD. Verified against provider pricing pages May 2026.
 # Update if providers change pricing — the budget guard relies on these.
@@ -28,7 +30,18 @@ class Usage:
 
 
 class LLM(Protocol):
-    """Provider-agnostic LLM interface used by every cognitive module."""
+    """Provider-agnostic LLM interface used by every cognitive module.
+
+    `response_schema`: when provided, callers ask the provider to enforce
+    that the response is valid JSON matching the given pydantic model.
+    Providers that support native schema enforcement (Gemini's
+    `response_schema` / OpenAPI 3.0 subset) MUST honor it. Providers
+    that don't (Anthropic Messages API, mock) MUST accept-and-ignore so
+    callsites can pass it unconditionally and benefit on Gemini routes.
+    Callers should still validate via `nova_agent.llm.structured.parse_json`
+    — schema enforcement is a generation-time guarantee, not a runtime
+    validation; the validation step also catches cross-provider drift.
+    """
 
     model: str
 
@@ -39,4 +52,5 @@ class LLM(Protocol):
         messages: list[dict[str, Any]],
         max_tokens: int = 1024,
         temperature: float = 0.7,
+        response_schema: type[BaseModel] | None = None,
     ) -> tuple[str, Usage]: ...

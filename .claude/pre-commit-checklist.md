@@ -15,40 +15,36 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 5 files: 2 new in `nova-agent/src/nova_agent/bus/` (recorder.py, replayer.py), 2 new tests, 1 small main.py wiring + 1 small config.py field addition
-- [x] Atomic commit — single logical change: record-and-replay capability for the event bus to enable UI dev without paying LLM cost
+- [x] `git diff --cached --stat` reviewed — 8 files: `protocol.py` (extend Protocol), `gemini_client.py` (forward schema), `anthropic_client.py` + `mock.py` (accept-and-ignore), `decision/react.py` + `decision/tot.py` + `reflection/postmortem.py` (pass schema at callsites), `tests/test_llm_gemini.py` + `tests/test_llm_anthropic.py` + `tests/test_llm_mock.py` (4 new tests)
+- [x] Atomic commit — single logical change: thread optional `response_schema: type[BaseModel] | None` arg through the LLM protocol so Gemini callsites get generation-time JSON schema enforcement; Anthropic and Mock providers accept-and-ignore for cross-provider symmetry
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; the only secret-adjacent thing is `bus_record_path` (a filesystem path, not a credential)
-- [x] `nova-agent/` — gate trio green: `uv run pytest` (150/150, including 5 recorder + 5 replayer tests), `uv run mypy` (46 files clean), `uv run ruff check` (clean)
-- [x] `nova-viewer/` not touched — N/A, agent-only change. Viewer can connect to either the live bus or the replayer with no client-side change.
-- [x] Docs / config — `recorder.RecordingEventBus` subclasses `EventBus`, writes JSONL to `bus_record_path` via `asyncio.to_thread` (no event-loop blocking) with structured-log fallback on disk error; `replayer.ReplayServer` reads JSONL via `asyncio.to_thread` (no event-loop blocking) and broadcasts with original timing (optional `time_warp`); CLI entry point at `python -m nova_agent.bus.replayer`. Config gains `bus_record_path: Path | None` field on `Settings` (alias `NOVA_BUS_RECORD`, default None disables) — replaces a direct `os.environ.get` that was bypassing pydantic-settings.
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; protocol + provider-adapter changes only
+- [x] `nova-agent/` — gate trio green: 154/154 tests pass (added 2 Gemini schema tests, 1 Anthropic accept-and-ignore test, 1 Mock accept-and-ignore test), mypy strict clean (46 source files), ruff clean
+- [x] `nova-viewer/` not touched — N/A, agent-only protocol change
+- [x] Docs / config — `LLM` Protocol gains `response_schema: type[BaseModel] | None = None` kwarg with docstring explaining the cross-provider asymmetry (Gemini honors, Anthropic accepts-and-ignores, Mock accepts-and-ignores). `GeminiLLM.complete()` forwards schema to `GenerateContentConfig.response_schema` for OpenAPI 3.0 generation-time enforcement. Three callsites (`react.decide_with_context`, `tot._evaluate_branch`, `reflection.run_reflection`) now pass their pydantic output model. `parse_json` post-validation kept at every callsite as defense-in-depth.
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — yes. Code-reviewer dispatched (Sonnet via Agent tool) returned 2 BLOCK + 6 WARN + 1 NIT findings. Security-reviewer dispatched (Opus via Agent tool) returned APPROVE with 3 LOW defense-in-depth notes.
-- [x] All 2 BLOCK findings addressed:
-  - **BLOCK recorder.py:65** — sync flushed disk I/O on event loop thread → fixed with `asyncio.to_thread(self._write_line_sync, ...)` so the loop never blocks on filesystem latency
-  - **BLOCK recorder.py:56** — raw-string event-name signature inherited from base EventBus → added docstring note that signature intentionally mirrors `EventBus.publish` and the typed-bus protocol effort (TBD ADR per LESSONS.md) tightens both together; recorder must NOT extend the untyped surface independently
-- [x] All 6 WARN findings addressed:
-  - main.py:107 NOVA_BUS_RECORD bypass → moved to `Settings.bus_record_path` with `env_ignore_empty=True` already on Settings
-  - recorder.py:82 `default=str` masking schema drift → dropped; JSONEncoder TypeError now surfaces drift
-  - replayer.py:127 bare except → narrowed to `ConnectionClosed` (silent) + `OSError` (logged via structured `replay.send_failed`)
-  - replayer.py:97 sync file iter on event loop → extracted `_load_records()` and ran via `asyncio.to_thread`
-  - replayer.py:79 docstring vs behavior mismatch → rewrote module docstring to match reality (server stays running but doesn't loop on reconnect)
-  - recorder.py:80 mypy-appeasing assert → replaced with typed `_recording_started_at: float = 0.0` and explicit `_recording_active: bool` flag
-- [x] NIT replayer.py:42 import combine → folded `Server, ServerConnection, serve` onto one line
+- [x] `/review` dispatched on staged diff — yes. Code-reviewer (Sonnet) + security-reviewer (Opus) dispatched in parallel per REVIEW.md path-matched trigger taxonomy (`nova-agent/**/llm/**` is the yes-yes row).
+- [x] Code-reviewer verdict: **APPROVE** with 2 WARN + 2 NIT.
+  - **WARN mock.py:166** signature symmetry → fixed: `response_schema: type[BaseModel] | None` matches the Protocol exactly
+  - **WARN protocol.py:32** load-bearing change without ADR → deferred to the next commit which bundles ADR-0006 (cost-tier discipline + record-replay rationale + schema-enforcement contract); this commit ships the plumbing-only protocol extension because the ADR also documents the `plumbing` tier addition shipping in commit N+1
+  - **NIT** accept-and-ignore tests on Anthropic + Mock → fixed: 2 new tests added
+  - **NIT** verify Gemini SDK preserves `Field(ge=0.0, le=1.0)` constraint metadata → deferred (one-line manual check; not load-bearing for current dev tier; will land with the plumbing-tier audit)
+- [x] Security-reviewer verdict: **APPROVE** with 1 NIT (PRICING dict colocation; defer, not a real concern).
+- [x] All BLOCKs addressed — there were no BLOCK findings on either pass.
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, no time-cost gotcha; the recorder fix for the sync-write trap was caught by the reviewer dispatch — the lesson is that the review pattern is doing its job
-- [x] CLAUDE.md "Common gotchas" — N/A, no new Nova-specific gotcha
-- [x] ARCHITECTURE.md — N/A, system topology unchanged (bus has same shape; recorder is a transparent wrapper)
-- [x] New ADR — deferred. ADR-0006 (cost tiers + dev-mode discipline + record-replay rationale) drafts in a follow-up commit alongside the `plumbing` tier addition; this commit is the recorder/replayer alone.
+- [x] LESSONS.md — N/A, no time-cost gotcha; the schema-enforcement pattern itself is the reusable insight, captured in the protocol docstring
+- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha
+- [x] ARCHITECTURE.md — N/A, no topology change; protocol extension is backward-compatible
+- [x] New ADR — deferred to next commit (ADR-0006 will cover cost tiers + dev-mode discipline + record-replay rationale + this protocol extension as a single coherent decision document)
 
 ## Commit message
 
-- [x] Conventional Commits format: `feat(bus): add record-and-replay for AgentEvent streams`
-- [x] Body explains *why* — UI dev currently requires running the full agent for every render iteration, paying LLM cost on every CSS tweak. Recorder writes every published event to JSONL during a single real game; replayer reads that file and broadcasts via WebSocket so the viewer renders the recorded stream as if it were live. Saves all the LLM cost of running the agent every time the UI changes — high ROI per the cost-reduction plan red-teamed by the principal engineer.
+- [x] Conventional Commits format: `feat(llm): add response_schema enforcement to LLM protocol`
+- [x] Body explains *why* — principal engineer red-teamed the cost-saving plan and warned that flash-lite (the cheapest Gemini tier) will drift on JSON shape unless the API enforces structure at generation time. The fix is to pass the consuming pydantic model to Gemini's `response_schema` parameter on every JSON-required callsite. Anthropic Messages API has no native equivalent (Claude is reliable enough on JSON-mode prompts that asymmetry is acceptable for now); Mock has its own role-based deterministic generation. All three providers accept the kwarg for cross-provider symmetry.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`

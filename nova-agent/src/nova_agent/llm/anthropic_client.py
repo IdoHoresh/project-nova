@@ -1,5 +1,6 @@
 from typing import Any
 from anthropic import Anthropic
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential
 import structlog
 
@@ -23,7 +24,16 @@ class AnthropicLLM:
         messages: list[dict[str, Any]],
         max_tokens: int = 1024,
         temperature: float = 0.7,
+        response_schema: type[BaseModel] | None = None,
     ) -> tuple[str, Usage]:
+        # Anthropic Messages API does NOT have native generation-time schema
+        # enforcement. Schema-strict callers should still pass response_schema —
+        # we accept-and-ignore here so callsites can pass it unconditionally.
+        # Sonnet+ have been reliable enough on JSON-mode prompts that this
+        # asymmetry is acceptable for now; tool_use-based enforcement is a
+        # future ADR if drift surfaces.
+        del response_schema  # explicit unused-arg hint for readers
+
         resp = self._client.messages.create(
             model=self.model,
             system=system,

@@ -1,4 +1,10 @@
+from pydantic import BaseModel
+
 from nova_agent.llm.mock import MockLLMClient
+
+
+class _SchemaForTest(BaseModel):
+    answer: str
 
 
 def test_script_returns_in_order():
@@ -7,6 +13,19 @@ def test_script_returns_in_order():
     b, _ = m.complete(system="x", messages=[{"role": "user", "content": "go"}])
     assert a == '{"action":"swipe_up"}'
     assert b == '{"action":"swipe_down"}'
+
+
+def test_mock_accepts_and_ignores_response_schema():
+    """Mock has its own role-based deterministic JSON generation, so the
+    schema arg must be accepted (for cross-provider protocol symmetry) but
+    not influence the response."""
+    m = MockLLMClient(script=['{"answer": "ok"}'])
+    out, _ = m.complete(
+        system="x",
+        messages=[{"role": "user", "content": "go"}],
+        response_schema=_SchemaForTest,
+    )
+    assert out == '{"answer": "ok"}'
 
 
 def test_keyed_matches_substring():
