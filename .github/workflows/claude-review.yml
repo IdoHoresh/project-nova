@@ -1,0 +1,104 @@
+name: Claude PR Review (Layer 2)
+
+# Layer 2 of Project Nova's review system — advisory comments on every PR.
+# See LESSONS.md and `.claude/skills/review/SKILL.md` for the full
+# three-layer model:
+#
+#   Layer 1   — in-session `/review` (manual, Sonnet/Opus, before commit)
+#   Layer 1.5 — pre-push agent hook (`.claude/settings.json`, Haiku, auto)
+#   Layer 2   — this workflow (claude-code-action, Sonnet, advisory PR comments)
+#
+# This workflow is **advisory only** — it is intentionally NOT a required
+# status check. Layer 1 and Layer 1.5 catch things while context is hot;
+# Layer 2 is the safety net that runs against the full PR diff in a clean
+# environment. Until we have ≥10 PRs of signal data, we do not gate merge
+# on Layer 2 verdicts.
+#
+# Setup notes (one-time):
+#
+#   1. Add `ANTHROPIC_API_KEY` to repo secrets:
+#      Settings → Secrets and variables → Actions → New repository secret
+#   2. Confirm the action version below matches the latest stable release
+#      at https://github.com/anthropics/claude-code-action/releases
+#   3. After the first run, review the PR comment for output shape and
+#      tune the `prompt` input if needed.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Minimal permissions: read code + write PR comments + OIDC token (the
+# action authenticates via OIDC even when an API key is provided; without
+# `id-token: write` the action exits at attempt 3 of 3 with
+# "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL env variable").
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+# Cancel a stale run when a new commit pushes to the same PR.
+concurrency:
+  group: claude-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Nova /review
+    runs-on: ubuntu-latest
+    # Skip drafts unless explicitly opened for review — saves API spend.
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Check out PR
+        uses: actions/checkout@v4
+        with:
+          # Need full history so the action can compute the diff against base.
+          fetch-depth: 0
+
+      - name: Run Claude code review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Dispatch the same /review orchestrator that runs in-session.
+          # The action checks out the repo, so REVIEW.md and the subagents
+          # in .claude/agents/ are accessible.
+          prompt: |
+            Run the Project Nova `/review` orchestrator on this pull
+            request.
+
+            Steps:
+
+            1. Read `REVIEW.md` at repo root for the rubric and the
+               path-matched trigger taxonomy.
+            2. Read `LESSONS.md` for known patterns and gotchas.
+            3. Read `.claude/agents/code-reviewer.md` and
+               `.claude/agents/security-reviewer.md` for the deeper
+               Nova-tuned rubrics.
+            4. Get the PR diff via `git diff origin/${{ github.base_ref }}..HEAD`.
+            5. Apply the REVIEW.md path-matched trigger taxonomy to
+               decide whether code-reviewer, security-reviewer, or both
+               apply.
+            6. Run the chosen reviewer rubric(s) against the diff.
+            7. Post findings as a PR comment in the format:
+
+               ```
+               [SEVERITY] file:line — description
+                 Suggestion: how to fix
+                 Confidence: X/100
+               ```
+
+               Only report findings with confidence >= 80. Severities are
+               BLOCK / WARN / NIT. End with a single verdict line:
+               `APPROVE` or `REQUEST CHANGES`.
+
+            This is **advisory** — do NOT block the PR merge. Even
+            BLOCK-severity findings are advisory comments at this layer;
+            the merge decision stays with the human reviewer.
+          # Model + tool restrictions go through `claude_args` (a single
+          # CLI-style arg string) per the v1 action's input schema; the
+          # standalone `model:` and `allowed_tools:` keys are NOT valid
+          # action inputs (would be ignored with a warning at workflow
+          # parse time). Layer 2 uses Sonnet — Layer 1.5 already runs
+          # Haiku at push time, so Layer 2's job is the slower/deeper
+          # pass that catches things the cheap layer missed.
+          claude_args: "--model claude-sonnet-4-6 --allowed-tools Read,Grep,Glob,Bash"

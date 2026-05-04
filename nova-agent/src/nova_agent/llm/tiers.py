@@ -1,5 +1,14 @@
-"""Three model tiers selected by NOVA_TIER (§6.6). Default `dev`.
+"""Four model tiers selected by NOVA_TIER (§6.6). Default `dev`.
 
+plumbing   — UI-dev / smoke / infra-only mode. Flash-Lite EVERYWHERE.
+             SAFE only because every JSON-required callsite passes a
+             pydantic `response_schema` (see ADR-0006); Flash-Lite drifts
+             on prompt-only JSON mode but Gemini's OpenAPI 3.0 schema
+             enforcement guarantees structural validity. Use ONLY for
+             UI work, bus plumbing, integration smoke tests — NEVER for
+             tuning Arbiter thresholds, evaluating Tree-of-Thoughts
+             quality, or any cognitive-judgment work; Flash-Lite trims
+             multi-step deliberation and produces shallow reasoning.
 dev        — daily Flash-everywhere (Flash-Lite is rejected for decisions
              due to documented JSON reliability issues; kept for
              importance_rating only).
@@ -12,7 +21,7 @@ from __future__ import annotations
 import os
 from typing import Literal, TypedDict, get_args
 
-TierName = Literal["dev", "production", "demo"]
+TierName = Literal["plumbing", "dev", "production", "demo"]
 
 
 class TierConfig(TypedDict):
@@ -25,6 +34,14 @@ class TierConfig(TypedDict):
 
 
 TIERS: dict[TierName, TierConfig] = {
+    "plumbing": {
+        "decision": "gemini-2.5-flash-lite",
+        "tot": "gemini-2.5-flash-lite",
+        "tot_branches": 2,  # cheaper still — branch count drives cost linearly
+        "reflection": "gemini-2.5-flash-lite",
+        "perception_fallback": "gemini-2.5-flash-lite",
+        "importance_rating": "gemini-2.5-flash-lite",
+    },
     "dev": {
         "decision": "gemini-2.5-flash",
         "tot": "gemini-2.5-flash",

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import os
 import sys
 
 import structlog
@@ -8,12 +9,14 @@ from nova_agent.action.adb import ADB, SwipeDirection
 from nova_agent.affect.rpe import rpe as compute_rpe
 from nova_agent.affect.state import AffectState
 from nova_agent.affect.verbalize import describe as describe_affect
+from nova_agent.bus.recorder import RecordingEventBus
 from nova_agent.bus.websocket import EventBus
 from nova_agent.config import get_settings
 from nova_agent.decision.arbiter import should_use_tot
 from nova_agent.decision.heuristic import is_game_over
 from nova_agent.decision.react import Decision, ReactDecider
 from nova_agent.decision.tot import ToTDecider
+from nova_agent.llm import tiers as model_tiers
 from nova_agent.llm.factory import build_llm
 from nova_agent.memory.aversive import AVERSIVE_TAG, is_catastrophic_loss, tag_aversive
 from nova_agent.llm.protocol import LLM
@@ -102,7 +105,12 @@ async def _run_post_game(
 
 async def run() -> None:
     s = get_settings()
-    bus = EventBus(host=s.ws_host, port=s.ws_port)
+    bus: EventBus
+    if s.bus_record_path is not None:
+        bus = RecordingEventBus(host=s.ws_host, port=s.ws_port, path=s.bus_record_path)
+        log.info("bus.recording_enabled", path=str(s.bus_record_path))
+    else:
+        bus = EventBus(host=s.ws_host, port=s.ws_port)
     await bus.start()
 
     capture = Capture(adb_path=s.adb_path, device_id=s.adb_device_id)
@@ -113,12 +121,35 @@ async def run() -> None:
         screen_h=2400,
     )
     # ReactDecider is the hot path: low latency, structured-JSON-only output.
+    # When Settings.tier is set, route every cognitive role through
+    # tiers.model_for(role) — this implements the four cost-discipline
+    # tiers (plumbing / dev / production / demo) per ADR-0006. The
+    # NOVA_TIER env var must be set BEFORE calling model_for() because
+    # tiers reads the env directly; we set it from the validated Settings
+    # value to keep pydantic-settings as the single env-var chokepoint.
+    if s.tier is not None:
+        os.environ["NOVA_TIER"] = s.tier
+        decision_model = model_tiers.model_for("decision")
+        deliberation_model = model_tiers.model_for("tot")
+        reflection_model = model_tiers.model_for("reflection")
+        log.info("nova.tier_routing", tier=s.tier, decision=decision_model)
+    else:
+        decision_model = s.decision_model
+        deliberation_model = s.deliberation_model
+        reflection_model = s.reflection_model
+
+    # tiers.model_for can return int (for tot_branches), but the three
+    # roles above are str-typed in the tier config; assert for mypy.
+    assert isinstance(decision_model, str), "decision tier must be a model name"
+    assert isinstance(deliberation_model, str), "tot tier must be a model name"
+    assert isinstance(reflection_model, str), "reflection tier must be a model name"
+
     # Disable Gemini thinking for the decision LLM so the entire
     # max_output_tokens budget is available for the visible JSON payload.
     # Pro / Anthropic deciders handle thinking_budget=0 silently (Anthropic
     # ignores; Pro is not used here — Flash is the dev-tier decision model).
     decision_llm = build_llm(
-        model=s.decision_model,
+        model=decision_model,
         google_api_key=s.google_api_key,
         anthropic_api_key=s.anthropic_api_key,
         daily_cap_usd=s.daily_budget_usd,
@@ -130,14 +161,14 @@ async def run() -> None:
     # and ToTDecider raises "no valid candidates". 1024 caps thinking and
     # leaves room for the small ToT JSON payload (action + value + reasoning).
     deliberation_llm = build_llm(
-        model=s.deliberation_model,
+        model=deliberation_model,
         google_api_key=s.google_api_key,
         anthropic_api_key=s.anthropic_api_key,
         daily_cap_usd=s.daily_budget_usd,
         thinking_budget=1024,
     )
     reflection_llm = build_llm(
-        model=s.reflection_model,
+        model=reflection_model,
         google_api_key=s.google_api_key,
         anthropic_api_key=s.anthropic_api_key,
         daily_cap_usd=s.daily_budget_usd,
@@ -149,7 +180,7 @@ async def run() -> None:
     semantic = SemanticStore(s.sqlite_path.parent / "semantic.db")
     affect = AffectState()
 
-    log.info("nova.started", model=s.decision_model, device=s.adb_device_id)
+    log.info("nova.started", model=decision_model, device=s.adb_device_id, tier=s.tier)
     try:
         prev_board: BoardState | None = None
         prev_decision: Decision | None = None

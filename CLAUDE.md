@@ -308,11 +308,12 @@ signals fires** — don't silently default to "just start coding."
 | ...write or change cognitive-layer code, decision logic, bus protocol | `superpowers:test-driven-development` |
 | ...declare something "done" before commit | `superpowers:verification-before-completion` |
 | ...debug a non-obvious failure | `superpowers:systematic-debugging` |
-| ...respond to review feedback (human or `code-reviewer` subagent) | `superpowers:receiving-code-review` |
+| ...review code before commit (default entry point) | `/review` orchestrator — applies REVIEW.md path-matched trigger taxonomy and dispatches the right reviewer(s) |
+| ...review code-quality only (skip security) | `/code-review` — direct dispatch of `.claude/agents/code-reviewer.md` |
+| ...review security only (skip code-quality) | `/security-review` — direct dispatch of `.claude/agents/security-reviewer.md` |
+| ...respond to review feedback from `/review` or a subagent | `superpowers:receiving-code-review` |
 | ...wrap up a feature branch / open the PR | `superpowers:finishing-a-development-branch` |
 | ...write a new skill (rare) | `superpowers:writing-skills` |
-| ...review code in this repo | `.claude/agents/code-reviewer.md` (Nova-tuned) |
-| ...review code touching secrets / env / LLM / bus | `.claude/agents/security-reviewer.md` |
 | ...run the per-subproject quality gate before commit | `/check-agent` or `/check-viewer` |
 
 The deprecated superpowers commands (`/brainstorm`, `/write-plan`,
@@ -407,17 +408,58 @@ For larger changes, use the workflow:
 
 ## Active phase + next task
 
-**As of 2026-05-02:** Week 0 of the 30-day validation sprint
-about to begin. v1.0.0 demo + AgentEvent type cleanup + demo
-recording pending. See [`docs/product/product-roadmap.md`](./docs/product/product-roadmap.md)
-"30-day validation sprint" section for the day-by-day plan.
+**As of 2026-05-04 (end of Week 0 Day 2):** Week 0 of the 30-day
+validation sprint, on the revised plan per
+[ADR-0005](./docs/decisions/0005-defer-v1-demo-until-phase-0.7.md)
+which deferred the v1.0.0 demo recording until Phase 0.7 cliff test
+passes. Days 3-7 of Week 0 reallocate to early `Game2048Sim` build
+so the cliff test can start on Day 1 of Week 1 instead of Day 3.
 
-**Tomorrow morning's first task:** dispatch a research agent on
-**CasterAI** (the AI red-team flagged them as a real competitor in
-the persona/affect simulation space). Output to
-`docs/product/casterai-deep-dive.md`. While that runs, scaffold the
-AgentEvent runtime validator (remove `{event: string; data: unknown}`
-catch-all + add hand-written predicates in `useNovaSocket`).
+**What shipped today (2026-05-04, 10 commits):**
+
+- 5-commit Gibor-pattern review-system port: `REVIEW.md` checklist + `/review`,
+  `/code-review`, `/security-review` slash skills + workflow.md / CLAUDE.md
+  / pre-commit-checklist wiring + `claude-code-action` GH workflow + LESSONS.md
+- Pre-push agent hook for auto code-review on `git push:*` (`.claude/settings.json`)
+- All 3 dependabot moderate alerts closed on this branch (esbuild, postcss,
+  vite — pinned via `pnpm.overrides` and a vitest 2->3 / vite 5->6 bump)
+- ADR-0005 (defer demo until Phase 0.7) + roadmap Week 0 rewrite
+- Record-and-replay for AgentEvent streams (`nova_agent.bus.recorder` +
+  `nova_agent.bus.replayer`) — UI dev no longer pays LLM cost per iteration
+- Response-schema enforcement on every Gemini JSON callsite (LLM Protocol
+  extension); accept-and-ignore on Anthropic + Mock for cross-provider symmetry
+- ADR-0006 (cost-tier discipline + record-replay rationale) + `plumbing` tier
+  (flash-lite everywhere — UI / smoke / infra ONLY, NEVER for cognitive
+  judgment) + `NOVA_TIER` env wiring through `Settings.tier`
+- ADR-0007 (Blind Control Group) + methodology.md §4.1 rewrite: cliff test
+  is now two-armed (Carla + Baseline Bot, same seeded sequences), pass
+  criterion is `Δ ≥ 2` lead time over baseline in ≥ 3 of 3-5 scenarios
+- Phase 1 hard constraints in roadmap (Zero-PII guarantee, Unity 2022.3 LTS
+  lock) + Phase 5 hosting strategy (Modal default, RunPod GPU fallback)
+
+**Next session — first task (per the revised Week 0 plan):**
+
+1. Boot emulator + agent: `~/Library/Android/sdk/emulator/emulator @Pixel_6
+   -no-snapshot &`, `adb wait-for-device`, then `uv run nova` from
+   `nova-agent/`. Watch a full 50-move game with the brain panel running.
+   Zero AgentEvent parse failures expected (validator landed in PR #1).
+2. Synthetic "demo dry run" — walk through the brain panel as if recording
+   (no OBS). Surface UX gaps the recording would have caught. This replaces
+   the original demo's UX-forcing-function per ADR-0005.
+3. `/review` on the recent cognitive-architecture commits — first real-world
+   exercise of the new orchestrator against live cog-arch code.
+4. **Begin `nova_agent.lab.Game2048Sim` build** (~2 days). Pure Python
+   in-process simulator with the same `BoardState` interface the cognitive
+   layer already consumes. Removes OCR + emulator latency as confounds for
+   the Phase 0.7 cliff test. Pulled forward from Week 1 into the Days 3-4
+   slot vacated by demo prep.
+
+**One-time setup the next session must verify:**
+
+- Open `/hooks` once OR restart Claude Code so the pre-push agent hook
+  activates (settings watcher only sees files that existed at session start).
+- Add `ANTHROPIC_API_KEY` to GitHub repo secrets so the Layer 2
+  `claude-code-action` workflow actually runs on the next PR.
 
 Detailed pickup state lives in
 `~/.claude/projects/-Users-idohoresh-Desktop-a/memory/project_nova_resume_point.md`.

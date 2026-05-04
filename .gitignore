@@ -1,11 +1,12 @@
 # Claude Code harness state
 # Track team-wide config (settings.json, commands/, agents/, rules/,
-# pre-commit-checklist.md) but ignore personal state and cache.
+# skills/, pre-commit-checklist.md) but ignore personal state and cache.
 .claude/*
 !.claude/settings.json
 !.claude/commands/
 !.claude/agents/
 !.claude/rules/
+!.claude/skills/
 !.claude/pre-commit-checklist.md
 .claude/settings.local.json
 .claude/.last_session_id

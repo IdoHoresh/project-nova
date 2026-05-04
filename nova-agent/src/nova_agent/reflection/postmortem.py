@@ -50,6 +50,7 @@ def run_reflection(
         messages=[{"role": "user", "content": user}],
         max_tokens=600,
         temperature=0.4,
+        response_schema=_ReflectionOut,
     )
     parsed = parse_json(text, _ReflectionOut)
     return parsed.model_dump()

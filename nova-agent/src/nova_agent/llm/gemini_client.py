@@ -2,6 +2,7 @@ import base64
 from typing import Any
 from google import genai
 from google.genai import types
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential
 import structlog
 
@@ -64,6 +65,7 @@ class GeminiLLM:
         messages: list[dict[str, Any]],
         max_tokens: int = 1024,
         temperature: float = 0.7,
+        response_schema: type[BaseModel] | None = None,
     ) -> tuple[str, Usage]:
         contents = _to_gemini_content(messages)
         config_kwargs: dict[str, Any] = dict(
@@ -72,6 +74,13 @@ class GeminiLLM:
             temperature=temperature,
             response_mime_type="application/json",  # request strict JSON
         )
+        if response_schema is not None:
+            # Gemini OpenAPI-3.0 schema enforcement (generation-time, not
+            # post-hoc parsing). Cheaper models (flash-lite) require this to
+            # avoid JSON-shape drift; flash and pro tolerate either, but
+            # always passing it costs nothing and keeps the safety property
+            # uniform across the tier system.
+            config_kwargs["response_schema"] = response_schema
         if self.thinking_budget is not None:
             config_kwargs["thinking_config"] = types.ThinkingConfig(
                 thinking_budget=self.thinking_budget

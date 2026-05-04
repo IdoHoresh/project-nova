@@ -163,7 +163,13 @@ class MockLLMClient:
         messages: list[dict[str, Any]],
         max_tokens: int = 200,
         temperature: float = 0.7,
+        response_schema: type[BaseModel] | None = None,
     ) -> tuple[str, _Usage]:
+        # Mock ignores response_schema — the registered pydantic models
+        # already drive deterministic JSON generation per role. Accept the
+        # arg so test callsites can match the production protocol shape.
+        del response_schema  # explicit unused-arg hint
+
         last_text = self._extract_last_user_text(messages)
         ctx = {
             "system": system,

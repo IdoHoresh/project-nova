@@ -60,29 +60,26 @@ has a self-judged gate that determines whether to proceed or to repair.
   defined repair branch (re-tune the affect logic, demote trauma to UI
   flavor, etc.) — not a project-end signal.
 
-### Week 0 — Ship v1.0.0
+### Week 0 — Pre-Phase-0.7 hardening (demo deferred per ADR-0005)
 
-**Milestone:** v1.0.0 demo tagged + ≤4-minute recording.
+**Milestone:** Cognitive architecture clean, review system shipped, `Game2048Sim` scaffolded so Week 1 cliff test can start on Day 1.
 
-**Tasks:**
-- Final code-review pass on the cognitive architecture
-- AgentEvent type system cleanup (remove the `{event: string; data: unknown}`
-  catch-all that defeats discriminated-union narrowing; replace per-call
-  `as data as` casts with type-predicate-based narrowing)
-- Demo recording: ≤4 minutes, narrates the *Why* (cognitive reasoning) not
-  just the *What* (moves)
-- v1.0.0 git tag, draft PR retargeted to v1.0.0
+**Demo recording is deferred** until Phase 0.7 cliff test passes — see [ADR-0005](../decisions/0005-defer-v1-demo-until-phase-0.7.md). The v1.0.0 git tag is parked until then; the demo records the full story (cognitive architecture + cliff-test result), not the architecture in isolation. Days 3–7 originally budgeted for demo prep + recording reallocate to direct Phase 0.7 work.
+
+**Tasks (revised):**
+- ✅ Final code-review pass on the cognitive architecture (covered by the new `/review` orchestrator + Layer 2 GitHub Action shipped 2026-05-04)
+- ✅ AgentEvent type system cleanup (shipped via PR #1)
+- Live validation run of the AgentEvent validator on a full 50-move game; final cog-arch review pass with `/review`
+- Begin `nova_agent.lab.Game2048Sim` build early (originally Week 1 Day 1–2) — pull this work forward into the freed Days 3–7 of Week 0
+- Synthetic "demo dry run" (no recording, just a walk-through to surface brain-panel UX gaps the same way an actual recording would)
 
 **Self-judged gate:**
-- Does the demo video clearly show the *Why* (decision reasoning, ToT
-  branch deliberation when triggered, post-game reflection extracting a
-  lesson)?
-- Or does it just show *What* (Nova made these moves, scored these points)?
+- Cognitive architecture review pass clean (no BLOCK findings from `/review`)?
+- `Game2048Sim` boots and consumes the existing `BoardState` interface end-to-end on at least one canned scenario?
+- Brain-panel walk-through surfaces no critical UX regressions?
 
 **Pass:** proceed to Week 1.
-**Fail:** re-cut the demo with reasoning narration before continuing. The
-demo IS the proof-of-architecture artifact every downstream pitch
-references; without the *Why* it's just a screen recording.
+**Fail:** address the failing item(s) before Week 1 begins. Do NOT proceed to cliff-test work with an unreviewed cognitive architecture or a non-functional simulator.
 
 ### Week 1 — Cliff Test
 
@@ -102,23 +99,49 @@ useless). If it spikes *before* the failure point, Nova is predicting them
 - Identify 3-5 documented hard 2048 scenarios from community sources
   ("snake collapse" patterns, "1024-wall" board states, dead-end
   configurations)
-- Seed the simulator with each scenario; run Casual Carla persona N=20
-  times per scenario. Record full affect vector trajectories.
-- Compare timing of `Anxiety ↑` / `Frustration ↑` events against the
-  position of the documented struggle point.
+- Seed the simulator with each scenario. For EACH scenario, run **two
+  arms on the same seeded sequence** (Blind Control Group, per
+  [ADR-0007](../decisions/0007-blind-control-group-for-cliff-test.md)
+  and `methodology.md` §4.1):
+  - **Test arm:** N=20 with Casual Carla persona (full cognitive
+    architecture). Record affect-vector trajectories.
+  - **Control arm:** N=20 with Baseline Bot persona (purely-logical
+    score-maximizer prompt; no affect, no memory, no ToT, no
+    reflection). Record only move sequences and game-over indices.
+- Compare timing of Carla's `Anxiety > 0.6` event against (a) Carla's
+  own failure point, AND (b) the Baseline Bot's mean failure move.
+  Report `Δ = t_baseline_fails - t_carla_predicts` per scenario.
 
-**Self-judged gate (the falsification criterion):**
-- Did the affect peak precede the failure point by at least 2 moves in
-  > 80% of trials?
+**Self-judged gate (the falsification criterion — both must hold):**
+- Did Carla's affect peak precede her own failure point by at least 2
+  moves in > 80% of her N=20 trials? (prediction-validity test)
+- AND did Carla predict the cliff at least 2 moves earlier than the
+  Baseline Bot's mean failure move (`Δ ≥ 2`) in ≥ 3 of the 3-5
+  scenarios? (affect-earns-its-keep test)
 
-**Pass:** affect predicts. Architecture-as-predictor claim is alive.
+**Pass (both arms):** affect predicts AND adds material lead time over
+a non-affective baseline. Architecture-as-predictor claim is alive.
 Proceed to Week 2.
 
-**Fail:** affect narrates. Two-week affect-rework branch begins:
-re-derive the RPE weights, ablate each affect dimension's update rule,
-identify which dimension is decoupled from outcomes. The schedule slips by
-2-3 weeks but the architecture gets fixed before any pitch conversations.
+**Fail — single-arm pass (Carla predicts but Δ < 2):** affect tracks
+the cliff but doesn't precede it more than mechanical exhaustion would.
+Architecture demoted to "architecture-as-narrator" — interpretable but
+not predictive. Reposition the demo around interpretability; no pitch
+conversations claiming prediction.
+
+**Fail — both arms (no early Anxiety peak):** full failure of the
+prediction hypothesis. Two-week affect-rework branch begins: re-derive
+the RPE weights, ablate each affect dimension's update rule, identify
+which dimension is decoupled from outcomes. The schedule slips by 2-3
+weeks but the architecture gets fixed before any pitch conversations.
 A failed cliff test is a publishable result, not a kill signal.
+
+**Cost note:** Blind Control Group adds ~300-500 games to the test
+budget. At plumbing-tier pricing (`NOVA_TIER=plumbing`, ~$0.05-0.10
+per game) that is <$50 of additional spend — negligible against the
+scientific-validity gain. Cliff test runs at `NOVA_TIER=production`
+(both arms), not plumbing — the cliff test is exactly the cognitive-
+judgment work plumbing tier is forbidden for, per ADR-0006.
 
 ### Week 2 — Trauma Ablation
 
@@ -227,27 +250,29 @@ session (thinking-stream viewer, OCR palette, Pro thinking-budget fix,
 prompt-voice tightening, real timestamps + newest-on-top order, type
 system cleanup) IS Phase 0.
 
-What's left:
-- AgentEvent type cleanup (remove catch-all + drop `as data as` casts)
-- Final code-review pass on the cognitive architecture
-- Demo recording: ≤4 min, narrates the *Why*
-- Repo cleanup
-- v1.0.0 git tag
+What's left (revised per [ADR-0005](../decisions/0005-defer-v1-demo-until-phase-0.7.md) — demo deferred until Phase 0.7 passes):
+- ✅ AgentEvent type cleanup (shipped via PR #1)
+- ✅ Final code-review pass on the cognitive architecture (covered by the new `/review` orchestrator)
+- Live validation run + brain-panel walk-through (no recording)
+- Pull `Game2048Sim` work forward from Week 1 into the freed Days 3–7 of Week 0
+- ~~Demo recording: ≤4 min~~ → deferred to post-Phase-0.7
+- ~~v1.0.0 git tag~~ → parked, re-tag when demo records
 
-**Exit criteria:**
-- Demo video shipped showing the *Why*
-- Memory + affect + ToT + reflection all visibly active in the recording
-- Game-over → reflection → semantic rule extraction loop demonstrably
-  working
-- v1.0.0 git tag pushed
+**Revised exit criteria:**
+- `/review` pass clean on cognitive architecture (no BLOCK findings)
+- Memory + affect + ToT + reflection all functionally working end-to-end on a real 50-move game (verified via the dry-run walk-through, not a recording)
+- Game-over → reflection → semantic rule extraction loop demonstrably working in the dry run
+- `Game2048Sim` scaffold compiles, consumes `BoardState`, and runs at least one canned hard-scenario seed end-to-end
 
-**Do not** start Phase 0.7+ until v1.0.0 is shipped.
+**Do not** record the v1.0.0 demo until Phase 0.7 passes. Architecture polish without the cliff-test result is the wrong artifact for the product story (per ADR-0005). Phase 0.7 work begins as soon as the revised exit criteria are met — no separate "Week 1 boot" step needed.
 
 ---
 
 ## Phase 0.7 — Cliff Test (Week 1 of sprint)
 
 Detailed in the [Week 1 — Cliff Test](#week-1--cliff-test) section above.
+
+**Phase 0.7 is now also the demo-recording gate** per [ADR-0005](../decisions/0005-defer-v1-demo-until-phase-0.7.md). The v1.0.0 demo records on the back of a passed cliff test, not on the architecture in isolation. If Phase 0.7 fails, the affect-rework branch begins per the Week 1 fail path; no demo recording until the rework completes and a follow-up cliff test passes.
 
 **Net architectural addition:** new module `nova_agent.lab.Game2048Sim`
 under `nova-agent/src/`. Pure Python, no external deps beyond what's
@@ -312,6 +337,51 @@ resonate.
 **Unity SDK**, not the GameAdapter abstraction. The SDK is the production
 integration path; the GameAdapter abstraction is the architectural
 refactor that supports both SDK-integrated and OCR-fallback paths.
+
+### Phase 1 hard constraints (added 2026-05-04 per principal engineer red-team)
+
+Two architectural commitments locked into the Phase 1 spec before any
+SDK code is written. Both reduce future sales-cycle friction by
+removing objections studios will raise during procurement / security
+review.
+
+- **Zero-PII guarantee.** The Unity SDK MUST ingest zero
+  Personally-Identifiable Information from the host game build.
+  Permitted payload: board state, tile/piece coordinates, score,
+  health/resource bars, action enums, RNG seeds. Forbidden payload:
+  player IDs, device IDs (advertising IDs, IDFA, Android Ad ID),
+  IP addresses, account email, geolocation, session tokens, push
+  notification IDs. The SDK is architecturally a JSON pipe over a
+  schema validated at the Python boundary; if a studio's game build
+  attempts to send a forbidden field, the SDK rejects the payload at
+  serialization time and logs a structured warning to the studio's
+  own log channel — never to a Nova-controlled endpoint. This is
+  the "Dumb Pipes" architecture: the SDK does no cognition and
+  carries no PII; cognition + storage stays in the Python backend
+  the studio runs themselves (or that we run for them under their
+  data agreement). Hardcoding the guarantee at the SDK layer drops
+  the procurement / cybersecurity review timeline by an estimated 3
+  months because Nova bypasses the typical AI-vendor data-processing
+  agreement (DPA) negotiation entirely — there is no PII to process.
+  An ADR captures the field allowlist and the rejection-on-violation
+  contract before the first commit of SDK code.
+
+- **Unity LTS version lock — Unity 2022.3 LTS.** Unity is notoriously
+  fragmented across versions (2019 LTS, 2020 LTS, 2021 LTS, 2022 LTS,
+  6.x). Supporting the full matrix means drowning in C# compilation
+  errors and runtime API differences. Nova v1 supports **only Unity
+  2022.3 LTS** — declared explicitly in the SDK README, the package
+  manifest, and the studio onboarding doc. Studios on older or newer
+  versions are told "we will support your version when we have a
+  paying customer on it"; that is honest scope clamp, not a
+  limitation. The choice of 2022.3 specifically: it is the most
+  recent LTS at the time of writing with the broadest mid-2026
+  studio penetration, includes the C# 9 features the SDK relies on
+  for source generators, and has long-term support extending into
+  2026-2027 so the lock survives the v1.x lifecycle without forcing
+  a Unity version migration mid-pilot. An ADR captures the version
+  decision + the upgrade-criteria the studio team will use to decide
+  when v2 should support a newer LTS.
 
 ### Work units
 
@@ -546,6 +616,46 @@ over the Day 3-7 difficulty band."
 
 **Goal:** make Nova rentable at scale. Mostly cloud engineering. Defer
 until Phase 4 has produced a first paid pilot signal.
+
+### Phase 5 hosting strategy (added 2026-05-04 per principal engineer red-team)
+
+**Default hosting target: Modal** for serverless Python execution
+(GPU and CPU), with **RunPod** as the GPU-tier fallback if Modal's
+A100/H100 capacity becomes a bottleneck. Both are serverless container
+platforms purpose-built for Python / AI workloads, billed per compute-
+second, scaling 0 → 1000 parallel containers in seconds without an ops
+team.
+
+Why this default (vs AWS / GCP):
+
+- A 2000-game ablation run (Phase 0.8 today, repeated per studio in
+  Phase 5) needs 0 → 1000 parallel containers for ~30 minutes, then
+  back to 0. AWS Lambda / GCP Cloud Run technically can do it but
+  require Kubernetes / IAM / networking expertise a solo dev does not
+  have time for. Modal hides every one of those concerns behind a
+  Python decorator (`@app.function(gpu="A100")`).
+- Modal's pricing model is pay-per-second of actual compute, not
+  reserved capacity. Idle Phase 5 cost = $0; spike cost = ~$1-3 per
+  ablation run at A100 prices. Matches the lumpy per-pilot demand
+  shape exactly.
+- Modal's image cache + cold-start optimizations are < 5s, fast
+  enough that interactive studio dashboards (one-off persona runs)
+  feel responsive without a permanent warm pool.
+
+When to escalate from Modal to a managed-Kubernetes setup (EKS / GKE):
+
+- Sustained > 1000 concurrent containers across multiple studios
+- A dedicated platform engineer is on the team
+- A specific compliance regime (SOC 2 Type II, HIPAA-adjacent gaming)
+  requires VPC isolation Modal cannot offer
+
+Until any of those triggers fires, Modal is the right tool — and
+defaulting to it now (rather than to AWS) avoids the solo-founder
+trap of "we built our infra on AWS because that's what real companies
+do" and burning weeks on ops work that doesn't move the product.
+
+An ADR captures the Modal decision + the escalation criteria + the
+RunPod GPU-fallback contract before the first deployment.
 
 ### Work units (flesh out at the time)
 

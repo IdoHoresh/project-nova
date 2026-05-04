@@ -220,6 +220,22 @@ Each rate is citable; the model is scientifically defensible; Day-3 frustration 
 
 ## Workflow / process learnings
 
+### "Did I review?" must be a binary check on file paths, not a judgment
+
+**Date:** 2026-05-04 | **Context:** PR #1 closed, Week 0 Day 2 review-system port
+
+**What happened:** PR #1 (10-commit AgentEvent validator + nunu.ai dossier rewrite + CI trim) shipped with the Claude pair skipping reviewer dispatches twice. The mistake wasn't "I decided not to review" — it was "I never asked the question." When invocation depends on the operator remembering to ask "should I review this?", the answer drifts toward "no" under fatigue or context pressure. Looking back at the diff after merge, the missed reviews would have caught nothing critical, but the pattern is unsafe.
+
+**Lesson:** A path-matched trigger taxonomy in `REVIEW.md` plus a binary line in `.claude/pre-commit-checklist.md` ("`/review` dispatched on staged diff (or N/A: <reason>)") removes the judgment call entirely. The reviewer's first job becomes inspecting the diff's file paths against a 9-row table; the answer is yes, no, or "yes for code-reviewer + yes for security-reviewer." No vibes. Pattern adopted from the Gibor app's `/review` skill.
+
+**How to apply:** Three layers, each catching a different failure mode:
+
+- **Layer 1** (in-session, before commit): `/review` orchestrator at `.claude/skills/review/SKILL.md` — manual, Sonnet/Opus, runs while context is hot; the `/code-review` and `/security-review` skills are direct entry points when the orchestrator is overkill
+- **Layer 1.5** (auto, on push): `PreToolUse` agent hook in `.claude/settings.json` — Haiku, fires on `git push:*`, blocks only on critical findings
+- **Layer 2** (auto, PR-time): `.github/workflows/claude-review.yml` — `claude-code-action@v1`, Sonnet, advisory PR comments only (NOT a required check until ≥10 PRs of signal data exist)
+
+The hook is the safety net for "I forgot Layer 1," and Layer 2 is the safety net for both the human-fast layers when the diff grew across commits. Promoting Layer 2 to a required check is a future ADR — too early to gate merges on it now.
+
 ### Brainstorm-then-plan-then-implement actually works
 
 **Date:** 2026-05-02 | **Context:** the thinking-stream feature build

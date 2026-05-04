@@ -329,21 +329,77 @@ Two specific tests anchor the methodology:
 ### 4.1 The Cliff Test (cognitive prediction validity)
 
 **Hypothesis:** Nova's affect curve peaks *before* documented human
-struggle points, not after.
+struggle points, AND the affect-driven prediction is more accurate or
+earlier than a non-affective baseline. Both conditions must hold; either
+alone is insufficient.
 
-**Method:** Run Nova through documented hard 2048 board states (community-
-catalogued "snake collapse," "1024-wall" patterns). Record the affect
-vector trajectory. Compare the timing of `Anxiety ↑` and `Frustration ↑`
-events against the position of the documented struggle point.
+**Why two conditions, not one:** A single-arm test ("did Carla's anxiety
+peak before failure?") cannot distinguish "affect predicts" from "any
+agent fails at the same threshold because the game's mechanics get
+harder past it." Without a non-affective control, an apparent pass is
+unfalsifiable — Carla could be reading the geometry of the board, not
+its cognitive load. The Blind Control Group fixes this by adding an
+emotionless score-maximizing baseline and treating Carla's *delta over
+baseline* as the load-bearing signal. See ADR-0007 for the full
+falsification rationale.
 
-**Pass criterion:** Affect peak precedes the failure point by at least 2
-moves in > 80% of trials (N=100 per documented scenario). If affect only
-spikes after game-over, Nova is narrating outcomes rather than predicting
-them — the architecture-as-predictor claim is dead and we reposition.
+**Method:** For each documented hard 2048 scenario (community-catalogued
+"snake collapse," "1024-wall" patterns; 3-5 scenarios total):
+
+1. **Test arm — Casual Carla persona** (N=20 per scenario). Cognitive
+   architecture active: memory, affect, ToT deliberation, reflection.
+   Record full affect-vector trajectories per move. Mark the move at
+   which `Anxiety` first crosses `0.6` (the prediction event).
+
+2. **Control arm — Baseline Bot persona** (N=20 per scenario). Single
+   purely-logical prompt: *"You are an AI agent playing 2048. Your only
+   goal is to maximize score. Compute the next move."* No affect, no
+   memory retrieval, no ToT, no reflection. Record only the move
+   sequence and game-over move index.
+
+3. **Comparison.** For each scenario, compute:
+   - `t_carla_predicts` = mean move index at which Carla's `Anxiety >
+     0.6` precedes her game-over move
+   - `t_baseline_fails` = mean move index at which Baseline Bot games
+     end (effectively the failure rate's mode)
+   - `Δ = t_baseline_fails - t_carla_predicts` (positive = Carla
+     predicts the cliff *that many moves earlier* than the baseline's
+     raw failure curve)
+
+**Pass criteria (both must hold):**
+
+- Affect peak precedes Carla's failure point by ≥ 2 moves in > 80% of
+  her N=20 trials per scenario (the original prediction-validity test)
+- AND `Δ ≥ 2` moves in ≥ 3 of the 3-5 scenarios (the affect-earns-its-keep
+  test — Carla must predict the cliff materially earlier than a stupid
+  score-maxer just runs out of options)
+
+**Failure modes:**
+
+- *Single-arm pass* (Carla predicts but `Δ < 2`): the affect layer is
+  decorative — it tracks the cliff but doesn't precede it more than a
+  baseline would by sheer mechanical exhaustion. The architecture-as-
+  predictor claim is **demoted to architecture-as-narrator**; we
+  reposition the demo around interpretability, not prediction.
+- *Both-arm fail* (no early Anxiety peak in Carla): full failure of the
+  prediction hypothesis. Per the original criterion, the affect-rework
+  branch begins (re-derive RPE weights, ablate dimensions) before any
+  pitch.
+- *Both-arm pass* (Carla predicts AND `Δ ≥ 2`): the architecture earns
+  its keep. The pitch line becomes "Baseline failed at move 100, Nova
+  raised the alarm at move 96 — 4 moves of warning your studio can
+  use," with the actual `Δ` from the corpus of scenarios.
 
 **Apparatus:** Python `Game2048Sim` (in-process simulator, no emulator
-overhead). Removes perception/action layer noise and isolates the cognitive
-layer for measurement.
+overhead). Both arms run on the **same seeded board sequences** so the
+mechanics are identical and the only varying factor is the cognitive
+configuration. Removes perception/action layer noise; isolates the
+cognitive layer for measurement.
+
+**Cost:** ~100 extra games per scenario × 3-5 scenarios = +300-500 games
+on the Cliff Test budget. At plumbing-tier pricing (~$0.05-0.10 per
+game) that is <$50 of additional spend — negligible against the
+scientific validity gain.
 
 ### 4.2 The Trauma Ablation (mechanism validity)
 
