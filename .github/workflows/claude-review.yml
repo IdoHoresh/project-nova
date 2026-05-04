@@ -98,7 +98,18 @@ jobs:
           # CLI-style arg string) per the v1 action's input schema; the
           # standalone `model:` and `allowed_tools:` keys are NOT valid
           # action inputs (would be ignored with a warning at workflow
-          # parse time). Layer 2 uses Sonnet — Layer 1.5 already runs
-          # Haiku at push time, so Layer 2's job is the slower/deeper
-          # pass that catches things the cheap layer missed.
-          claude_args: "--model claude-sonnet-4-6 --allowed-tools Read,Grep,Glob,Bash"
+          # parse time).
+          #
+          # Model choice — Opus 4.7. Layer 2 is the last automated check
+          # before human merge review; at the safety net, default to max
+          # recall. Opus pulls meaningfully ahead of Sonnet on multi-file
+          # synthesis (catches "this looks fine but violates an invariant
+          # three files away" — exactly Nova's cognitive-layer game-
+          # agnosticism, bus contract, MemoryCoordinator gateway, and
+          # ADR-discipline checks). Cost ~$0.075/PR vs Sonnet's ~$0.045 —
+          # ~$3 difference per 100 PRs is rounding error against the sprint
+          # budget. Layer 1.5 (Haiku) handles cheap-checks-on-every-push;
+          # Layer 1 manual /review handles operator-tuned-per-diff; Layer 2
+          # owns the full-PR-clean-environment pass and earns Opus.
+          # User-stated preference: "best results" over cost optimization.
+          claude_args: "--model claude-opus-4-7 --allowed-tools Read,Grep,Glob,Bash"

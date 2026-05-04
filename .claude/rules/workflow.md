@@ -80,6 +80,75 @@ signals; they live in CLAUDE.md "Context hygiene".
 16. **CI check** (when on a branch with PR) — wait for CI green
     before starting the next task.
 
+### PR cadence — when to actually open a PR
+
+The feature branch (`claude/practical-swanson-4b6468`) is long-lived
+and survives every merge to `main`. Commits accumulate on it
+between PRs. The rule for **when to open a PR** is one of the
+load-bearing workflow rules — get this wrong and you either drown
+in ceremony (one PR per commit) or land in a 125-commit catch-up
+trap (see PR #2 history).
+
+**The rule: one PR per coherent unit of work.**
+
+A unit is:
+
+- one logical story — one or more atomic commits that together
+  accomplish a single goal
+- gate trio green at HEAD (`uv run pytest && uv run mypy && uv run
+  ruff check` for the agent; `pnpm test && npx tsc --noEmit && pnpm
+  run lint` for the viewer)
+- something you'd be comfortable handing a reviewer and saying
+  "this is done"
+- at a natural stopping point — the next task is independent, not
+  a continuation of this one
+
+**When to open a PR (yes):**
+
+- finished a chapter of work — e.g. "review-system port" was one
+  unit (5 commits, one PR); "model-tuning of Layer 1.5 + Layer 2"
+  was another unit (2 commits, one PR)
+- 1+ commits that tell a single story
+- you're moving to a different concern next session
+
+**When NOT to open a PR (defer):**
+
+- mid-feature, unfinished work — e.g. `Game2048Sim` half-built;
+  keep committing on the branch, PR when the unit is shippable
+- gate trio red — fix first, then PR
+- exploratory commits that might get squashed or reordered later;
+  PR when settled
+- micro-fixes (typo in a comment, lint nit) that belong batched
+  with the next coherent unit
+
+**Backstops:**
+
+- A `PreToolUse` command hook in `.claude/settings.json` fires on
+  every `git push:*` and emits a `systemMessage` warning when the
+  branch is >30 commits ahead of `origin/main` AND no PR is open.
+  This catches the "I forgot to PR" trap before it becomes a
+  100-commit catch-up. Doesn't block; just surfaces.
+- Branch protection on `main` — direct pushes / direct commits to
+  `main` are forbidden, period.
+
+**Why one-PR-per-unit instead of every-commit-PR or one-big-PR:**
+
+- *every-commit-PR* — ceremony overload. Layer 2 (`claude-code-action`,
+  Opus) re-runs on every PR open. Cost spikes, value barely spikes.
+- *one-big-PR* — drift trap. PR #2 was 125 commits because the rule
+  was implicit, not codified. Review fatigue, hard to bisect,
+  Layer 2 has to reason over a huge surface.
+- *one-PR-per-unit* — Layer 2 reviews coherent diffs (where it
+  earns its keep), reviewer sees one story per PR, branch stays
+  close to `main`.
+
+**Discipline rule:** if you're unsure whether the current branch
+state is a "coherent unit," ask yourself — *what's the PR title?*
+If you can write a single ≤70-char title that describes everything
+on the branch since the last merge, it's a unit. If the title
+needs an "and" or "plus" or "also," split into separate PRs (or
+keep working on one half until the other half is shippable).
+
 ### Periodic — every ~5 commits or weekly
 
 17. **LESSONS.md sweep** — anything from recent work worth capturing?

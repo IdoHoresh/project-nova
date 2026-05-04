@@ -15,31 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — single file `.github/workflows/claude-review.yml` (~6 line net change: add `id-token: write` to permissions block, replace invalid `model:` + `allowed_tools:` keys with single `claude_args:` string)
-- [x] Atomic commit — single logical change: fix the two real failures the Layer 2 GH Action surfaced on PR #2's first run
+- [x] `git diff --cached --stat` reviewed — single file `LESSONS.md` (~25 lines added: new "Engineering / debugging gotchas" entry at top)
+- [x] Atomic commit — single logical change: capture the by-design constraint that `claude-code-action@v1` cannot self-review PRs that modify the workflow file, so it doesn't surprise the next contributor (or the next session) when it happens again
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; workflow YAML only (still references `${{ secrets.ANTHROPIC_API_KEY }}` indirection, not a literal)
-- [x] `nova-agent/` not touched — N/A, CI-config-only change
-- [x] `nova-viewer/` not touched — N/A, CI-config-only change
-- [x] Docs / config — `.github/workflows/claude-review.yml`: (1) `permissions:` gains `id-token: write` (the action authenticates via OIDC even when an API key is provided; without it the action exits at attempt 3 of 3 with "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL env variable"); (2) the standalone `model:` and `allowed_tools:` keys are not valid `anthropics/claude-code-action@v1` inputs per the workflow-parse warning, so model+tool restrictions are passed through the supported `claude_args:` string (`--model claude-sonnet-4-6 --allowed-tools Read,Grep,Glob,Bash`). Inline comment block explains the rationale for both changes so future contributors don't re-introduce either bug.
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; markdown narrative only
+- [x] `nova-agent/` not touched — N/A, doc-only change
+- [x] `nova-viewer/` not touched — N/A, doc-only change
+- [x] Docs / config — `LESSONS.md` gains an "Engineering / debugging gotchas" entry at the top of that section (newest-on-top per the file's convention) describing what failed (App Token Exchange 401 with "Workflow validation failed" message), why (anti-tampering: workflow on PR branch must be byte-identical to main's version so a PR can't modify the workflow during its own review), and the four how-to-apply rules (expect failure on workflow-modifying PRs, don't split, manually review, dispatch /security-review for sensitive changes).
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — N/A: `.github/workflows/**` is the "skip with reason: CI-config-only" row of REVIEW.md path-matched trigger taxonomy
+- [x] `/review` dispatched on staged diff — N/A: `LESSONS.md` is a doc-only change at repo root; per REVIEW.md path-matched trigger taxonomy this falls under "doc-only" (the same row that exempts `docs/**` and `*.md`)
 - [x] `code-reviewer` subagent — N/A, covered by skip reason above
-- [x] `security-reviewer` — N/A. The new `id-token: write` permission is exactly what the action needs to acquire an OIDC token; it is scoped to this single workflow and its only effect is enabling OIDC-based authentication. No new secret surface introduced.
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched. Note: the lesson IS about a security-relevant constraint (anti-tampering on workflow files), but the lesson text itself is documentation, not code that handles secrets
 
 ## Documentation
 
-- [x] LESSONS.md — N/A; the lesson "validate workflow YAML inputs against the action's published schema" is implicit in this fix and the inline comment block. No separate LESSONS entry warranted for a one-off CI fix
-- [x] CLAUDE.md "Common gotchas" — N/A, no new Nova-specific gotcha
+- [x] LESSONS.md — this commit IS the LESSONS.md update; nothing further needed
+- [x] CLAUDE.md "Common gotchas" — N/A; LESSONS.md is the right home for engineering gotchas (CLAUDE.md "Common gotchas" is for setup-time issues like UF_HIDDEN, pnpm vs npm, gemini quota — environmental gotchas, not workflow-system constraints)
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, this is a CI-config bugfix, not an architectural decision
+- [x] New ADR — N/A, this is a lesson capturing an external system's by-design behavior, not a Nova architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `ci: fix Layer 2 claude-code-action workflow inputs and OIDC permission`
-- [x] Body explains *why* — PR #2's first Layer 2 run on `claude-code-action@v1` failed with two diagnostics. (1) Workflow-parse warning: `model:` and `allowed_tools:` are not valid action inputs in v1; the published schema only accepts `claude_args` for CLI-style customization. (2) Action runtime error: the OIDC token request fails ("Unable to get ACTIONS_ID_TOKEN_REQUEST_URL env variable") because the workflow's `permissions:` block lacked `id-token: write`. Both are real, both fail-closed, both surfaced cleanly on first run rather than silently — the workflow did its job by failing visibly.
+- [x] Conventional Commits format: `docs(lessons): record claude-code-action workflow self-review constraint`
+- [x] Body explains *why* — PR #3's Layer 2 run failed with `401 Unauthorized — Workflow validation failed` because the action requires byte-identical workflow file between PR branch and main (anti-tampering). The error is structural, not fixable, and the action's own message says it's "normal" — but it cost ~10 minutes to read the error carefully and recognize the constraint. Capturing it in LESSONS.md so the next workflow-modifying PR doesn't surprise anyone.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`

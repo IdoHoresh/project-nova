@@ -21,7 +21,24 @@
 
 ## Engineering / debugging gotchas
 
-### Discriminated-union catch-alls hide missing variants
+### `claude-code-action@v1` cannot self-review PRs that modify the review workflow
+
+**Date:** 2026-05-04 | **Cost:** ~10 minutes of "why did the action fail with a 401?" before reading the error message carefully.
+
+**What happened:** PR #3 modified `.github/workflows/claude-review.yml` (bumping the Layer 2 model from Sonnet to Opus). When the action ran on PR #3, the OIDC step succeeded but the App Token Exchange step failed three times with `401 Unauthorized — Workflow validation failed. The workflow file must exist and have identical content to the version on the repository's default branch.`
+
+**Lesson:** The Claude GitHub App's security model **requires the workflow file on the PR branch to be byte-identical to the version on `main`**. This is anti-tampering: it prevents a PR from modifying the workflow during the review run to leak secrets, escalate permissions, or self-approve. The action's own error message acknowledges this is "normal" for a PR that adds or modifies the workflow file. There is no fix on our end — it is structural.
+
+**How to apply:** When a PR touches `.github/workflows/claude-review.yml` (or any other workflow file the action validates against `main`):
+
+- Expect Layer 2 to fail on that PR with the 401 / validation error. **Don't panic.**
+- CI still runs in parallel and validates correctness.
+- Manually review the diff yourself before merge — Layer 2 cannot help here, that's the trade-off.
+- After merge, the new workflow becomes canonical on `main`, and the NEXT PR that doesn't touch the workflow gets full Layer 2 review using the new version.
+- **Do not** try to "split" the workflow change into a separate PR to fix it — every PR that modifies the workflow hits the same constraint.
+- For sensitive workflow changes, dispatch the manual `/security-review` skill on the diff to add a security-tier review even though Layer 2 cannot.
+
+
 
 **Date:** 2026-05-03 | **Cost:** ~2 hours of audit-trail work; surfaced one real api_error → parse_error rendering bug that had been live in the agent for weeks.
 
