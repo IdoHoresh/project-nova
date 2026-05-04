@@ -141,6 +141,29 @@ fork itself lives at `~/Desktop/2048_Unity/`; this directory holds APKs
 
 ---
 
+## GameIO seam (added 2026-05-04, ADR-0008)
+
+The cognitive loop in `main.run()` reads the world via a `GameIO`
+protocol (`nova_agent.action.game_io`) with three methods:
+`read_board() -> BoardState`, `apply_move(SwipeDirection) -> None`,
+`screenshot_b64() -> str`. Two implementations exist:
+
+- `LiveGameIO` (`nova_agent.action.live_io`) — wraps `Capture` +
+  `BoardOCR` + `ADB` for the live emulator path.
+- `SimGameIO` (`nova_agent.lab.io`) — wraps `Game2048Sim` + a
+  brutalist PNG renderer for in-process play; no emulator dependency,
+  no OCR latency, deterministic via seeded `Scenario`.
+
+Pick via `Settings.io_source = "live" | "sim"` (env: `NOVA_IO_SOURCE`);
+sim scenarios are loaded by id from `nova_agent.lab.scenarios`
+(env: `NOVA_SIM_SCENARIO`, default `"fresh-start"`). The cognitive
+layer (decision / affect / memory / reflection) is source-agnostic
+above this seam — same code paths run for both. See
+[ADR-0008](./docs/decisions/0008-game-io-abstraction-and-brutalist-renderer.md)
+for the rationale + rejected alternatives.
+
+---
+
 ## Data flow per move
 
 For one move of the agent:

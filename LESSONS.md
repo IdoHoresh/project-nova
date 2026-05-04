@@ -21,6 +21,36 @@
 
 ## Engineering / debugging gotchas
 
+### Pydantic-settings silently drops field-name kwargs when aliases exist + `extra="ignore"`
+
+**Date:** 2026-05-04 | **Cost:** ~10 min during Task 5 of the Game2048Sim build (factory test failed before the spec reviewer flagged the same issue independently).
+
+**What happened:** Project Nova's `Settings` (`nova-agent/src/nova_agent/config.py`) declares fields with aliases (e.g. `io_source` aliased to `NOVA_IO_SOURCE`) and `model_config` has `extra="ignore"` but NOT `populate_by_name=True`. Consequence: constructing `Settings(io_source="sim")` (kwarg by field name) silently drops the value — pydantic treats the field-name kwarg as an unknown extra and the field stays at its default. Only `Settings(NOVA_IO_SOURCE="sim")` (kwarg by alias) actually populates. The production env-var loading path is unaffected; this is a test-construction trap only, but the failure is silent (no exception, just default values).
+
+**Lesson:** With aliases + `extra="ignore"` and without `populate_by_name=True`, pydantic-settings forces a strict alias-only API for kwargs. The `ignore` policy makes field-name kwargs look like noise and discards them without an error. The next engineer reaching for `Settings(my_new_field=...)` in a test will hit a confusing failure mode where their assertion is way downstream of the actual cause.
+
+**How to apply:** Test helpers that construct `Settings` directly should always pass kwargs by **alias** (`NOVA_IO_SOURCE`, `GOOGLE_API_KEY`, …) and document this in the helper's docstring. Reference pattern: `nova-agent/tests/test_main_build_io.py:11-19`. Optional follow-up: setting `populate_by_name=True` in `Settings.model_config` would allow both forms — defer until a future Settings change naturally touches `model_config`, not worth a standalone PR.
+
+### Pillow 12.2 type stubs reject `list` literals for `ImageDraw` geometry args
+
+**Date:** 2026-05-04 | **Cost:** ~5 min during Task 3 of the Game2048Sim build, caught immediately by mypy strict.
+
+**What happened:** Pillow 12.2.0's type stubs require `tuple` for `ImageDraw.rectangle((x0, y0, x1, y1), fill=...)` — `list` literals (`[x0, y0, x1, y1]`) are rejected. Older Pillow versions (10.x, 11.x) accepted either. Idiomatic Python (and most StackOverflow examples) reach for the list form first, so this is an easy paste-from-snippet trap.
+
+**Lesson:** When a library tightens type stubs across a major version, mypy strict surfaces the regression but ruff and runtime don't. Default to tuples for any `ImageDraw` geometry args (rectangle bounds, polygon points, ellipse bbox, line endpoints) regardless of what the snippet you copied uses.
+
+**How to apply:** Reference pattern: `nova_agent/lab/render.py:52` uses `(x0, y0, x1, y1)`. If you see `Argument 1 to "rectangle" of "ImageDraw" has incompatible type "list[int]"; expected "tuple[float, float, float, float] | ..."`, swap the brackets, don't argue with the stubs.
+
+### TDD only catches direction-mapping bugs when BOTH axes are pinned
+
+**Date:** 2026-05-04 | **Cost:** ~3 minutes; the bug shipped in the plan template but caught at first GREEN run.
+
+**What happened:** Task 2 of the Game2048Sim build had the rotation count for swipe-UP and swipe-DOWN swapped in the plan template (`UP=1, DOWN=3` instead of correct `UP=3, DOWN=1`). The bug surfaced because the test suite pinned BOTH `test_merge_leftmost_priority_swipe_up` AND `test_merge_leftmost_priority_swipe_down`. A single-direction test on the same axis would have passed for the wrong reason — the rotation maps the test fixture into the right slide-left case anyway when both ends are wrong by the same amount.
+
+**Lesson:** Direction-symmetric or axis-symmetric code (rotations, mirroring, signedness, byte-order, transpose) needs both ends pinned. One end alone is not a useful test — it can pass by chance for the wrong reason. The cost of the second test is trivial; the cost of NOT having it is a silently-wrong sim that produces plausible-looking games.
+
+**How to apply:** When writing tests for symmetric APIs, write the test for one direction, then mirror it for the opposite direction in the same commit. If you find yourself writing "I'll add the other direction later," stop and add it now. Reference pattern: `nova-agent/tests/test_lab_sim.py` pairs every direction test (`*_swipe_up` ↔ `*_swipe_down`, `*_swipe_left` ↔ `*_swipe_right`).
+
 ### `claude-code-action@v1` cannot self-review PRs that modify the review workflow
 
 **Date:** 2026-05-04 | **Cost:** ~10 minutes of "why did the action fail with a 401?" before reading the error message carefully.
@@ -168,6 +198,16 @@ In each case, the implementer subagent correctly caught the bug at execution tim
 
 ## Architecture / design decisions
 
+### Sim cost ≡ live cost — record-replay rationale (ADR-0006) intact, cliff-test budget bounded by LLM not ADB
+
+**Date:** 2026-05-04 | **Context:** Task 6 calibration smoke for the Game2048Sim build (sim 50-move vs live 50-move).
+
+**What happened:** Task 6 measured a 50-move run on `Game2048Sim` against a 50-move run on the live emulator path with the same cognitive layer. LLM-call shape was **byte-identical**: $0.0159 vs $0.0159, 50 calls each, ~531-568 tokens-in. PR #2's code review had flagged a per-event `asyncio.to_thread` cost concern in `RecordingEventBus.publish` — sim's higher event cadence does NOT amplify this; total LLM cost dominates by orders of magnitude.
+
+**Lesson:** Sim is the *same* cognitive workload as live — same prompts, same model, same token shape. The wall-clock speedup (~1.7× on the calibration run) comes entirely from removed ADB latency, not cheaper inference. This confirms ADR-0006's record-replay rationale: replay sidesteps LLM cost entirely; sim does NOT. Phase 0.7's cliff test (N=20 trials × 2 arms × 3-5 scenarios = 120-200 games × $0.016 ≈ $2-3 LLM cost) is bounded by LLM cost, which sim does not change. Sim's value is iteration cadence, not cheaper experiments.
+
+**How to apply:** When budgeting any future cliff-test or ablation that uses `Game2048Sim`, multiply LLM-call cost by trial count — don't expect sim to reduce it. Use the recorder for UI-iteration loops (where replay actually IS free) and the sim for cognitive-validity loops (where cost is the same as live but wall-clock is faster). Calibration data lives in the Task 6 commits; re-run if the cognitive layer's prompt shape changes materially.
+
 ### Don't pivot to RL — it kills the cognitive moat
 
 **Date:** 2026-05-02 | **Context:** brainstorm with the AI red-team
@@ -236,6 +276,19 @@ Each rate is citable; the model is scientifically defensible; Day-3 frustration 
 ---
 
 ## Workflow / process learnings
+
+### `# type: ignore` staging across multi-task plans creates a peel-as-you-go cleanup chain
+
+**Date:** 2026-05-04 | **Context:** the 7-task Game2048Sim build (Tasks 1, 2, 4, 5).
+
+**What happened:** Task 1 introduced three `# type: ignore[import-untyped]` comments on lazy imports of modules (`nova_agent.lab.io`, `nova_agent.lab.sim`, `nova_agent.lab.scenarios`) that didn't exist yet. Tasks 2, 4, and 5 each had to PEEL the corresponding ignore once the underlying module materialized, because mypy strict's `unused-ignore` rule fires the moment the module import resolves. Forgetting to peel causes mypy strict to fail at task N rather than task 1, which is confusing because the failing line wasn't touched in task N's diff.
+
+**Lesson:** Cross-task plans that stage forward-references via `# type: ignore` create a chain of cleanup obligations across tasks. Each task that resolves a placeholder must remember to peel its specific ignore. The plan must document the staging explicitly or the obligation gets lost when sub-agents read tasks in isolation.
+
+**How to apply:** Two patterns for forward-references in multi-task plans:
+
+1. **Document the staging in a top-level table** in the plan doc (e.g. "Task 1 stages 3 `type: ignore` comments at file:line; Task 2 peels A, Task 4 peels B, Task 5 peels C"). The Game2048Sim plan documented this in Step text but not as a table — adequate but easy to miss when sub-agents read tasks in isolation.
+2. **Use `if TYPE_CHECKING:` + string-literal annotations** for forward-references instead of runtime imports + `type: ignore`. More verbose at the import site but no cleanup obligation, and `unused-ignore` doesn't apply because there's no runtime import to resolve.
 
 ### "Did I review?" must be a binary check on file paths, not a judgment
 

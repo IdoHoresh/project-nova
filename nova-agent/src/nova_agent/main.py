@@ -1,17 +1,18 @@
 import asyncio
-import base64
 import os
 import sys
 
 import structlog
 
 from nova_agent.action.adb import ADB, SwipeDirection
+from nova_agent.action.game_io import GameIO
+from nova_agent.action.live_io import LiveGameIO
 from nova_agent.affect.rpe import rpe as compute_rpe
 from nova_agent.affect.state import AffectState
 from nova_agent.affect.verbalize import describe as describe_affect
 from nova_agent.bus.recorder import RecordingEventBus
 from nova_agent.bus.websocket import EventBus
-from nova_agent.config import get_settings
+from nova_agent.config import Settings, get_settings
 from nova_agent.decision.arbiter import should_use_tot
 from nova_agent.decision.heuristic import is_game_over
 from nova_agent.decision.react import Decision, ReactDecider
@@ -25,14 +26,10 @@ from nova_agent.memory.semantic import SemanticStore
 from nova_agent.memory.types import AffectSnapshot, MemoryRecord
 from nova_agent.reflection import run_reflection
 from nova_agent.perception.capture import Capture
-from nova_agent.perception.ocr import BoardOCR, CalibrationError
+from nova_agent.perception.ocr import BoardOCR
 from nova_agent.perception.types import BoardState
 
 log = structlog.get_logger()
-
-
-def _empty_board() -> BoardState:
-    return BoardState(grid=[[0] * 4 for _ in range(4)], score=0)
 
 
 def _summarize_moves(records: list[MemoryRecord], *, limit: int = 30) -> str:
@@ -47,6 +44,30 @@ def _summarize_moves(records: list[MemoryRecord], *, limit: int = 30) -> str:
         reasoning = (rec.source_reasoning or "—").replace("\n", " ")[:80]
         lines.append(f"[{rec.id}] {rec.action} delta={score_part} | {reasoning}")
     return "\n".join(lines) or "(no moves recorded)"
+
+
+def _build_io(s: Settings) -> GameIO:
+    """Pick the GameIO implementation based on Settings.io_source."""
+    if s.io_source == "sim":
+        # Lazy import — sim deps (Pillow renderer, scenarios) only
+        # imported when sim is actually selected, keeping the live path
+        # unaffected by sim module availability.
+        from nova_agent.lab.io import SimGameIO  # noqa: PLC0415
+        from nova_agent.lab.scenarios import load as load_scenario  # noqa: PLC0415
+        from nova_agent.lab.sim import Game2048Sim  # noqa: PLC0415
+
+        scenario = load_scenario(s.sim_scenario)
+        sim = Game2048Sim(seed=scenario.seed, scenario=scenario)
+        return SimGameIO(sim=sim)
+    capture = Capture(adb_path=s.adb_path, device_id=s.adb_device_id)
+    adb = ADB(
+        adb_path=s.adb_path,
+        device_id=s.adb_device_id,
+        screen_w=1080,
+        screen_h=2400,
+    )
+    ocr = BoardOCR()
+    return LiveGameIO(capture=capture, ocr=ocr, adb=adb)
 
 
 async def _run_post_game(
@@ -113,13 +134,7 @@ async def run() -> None:
         bus = EventBus(host=s.ws_host, port=s.ws_port)
     await bus.start()
 
-    capture = Capture(adb_path=s.adb_path, device_id=s.adb_device_id)
-    adb = ADB(
-        adb_path=s.adb_path,
-        device_id=s.adb_device_id,
-        screen_w=1080,
-        screen_h=2400,
-    )
+    io: GameIO = _build_io(s)
     # ReactDecider is the hot path: low latency, structured-JSON-only output.
     # When Settings.tier is set, route every cognitive role through
     # tiers.model_for(role) — this implements the four cost-discipline
@@ -175,7 +190,6 @@ async def run() -> None:
     )
     decider = ReactDecider(llm=decision_llm)
     tot_decider = ToTDecider(llm=deliberation_llm, bus=bus)
-    ocr = BoardOCR()
     memory = MemoryCoordinator(sqlite_path=s.sqlite_path, lancedb_path=s.lancedb_path)
     semantic = SemanticStore(s.sqlite_path.parent / "semantic.db")
     affect = AffectState()
@@ -185,15 +199,9 @@ async def run() -> None:
         prev_board: BoardState | None = None
         prev_decision: Decision | None = None
         for step in range(50):
-            image = capture.grab_stable()
-            try:
-                board = ocr.read(image)
-            except CalibrationError as exc:
-                log.warning("perception.calibration_failed", error=str(exc))
-                board = _empty_board()
+            board = io.read_board()
             log.info("perception.read", step=step, grid=board.grid, score=board.score)
-            png_bytes = Capture.to_vlm_bytes(image)
-            b64 = base64.b64encode(png_bytes).decode("ascii")
+            b64 = io.screenshot_b64()
             await bus.publish("perception", {"score": board.score, "step": step})
 
             if is_game_over(board):
@@ -255,7 +263,7 @@ async def run() -> None:
                     "mode": mode,
                 },
             )
-            adb.swipe(SwipeDirection(decision.action))
+            io.apply_move(SwipeDirection(decision.action))
 
             if prev_board is not None and prev_decision is not None:
                 score_delta = board.score - prev_board.score

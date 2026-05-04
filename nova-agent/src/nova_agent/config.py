@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from dotenv import find_dotenv
 from pydantic import Field
@@ -65,6 +66,13 @@ class Settings(BaseSettings):
     # appended to this JSONL file in addition to the live broadcast — see
     # nova_agent.bus.recorder. Default None disables recording entirely.
     bus_record_path: Path | None = Field(None, alias="NOVA_BUS_RECORD")
+
+    # GameIO source — flips main._build_io between LiveGameIO (live
+    # emulator via OCR + ADB) and SimGameIO (in-process Game2048Sim +
+    # brutalist renderer). Default "live" preserves existing behaviour;
+    # "sim" is the Phase 0.7 cliff-test path. See ADR-0008.
+    io_source: Literal["live", "sim"] = Field("live", alias="NOVA_IO_SOURCE")
+    sim_scenario: str = Field("fresh-start", alias="NOVA_SIM_SCENARIO")
 
     # Logging
     log_level: str = Field("INFO", alias="NOVA_LOG_LEVEL")
