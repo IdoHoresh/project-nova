@@ -63,13 +63,13 @@ def _build_io(s: Settings) -> GameIO:
         # modules don't exist yet (Tasks 2-5 build them); type: ignore is
         # temporary until those land. The runtime branch is unreachable
         # until Task 5 wires Settings.io_source, so this is dead code today.
-        from nova_agent.lab.io import SimGameIO  # type: ignore[import-untyped]  # noqa: PLC0415
+        from nova_agent.lab.io import SimGameIO  # noqa: PLC0415
         from nova_agent.lab.scenarios import load as load_scenario  # type: ignore[import-untyped]  # noqa: PLC0415
         from nova_agent.lab.sim import Game2048Sim  # noqa: PLC0415
 
         scenario = load_scenario(getattr(s, "sim_scenario", "fresh-start"))
         sim = Game2048Sim(seed=scenario.seed, scenario=scenario)
-        return SimGameIO(sim=sim)  # type: ignore[no-any-return]
+        return SimGameIO(sim=sim)
     capture = Capture(adb_path=s.adb_path, device_id=s.adb_device_id)
     adb = ADB(
         adb_path=s.adb_path,
