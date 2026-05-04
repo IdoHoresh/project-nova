@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 2 files: `LESSONS.md` (5 new entries from the Game2048Sim build's cross-task sweep), `.claude/pre-commit-checklist.md` (refilled for this commit)
-- [x] Atomic commit — single logical change: capture Game2048Sim implementation lessons from Tasks 1-6
+- [x] `git diff --cached --stat` reviewed — 1 file: `.github/workflows/ci.yml` (pnpm 10 → 11 to match project; root-cause of PR #5's nova-viewer CI failure)
+- [x] Atomic commit — single logical change: bump CI pnpm to 11 to match the project state set by commit e322872
 
 ## Verification
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; only the alias name `GOOGLE_API_KEY` appears as a documentation reference, no values
-- [x] `nova-agent/` not touched in this commit — N/A pytest/mypy/ruff (would still pass at HEAD; doc-only change)
-- [x] `nova-viewer/` not touched — N/A
-- [x] Docs / config — LESSONS.md updated with cross-task entries
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens (workflow YAML only)
+- [x] `nova-agent/` not touched — N/A pytest/mypy/ruff
+- [x] `nova-viewer/` not touched — N/A vitest/tsc/eslint (the fix is in CI workflow, not viewer code; effect is the viewer trio will now pass on CI)
+- [x] Docs / config — `.github/workflows/ci.yml` only
 
 ## Review
-- [x] `/review` dispatched — N/A: doc-only, REVIEW.md taxonomy `N/A: doc-only`
-- [x] `code-reviewer` subagent — N/A, doc-only
-- [x] `security-reviewer` — N/A, doc-only
+- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: CI-config-only`. Single-line YAML version bump with explanatory comment; no code surface, no security surface.
+- [x] `code-reviewer` subagent — N/A, CI-config-only
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
-- [x] LESSONS.md — UPDATED in this commit (the entire commit)
-- [x] CLAUDE.md "Common gotchas" — N/A (lessons are sub-gotcha-level; the Pydantic alias trap COULD be promoted to gotcha #10 in a future commit if it bites again)
-- [x] ARCHITECTURE.md — N/A (already updated in Task 5)
-- [x] New ADR — N/A (no new architectural decisions)
+- [x] LESSONS.md — N/A on this commit; the CI-vs-local pnpm-version-skew gotcha could land as a future LESSONS entry if it bites again
+- [x] CLAUDE.md "Common gotchas" — N/A
+- [x] ARCHITECTURE.md — N/A
+- [x] New ADR — N/A (operational fix)
 
 ## Commit message
-- [x] Conventional Commits format: `docs(lessons): record Game2048Sim implementation lessons (Tasks 1-6)`
-- [x] Body summarizes the 5 lessons captured + references the Task 6 calibration data point that informed lesson 2
+- [x] Conventional Commits format: `ci(viewer): bump pnpm 10 → 11 to match project lockfile encoding`
+- [x] Body explains *why* — pnpm 10 in CI rejects pnpm 11's lockfile-overrides encoding with ERR_PNPM_LOCKFILE_CONFIG_MISMATCH; commit e322872 already moved the project to pnpm 11 (allowBuilds workspace config), CI was never updated. Surfaced as a failure on PR #5 (Game2048Sim).
 - [x] Co-author tag present
