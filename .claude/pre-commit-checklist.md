@@ -15,31 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — single file `CLAUDE.md` (Active phase + next task section rewritten, ~50 lines net)
-- [x] Atomic commit — single logical change: refresh CLAUDE.md "Active phase + next task" so Claude's auto-load reflects post-Day-2 state (not the 2026-05-02 stale prompt about CasterAI research and v1.0.0 demo prep that's been overtaken by 10 commits and 3 ADRs)
+- [x] `git diff --cached --stat` reviewed — single file `.claude/settings.json` (~6 lines added: a second `command`-type hook in the existing PreToolUse-on-Bash entry)
+- [x] Atomic commit — single logical change: add a PR-cadence guardrail hook so the "branch silently drifted 125 commits ahead of main" failure mode that motivated PR #2 cannot recur
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; CLAUDE.md doc only
-- [x] `nova-agent/` not touched — N/A, doc-only change
-- [x] `nova-viewer/` not touched — N/A, doc-only change
-- [x] Docs / config — CLAUDE.md "Active phase + next task" section now reflects: (a) Week 0 Day 2 done with 10 commits shipped today, (b) the ADR-0005 demo deferral and the Week 0 Days 3-7 reallocation to early `Game2048Sim` build, (c) the full list of today's deliverables (review-system port, pre-push hook, dependabot fixes, record-replay, schema enforcement, plumbing tier + ADR-0006, Blind Control Group + ADR-0007, Phase 1/5 roadmap additions), (d) the four next-session tasks (live 50-move + dry-run + /review + start Game2048Sim), (e) the two one-time setup items (`/hooks` reload + `ANTHROPIC_API_KEY` repo secret). The CasterAI prompt is gone (already shipped via PR #1's nunu.ai pivot); the v1.0.0 demo prep is gone (deferred per ADR-0005).
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; settings.json adds shell-pipeline command text only (counts commits ahead of origin/main, calls `gh pr list`, emits a `systemMessage` warning if >30 commits ahead AND no open PR)
+- [x] `nova-agent/` not touched — N/A, Claude-config-only change
+- [x] `nova-viewer/` not touched — N/A, Claude-config-only change
+- [x] Docs / config — adds a second hook to the existing PreToolUse[matcher:Bash][if:Bash(git push:*)] block. Type `command`, 10s timeout. Pipeline: `git rev-list --count origin/main..HEAD` → if result >30 AND branch is not `main` AND `gh pr list --head <branch> --state open` returns nothing → emit `{"systemMessage": "PR overdue: <N> commits ahead..."}` to stdout. Otherwise silent. Errors swallowed via outer `2>/dev/null` so a missing `gh` or detached HEAD never breaks the push. JQ schema validated; pipe-tested with current state (returns silent because PR #2 is open).
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — N/A: `CLAUDE.md` is at repo root but is a Claude-tooling configuration file; per REVIEW.md path-matched trigger taxonomy this falls under "Claude-tooling-only" (the same row that exempts `.claude/**`). Strategic / methodology / operator-facing prose docs are reviewed by the user, not by the code-quality rubric.
+- [x] `/review` dispatched on staged diff — N/A: `.claude/settings.json` is the "skip with reason: Claude-tooling-only" row of REVIEW.md path-matched trigger taxonomy
 - [x] `code-reviewer` subagent — N/A, covered by skip reason above
-- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched. Note: the hook's shell pipeline runs on every `git push:*` and shells out to `gh pr list` — the only network call is `gh`'s standard GitHub API call (already authenticated via the user's `gh` CLI session). No new credential surface introduced.
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, no time-cost gotcha; this commit IS a documentation-currency update, not a lesson
-- [x] CLAUDE.md "Common gotchas" — N/A, untouched in this commit; the Active-phase rewrite is the change
+- [x] LESSONS.md — N/A, the lesson "branch can drift many commits ahead of main without a PR — guard against it at push time" is implicit in the hook's existence and the PR #2 body that called out the failure mode. No separate LESSONS entry needed since the guardrail makes the lesson structural rather than retrospective
+- [x] CLAUDE.md "Common gotchas" — N/A, the guardrail makes the gotcha self-correcting
 - [x] ARCHITECTURE.md — N/A, system topology unchanged
-- [x] New ADR — N/A, this is a documentation-currency update; the underlying decisions live in ADR-0005 / ADR-0006 / ADR-0007
+- [x] New ADR — N/A, this is a workflow-tooling addition (one shell pipeline in settings.json) that can be removed by deleting one entry. Not a load-bearing architectural decision
 
 ## Commit message
 
-- [x] Conventional Commits format: `docs(claude): refresh Active phase + next task to reflect post-Day-2 state`
-- [x] Body explains *why* — Claude auto-loads CLAUDE.md on every session start. The previous "Active phase" section was timestamped 2026-05-02 and pointed at first-task work that has since shipped (CasterAI/nunu.ai research) or been deferred (v1.0.0 demo). Stale auto-loaded context is worse than none — it would point a future session at completed work and miss the current next-task list. This commit updates the section to reflect today's actual state and the four-item next-session task list per the revised Week 0 plan.
+- [x] Conventional Commits format: `feat(claude): add PR-cadence guardrail hook to prevent branch drift`
+- [x] Body explains *why* — branch drifted 125 commits ahead of main without a PR (see PR #2). Each commit silently increased the eventual merge cost; nothing surfaced the problem until manual inspection. The new hook fires on every `git push:*` and emits a `systemMessage` warning when the branch is >30 commits ahead of origin/main AND no PR is open. Doesn't block the push (drift may be intentional during a sprint), but makes the threshold visible at the moment the user is about to push the 31st commit. Threshold of 30 is a judgment call — high enough to not nag during normal small-PR work, low enough to catch the "I'll PR later" trap before it turns into a 100+ commit catch-up PR.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
