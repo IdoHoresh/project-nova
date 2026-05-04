@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     ws_host: str = Field("127.0.0.1", alias="NOVA_WS_HOST")
     ws_port: int = Field(8765, alias="NOVA_WS_PORT")
 
+    # Bus recording (dev-only). When set, every published AgentEvent is
+    # appended to this JSONL file in addition to the live broadcast — see
+    # nova_agent.bus.recorder. Default None disables recording entirely.
+    bus_record_path: Path | None = Field(None, alias="NOVA_BUS_RECORD")
+
     # Logging
     log_level: str = Field("INFO", alias="NOVA_LOG_LEVEL")
 

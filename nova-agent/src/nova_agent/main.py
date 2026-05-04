@@ -8,6 +8,7 @@ from nova_agent.action.adb import ADB, SwipeDirection
 from nova_agent.affect.rpe import rpe as compute_rpe
 from nova_agent.affect.state import AffectState
 from nova_agent.affect.verbalize import describe as describe_affect
+from nova_agent.bus.recorder import RecordingEventBus
 from nova_agent.bus.websocket import EventBus
 from nova_agent.config import get_settings
 from nova_agent.decision.arbiter import should_use_tot
@@ -102,7 +103,12 @@ async def _run_post_game(
 
 async def run() -> None:
     s = get_settings()
-    bus = EventBus(host=s.ws_host, port=s.ws_port)
+    bus: EventBus
+    if s.bus_record_path is not None:
+        bus = RecordingEventBus(host=s.ws_host, port=s.ws_port, path=s.bus_record_path)
+        log.info("bus.recording_enabled", path=str(s.bus_record_path))
+    else:
+        bus = EventBus(host=s.ws_host, port=s.ws_port)
     await bus.start()
 
     capture = Capture(adb_path=s.adb_path, device_id=s.adb_device_id)
