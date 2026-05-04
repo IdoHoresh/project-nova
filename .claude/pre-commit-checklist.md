@@ -15,35 +15,31 @@
 ## Branch + scope
 
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 5 files: `nova-agent/src/nova_agent/llm/tiers.py` (add `plumbing` tier), `nova-agent/src/nova_agent/config.py` (add `tier: TierName | None` field), `nova-agent/src/nova_agent/main.py` (tier-aware model routing), `nova-agent/tests/test_llm_tiers.py` (2 plumbing tests), `docs/decisions/0006-cost-tier-discipline-and-record-replay.md` (new ADR consolidating cost-tier discipline + schema-enforcement contract + record-replay rationale)
-- [x] Atomic commit — single logical change: add `plumbing` cost-discipline tier, wire `NOVA_TIER` into main.py, document the whole decision in ADR-0006
+- [x] `git diff --cached --stat` reviewed — 3 files: `docs/product/methodology.md` (§4.1 Cliff Test rewritten with two-arm design), `docs/product/product-roadmap.md` (Week 1 tasks + gate criteria updated for Blind Control Group), `docs/decisions/0007-blind-control-group-for-cliff-test.md` (new ADR)
+- [x] Atomic commit — single logical change: introduce a Blind Control Group (Baseline Bot) into the Phase 0.7 Cliff Test so the falsification criterion is "affect predicts cliff earlier than a non-affective baseline" rather than "Carla's Anxiety peaked before her game-over"
 
 ## Verification
 
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; tier name strings only
-- [x] `nova-agent/` — gate trio green: 156/156 tests pass (added 2 plumbing-tier tests, retained all 154 prior including bus recorder/replayer + LLM schema-enforcement tests), mypy strict clean (46 source files), ruff clean
-- [x] `nova-viewer/` not touched — N/A, agent + docs change
-- [x] Docs / config — `tiers.py` adds `plumbing` (flash-lite everywhere, tot_branches=2) with explicit "SAFE only because every JSON callsite passes response_schema; NEVER for cognitive-judgment work" docstring. `config.py` adds `tier: TierName | None` field validated against the Literal at the pydantic-settings chokepoint per `.claude/rules/security.md`. `main.py` consults `s.tier`: when set, sets `os.environ["NOVA_TIER"]` from validated value and routes the 3 cognitive roles through `tiers.model_for(role)`; otherwise falls back to per-task `s.X_model` fields (backward-compatible). ADR-0006 documents the four tiers, the schema-enforcement contract, the record-replay design, and the explicit rejections (vcrpy, Ollama, batch-API-now) per the principal engineer's red team.
+- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens; methodology + roadmap + ADR docs only
+- [x] `nova-agent/` not touched — N/A, methodology + ADR-only change
+- [x] `nova-viewer/` not touched — N/A, methodology + ADR-only change
+- [x] Docs / config — methodology.md §4.1 now defines two arms (Casual Carla N=20 + Baseline Bot N=20 per scenario, same seeded sequences), the comparison metric `Δ = t_baseline_fails - t_carla_predicts`, two pass criteria (prediction-validity + affect-earns-its-keep), and three failure modes (both pass / single-arm pass / both fail) with the demoted "architecture-as-narrator" reposition path. roadmap.md Week 1 task list mirrors the two-arm split with explicit `NOVA_TIER=production` discipline (cliff test is forbidden from plumbing tier per ADR-0006). ADR-0007 documents the falsification gap that motivated the change, the Baseline Bot prompt verbatim, the alternatives considered (single-armed N=100, random-move control, ground-truth comparison, deferral), and the reversibility path.
 
 ## Review
 
-- [x] `/review` dispatched on staged diff — yes. Code-reviewer (Sonnet) + security-reviewer (Opus) dispatched in parallel per REVIEW.md path-matched trigger taxonomy (`nova-agent/**/llm/**` + `main.py` is the yes-yes row).
-- [x] Code-reviewer verdict: **APPROVE** with 3 NIT.
-  - **NIT config.py:46** `tier: str | None` loses Literal validation → fixed: now `tier: TierName | None`, validated at the pydantic-settings chokepoint
-  - **NIT main.py:131** env round-trip inverts source-of-truth → deferred (would refactor `model_for(role, tier=...)` signature; out of scope for this commit, captured as future cleanup in ADR-0006 §Reversibility)
-  - **NIT main.py:143-145** three asserts smell → deferred (smell points at TypedDict union return type — `tot_branches: int` while `decision/tot/reflection: str` — splitting `model_for(role) -> str` and `branches_for_tot() -> int` is the right cleanup; deferred until plumbing-tier branch-count tuning surfaces a need)
-- [x] Security-reviewer verdict: **APPROVE**. All concerns LOW / NEGLIGIBLE: env write is benign tier-name string; unvalidated-input concern resolved by NIT-1 fix; no prompt-injection surface today (board state + own-process memory + Unity-fork screenshot — no untrusted user prompts cross the boundary; flagged for re-review when persona-driven multi-game arrives at Week 4+); LLM-output-as-control-flow path is bounded enums + typed coordinator API.
-- [x] All BLOCKs addressed — there were no BLOCK findings.
+- [x] `/review` dispatched on staged diff — N/A: `docs/**` is the "skip with reason: doc-only" row of REVIEW.md path-matched trigger taxonomy. Strategic / methodology docs are reviewed by the user, not by the code-quality rubric.
+- [x] `code-reviewer` subagent — N/A, doc-only addition with no executable logic
+- [x] `security-reviewer` — N/A, no secrets / env / LLM / bus paths touched
 
 ## Documentation
 
-- [x] LESSONS.md — N/A, the lesson is captured in ADR-0006; LESSONS.md cross-references the ADR (no separate entry needed for the decision artifact itself)
-- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; tier semantics live in `tiers.py` docstring and ADR-0006
-- [x] ARCHITECTURE.md — N/A, no topology change; tier system is a configuration overlay on the existing model-routing code path
-- [x] New ADR — yes, `docs/decisions/0006-cost-tier-discipline-and-record-replay.md` consolidates: the four-tier system (plumbing/dev/production/demo), the `response_schema` enforcement contract that makes plumbing safe, the record-and-replay design, and the explicit "what we are NOT doing" list (no vcrpy, no Ollama Week 0, no batch API yet, no auto-detection)
+- [x] LESSONS.md — N/A, the methodology rationale is captured in ADR-0007 and §4.1; the lesson "single-armed tests of cognitive prediction are not falsifiable" is implicit in the ADR's Context section
+- [x] CLAUDE.md "Common gotchas" — N/A, no new gotcha; CLAUDE.md "Active phase + next task" gets a separate refresh in commit 3 of tonight's plan
+- [x] ARCHITECTURE.md — N/A, system topology unchanged; this is methodology, not code
+- [x] New ADR — yes, `docs/decisions/0007-blind-control-group-for-cliff-test.md` follows the `0000-template.md` shape (Context / Decision / Alternatives considered / Consequences / References) and explicitly references ADR-0001, ADR-0002, ADR-0005, ADR-0006, methodology.md §4.1, roadmap Week 1, and competitive-landscape.md (nunu.ai counter-positioning)
 
 ## Commit message
 
-- [x] Conventional Commits format: `feat(llm): add plumbing tier and ADR-0006 wiring NOVA_TIER`
-- [x] Body explains *why* — closes the cost-discipline loop opened by the principal engineer's red team. The recorder/replayer (commit a296ff1) saves UI-iteration cost by recording sessions to disk; the schema-enforcement extension (commit 07e7b9d) makes the cheap tier safe to use; THIS commit adds the cheap tier (plumbing = flash-lite everywhere) and the wiring that activates it via NOVA_TIER. ADR-0006 ties the three commits together and documents the rejected alternatives (vcrpy maintenance treadmill, Ollama Week-0 scope creep, batch-API-now-vs-Week-2) so future contributors don't re-derive the trade-offs.
+- [x] Conventional Commits format: `docs(methodology): add Blind Control Group to Phase 0.7 cliff test (ADR-0007)`
+- [x] Body explains *why* — principal engineer red-teamed the cliff test on 2026-05-04 and found a falsifiability gap: a single-armed test cannot distinguish "the cognitive architecture predicts" from "any agent fails at this threshold because the game's mechanics get harder past it." A non-affective Baseline Bot run on the same seeded sequences turns the comparison into the right shape: `Δ = t_baseline_fails - t_carla_predicts`. Cost is +300-500 games (<$50 at production tier), gain is the entire scientific validity of the demo gate Phase 0.7 must pass per ADR-0005.
 - [x] Co-author tag present: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`

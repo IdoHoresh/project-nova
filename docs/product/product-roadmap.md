@@ -99,23 +99,49 @@ useless). If it spikes *before* the failure point, Nova is predicting them
 - Identify 3-5 documented hard 2048 scenarios from community sources
   ("snake collapse" patterns, "1024-wall" board states, dead-end
   configurations)
-- Seed the simulator with each scenario; run Casual Carla persona N=20
-  times per scenario. Record full affect vector trajectories.
-- Compare timing of `Anxiety ↑` / `Frustration ↑` events against the
-  position of the documented struggle point.
+- Seed the simulator with each scenario. For EACH scenario, run **two
+  arms on the same seeded sequence** (Blind Control Group, per
+  [ADR-0007](../decisions/0007-blind-control-group-for-cliff-test.md)
+  and `methodology.md` §4.1):
+  - **Test arm:** N=20 with Casual Carla persona (full cognitive
+    architecture). Record affect-vector trajectories.
+  - **Control arm:** N=20 with Baseline Bot persona (purely-logical
+    score-maximizer prompt; no affect, no memory, no ToT, no
+    reflection). Record only move sequences and game-over indices.
+- Compare timing of Carla's `Anxiety > 0.6` event against (a) Carla's
+  own failure point, AND (b) the Baseline Bot's mean failure move.
+  Report `Δ = t_baseline_fails - t_carla_predicts` per scenario.
 
-**Self-judged gate (the falsification criterion):**
-- Did the affect peak precede the failure point by at least 2 moves in
-  > 80% of trials?
+**Self-judged gate (the falsification criterion — both must hold):**
+- Did Carla's affect peak precede her own failure point by at least 2
+  moves in > 80% of her N=20 trials? (prediction-validity test)
+- AND did Carla predict the cliff at least 2 moves earlier than the
+  Baseline Bot's mean failure move (`Δ ≥ 2`) in ≥ 3 of the 3-5
+  scenarios? (affect-earns-its-keep test)
 
-**Pass:** affect predicts. Architecture-as-predictor claim is alive.
+**Pass (both arms):** affect predicts AND adds material lead time over
+a non-affective baseline. Architecture-as-predictor claim is alive.
 Proceed to Week 2.
 
-**Fail:** affect narrates. Two-week affect-rework branch begins:
-re-derive the RPE weights, ablate each affect dimension's update rule,
-identify which dimension is decoupled from outcomes. The schedule slips by
-2-3 weeks but the architecture gets fixed before any pitch conversations.
+**Fail — single-arm pass (Carla predicts but Δ < 2):** affect tracks
+the cliff but doesn't precede it more than mechanical exhaustion would.
+Architecture demoted to "architecture-as-narrator" — interpretable but
+not predictive. Reposition the demo around interpretability; no pitch
+conversations claiming prediction.
+
+**Fail — both arms (no early Anxiety peak):** full failure of the
+prediction hypothesis. Two-week affect-rework branch begins: re-derive
+the RPE weights, ablate each affect dimension's update rule, identify
+which dimension is decoupled from outcomes. The schedule slips by 2-3
+weeks but the architecture gets fixed before any pitch conversations.
 A failed cliff test is a publishable result, not a kill signal.
+
+**Cost note:** Blind Control Group adds ~300-500 games to the test
+budget. At plumbing-tier pricing (`NOVA_TIER=plumbing`, ~$0.05-0.10
+per game) that is <$50 of additional spend — negligible against the
+scientific-validity gain. Cliff test runs at `NOVA_TIER=production`
+(both arms), not plumbing — the cliff test is exactly the cognitive-
+judgment work plumbing tier is forbidden for, per ADR-0006.
 
 ### Week 2 — Trauma Ablation
 
