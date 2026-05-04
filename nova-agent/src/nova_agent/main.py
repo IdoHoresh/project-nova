@@ -47,27 +47,16 @@ def _summarize_moves(records: list[MemoryRecord], *, limit: int = 30) -> str:
 
 
 def _build_io(s: Settings) -> GameIO:
-    """Pick the GameIO implementation based on Settings.io_source.
-
-    Defaults to LiveGameIO so existing behaviour is unchanged when no
-    NOVA_IO_SOURCE env var is set. SimGameIO returned when io_source
-    is set to "sim" (Task 5 wires that branch).
-
-    The Settings.io_source attribute is added in Task 5; until then this
-    returns LiveGameIO unconditionally and the attribute access is guarded
-    via getattr so this task can land before Task 5.
-    """
-    if getattr(s, "io_source", "live") == "sim":
+    """Pick the GameIO implementation based on Settings.io_source."""
+    if s.io_source == "sim":
         # Lazy import — sim deps (Pillow renderer, scenarios) only
-        # imported when sim is actually selected. The `nova_agent.lab.*`
-        # modules don't exist yet (Tasks 2-5 build them); type: ignore is
-        # temporary until those land. The runtime branch is unreachable
-        # until Task 5 wires Settings.io_source, so this is dead code today.
+        # imported when sim is actually selected, keeping the live path
+        # unaffected by sim module availability.
         from nova_agent.lab.io import SimGameIO  # noqa: PLC0415
-        from nova_agent.lab.scenarios import load as load_scenario  # type: ignore[import-untyped]  # noqa: PLC0415
+        from nova_agent.lab.scenarios import load as load_scenario  # noqa: PLC0415
         from nova_agent.lab.sim import Game2048Sim  # noqa: PLC0415
 
-        scenario = load_scenario(getattr(s, "sim_scenario", "fresh-start"))
+        scenario = load_scenario(s.sim_scenario)
         sim = Game2048Sim(seed=scenario.seed, scenario=scenario)
         return SimGameIO(sim=sim)
     capture = Capture(adb_path=s.adb_path, device_id=s.adb_device_id)

@@ -7,7 +7,7 @@ ADR-0008. Tests written FIRST per nova-agent TDD discipline.
 
 from __future__ import annotations
 
-import pytest  # noqa: F401  # used by Task 5's test_scenario_load_unknown_raises_keyerror
+import pytest
 
 from nova_agent.action.adb import SwipeDirection
 from nova_agent.lab.sim import Game2048Sim, Scenario
@@ -314,3 +314,22 @@ def test_game_over_false_when_full_but_merges_possible() -> None:
         ),
     )
     assert sim.is_game_over() is False
+
+
+# ---- Scenario library ----
+
+
+def test_scenario_loading_from_library() -> None:
+    from nova_agent.lab.scenarios import load
+
+    s = load("fresh-start")
+    assert s.id == "fresh-start"
+    assert s.initial_score == 0
+    assert s.initial_grid == [[0] * 4 for _ in range(4)]
+
+
+def test_scenario_load_unknown_raises_keyerror() -> None:
+    from nova_agent.lab.scenarios import load
+
+    with pytest.raises(KeyError, match="unknown scenario"):
+        load("not-a-real-scenario")
