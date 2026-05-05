@@ -328,3 +328,49 @@ async def test_baseline_telemetry_emits_parse_failure_and_trial_aborted(
     assert len(parse_fails) == 2
     aborted = [d for n, d in bus.events if n == "bot_trial_aborted"]
     assert aborted[0]["reason"] == "parse_failure"
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — Integration test: Bot + Game2048Sim full trial
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_baseline_runs_full_trial_against_game2048sim_with_mock_llm(monkeypatch):
+    """Integration: Bot decides, runner-style loop applies the swipe to
+    Game2048Sim, until game-over OR MAX_MOVES=50.
+
+    Mock LLM cycles through valid responses. This is NOT the Test Runner
+    (no scenario, no paired logic, no telemetry persistence), but it
+    verifies BaselineDecider integrates with the sim contract.
+    """
+    from nova_agent.action.adb import SwipeDirection
+    from nova_agent.decision.baseline import BaselineDecider, BotDecision
+    from nova_agent.lab.scenarios import SCENARIOS
+    from nova_agent.lab.sim import Game2048Sim
+
+    monkeypatch.setattr("nova_agent.decision.baseline.asyncio.sleep", _noop_sleep)
+
+    # Cycle through all four directions to avoid getting stuck on any single one.
+    cycling_responses = [
+        '{"observation": "x", "reasoning": "y", "action": "swipe_up", "confidence": "low"}',
+        '{"observation": "x", "reasoning": "y", "action": "swipe_right", "confidence": "low"}',
+        '{"observation": "x", "reasoning": "y", "action": "swipe_down", "confidence": "low"}',
+        '{"observation": "x", "reasoning": "y", "action": "swipe_left", "confidence": "low"}',
+    ] * 20  # max 80 calls, well above MAX_MOVES=50
+    llm = _RetryingMockLLM(scripted=cycling_responses)
+
+    scenario = SCENARIOS["fresh-start"]
+    sim = Game2048Sim(seed=scenario.seed_base, scenario=scenario)
+    decider = BaselineDecider(llm=llm)
+
+    MAX_MOVES = 50
+    moves_taken = 0
+    while not sim.is_game_over() and moves_taken < MAX_MOVES:
+        result = await decider.decide(board=sim.board, trial_index=0, move_index=moves_taken)
+        assert isinstance(result, BotDecision), f"unexpected abort at move {moves_taken}"
+        sim.apply_move(SwipeDirection(result.action))
+        moves_taken += 1
+
+    # Either game-over OR right-censored at MAX_MOVES. Both acceptable.
+    assert sim.is_game_over() or moves_taken == MAX_MOVES
