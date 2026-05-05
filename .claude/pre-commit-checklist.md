@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 1 file: new Baseline Bot implementation plan (+1423 lines)
-- [x] Atomic commit — single coherent unit: implementation plan for the Bot spec shipped in commit fea8ac0
+- [x] `git diff --cached --stat` reviewed — 2 files: react.py (+14/-8), test_decision_react.py (+53/-0); well under 500-line threshold
+- [x] Atomic commit — single coherent unit: make screenshot_b64 optional in ReactDecider + 3 tests (1 regression + 2 new text-only)
 
 ## Verification
-- [x] `git diff --cached` scanned for secrets — plan content references "tokens" only as LLM-token-counts, no API keys / env values
-- [x] `nova-agent/` — N/A: doc-only commit, no Python touched
-- [x] `nova-viewer/` — N/A: doc-only commit, no TS touched
-- [x] Docs / config — plan file is docs; no config changes
+- [x] `git diff --cached` scanned for secrets — no API keys, tokens, or env values; only type annotations and test assertions
+- [x] `nova-agent/` — pytest 213 passed, mypy clean (no issues in 53 source files), ruff clean (all checks passed)
+- [x] `nova-viewer/` — N/A: no TS files touched
+- [x] Docs / config — N/A: no doc or config changes
 
 ## Review
-- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: doc-only` (implementation plan, no code paths)
-- [x] `code-reviewer` subagent — N/A: doc-only commit
-- [x] `security-reviewer` — N/A: no secrets / env / LLM / bus paths touched in the plan content; security-reviewer is invoked when Task 6 of the plan executes (per plan's Task 6 Step 5)
+- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: mechanical` — this is a straightforward type-signature relaxation (str → str | None) with TDD coverage; no new architecture, no security surface
+- [x] `code-reviewer` subagent — N/A: mechanical refactor per spec §5.1; covered by gate trio
+- [x] `security-reviewer` — N/A: no LLM adapter changes, no env/bus/secrets paths touched; screenshot_b64 content is never logged or published
 
 ## Documentation
-- [x] LESSONS.md — N/A this commit; brainstorm-process lessons may land in a follow-up commit after the plan executes
+- [x] LESSONS.md — N/A this commit; no new lesson; the optional-screenshot pattern is straightforward
 - [x] CLAUDE.md "Common gotchas" — N/A: no new gotcha
-- [x] ARCHITECTURE.md — N/A: plan implements an existing spec, no new architecture
-- [x] New ADR — N/A: ADR-0007 Amendment 1 already shipped in commit fea8ac0
+- [x] ARCHITECTURE.md — N/A: no architectural change; signature relaxation only
+- [x] New ADR — N/A: no load-bearing architectural decision; spec already exists at docs/superpowers/specs/2026-05-05-baseline-bot-design.md §5.1
 
 ## Commit message
-- [x] Conventional Commits format: `docs(plan): baseline bot implementation plan`
-- [x] Body explains why — TDD-decomposed seven-task plan executes the Bot spec; companion to commit fea8ac0; ready for subagent-driven execution
+- [x] Conventional Commits format: `refactor(react): make screenshot_b64 optional for Phase 0.7 text-only mode`
+- [x] Body explains why — Game2048Sim produces no pixels; both Carla and Baseline Bot need text-only mode; production emulator path unchanged
 - [x] Co-author tag present

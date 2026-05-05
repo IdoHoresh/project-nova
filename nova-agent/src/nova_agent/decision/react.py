@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -34,14 +34,14 @@ class ReactDecider:
     def __init__(self, *, llm: LLM):
         self.llm = llm
 
-    def decide(self, *, board: BoardState, screenshot_b64: str) -> Decision:
+    def decide(self, *, board: BoardState, screenshot_b64: str | None = None) -> Decision:
         return self.decide_with_context(board=board, screenshot_b64=screenshot_b64, memories=[])
 
     def decide_with_context(
         self,
         *,
         board: BoardState,
-        screenshot_b64: str,
+        screenshot_b64: str | None = None,
         memories: list[RetrievedMemory],
         affect_text: str = "",
     ) -> Decision:
@@ -54,22 +54,22 @@ class ReactDecider:
             )
         else:
             user_text = build_user_prompt_v2(grid=board.grid, score=board.score, memories=memories)
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": screenshot_b64,
-                        },
+
+        content_blocks: list[dict[str, Any]] = []
+        if screenshot_b64:
+            content_blocks.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": screenshot_b64,
                     },
-                    {"type": "text", "text": user_text},
-                ],
-            }
-        ]
+                }
+            )
+        content_blocks.append({"type": "text", "text": user_text})
+
+        messages = [{"role": "user", "content": content_blocks}]
         # Gemini 2.5 Flash spends internal thinking tokens against this budget
         # before emitting visible JSON. Plan's 400 was too tight — model could
         # exhaust the budget thinking and return a truncated `{\n  "`. 2000 leaves
