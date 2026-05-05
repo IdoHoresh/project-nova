@@ -202,3 +202,45 @@ async def test_baseline_decide_aborts_after_three_api_errors(
 
 async def _noop_sleep(_seconds: float) -> None:
     return None
+
+
+# ---------------------------------------------------------------------------
+# Task 5 — Parse-failure retry tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_baseline_decide_retries_once_on_parse_failure_then_succeeds(monkeypatch):
+    from nova_agent.decision.baseline import BaselineDecider, BotDecision
+
+    monkeypatch.setattr("nova_agent.decision.baseline.asyncio.sleep", _noop_sleep)
+
+    invalid = "not json"
+    valid = '{"observation": "x", "reasoning": "y", "action": "swipe_down", "confidence": "high"}'
+    llm = _RetryingMockLLM(scripted=[invalid, valid])
+    decider = BaselineDecider(llm=llm)
+    board = BoardState(grid=[[2, 0, 0, 0]] + [[0] * 4] * 3, score=0)
+
+    result = await decider.decide(board=board, trial_index=0, move_index=0)
+
+    assert isinstance(result, BotDecision)
+    assert result.action == "swipe_down"
+    assert len(llm.calls) == 2  # 1 unparseable + 1 valid
+
+
+@pytest.mark.asyncio
+async def test_baseline_decide_aborts_after_two_parse_failures(monkeypatch):
+    from nova_agent.decision.baseline import BaselineDecider, TrialAborted
+
+    monkeypatch.setattr("nova_agent.decision.baseline.asyncio.sleep", _noop_sleep)
+
+    llm = _RetryingMockLLM(scripted=["bad json", "still bad"])
+    decider = BaselineDecider(llm=llm)
+    board = BoardState(grid=[[2, 0, 0, 0]] + [[0] * 4] * 3, score=0)
+
+    result = await decider.decide(board=board, trial_index=0, move_index=8)
+
+    assert isinstance(result, TrialAborted)
+    assert result.reason == "parse_failure"
+    assert result.last_move_index == 8
+    assert len(llm.calls) == 2  # original + 1 retry per A1.5

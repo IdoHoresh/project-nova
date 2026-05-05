@@ -24,7 +24,7 @@ from nova_agent.bus.websocket import EventBus
 from nova_agent.decision.prompts import build_user_prompt
 from nova_agent.decision.react import _ReactOutput  # noqa: PLC2701
 from nova_agent.llm.protocol import LLM
-from nova_agent.llm.structured import parse_json
+from nova_agent.llm.structured import StructuredOutputError, parse_json
 from nova_agent.perception.types import BoardState
 
 
@@ -49,6 +49,11 @@ BASELINE_MAX_TOKENS: int = 500
 
 
 AbortReason = Literal["api_error", "parse_failure"]
+
+# Retry budget for parse failures.  At temp=0 with the same prompt the retry
+# is deterministic, but cheap insurance against transient model-version-routing
+# variance (spec §3.3).
+_PARSE_RETRY_LIMIT: int = 2  # 1 original attempt + 1 retry per A1.5
 
 # Retry budget for transient API failures.  _RETRYABLE_API_EXCEPTIONS is
 # deliberately broad (Exception) for now — the LLM provider exception
@@ -105,18 +110,22 @@ class BaselineDecider:
             {"role": "user", "content": [{"type": "text", "text": user_text}]}
         ]
 
-        text = await self._call_with_api_retry(messages=messages)
-        if text is None:
-            return TrialAborted(reason="api_error", last_move_index=move_index)
-
-        # Parse-failure retry added in Task 5; telemetry added in Task 6.
-        parsed = parse_json(text, _ReactOutput)
-        return BotDecision(
-            action=parsed.action,
-            observation=parsed.observation,
-            reasoning=parsed.reasoning,
-            confidence=parsed.confidence,
-        )
+        for parse_attempt in range(_PARSE_RETRY_LIMIT):
+            text = await self._call_with_api_retry(messages=messages)
+            if text is None:
+                return TrialAborted(reason="api_error", last_move_index=move_index)
+            try:
+                # Telemetry added in Task 6.
+                parsed = parse_json(text, _ReactOutput)
+                return BotDecision(
+                    action=parsed.action,
+                    observation=parsed.observation,
+                    reasoning=parsed.reasoning,
+                    confidence=parsed.confidence,
+                )
+            except StructuredOutputError:
+                continue  # try once more with same prompt (A1.5)
+        return TrialAborted(reason="parse_failure", last_move_index=move_index)
 
     async def _call_with_api_retry(self, *, messages: list[dict[str, Any]]) -> str | None:
         """Call LLM with up to _API_RETRY_LIMIT attempts and exponential backoff.
