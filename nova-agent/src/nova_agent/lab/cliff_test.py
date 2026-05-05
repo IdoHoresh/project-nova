@@ -505,7 +505,15 @@ def _carla_call_cost_estimate(mode: str) -> float:
     return 0.001  # React (Flash) per move
 
 
-DEFAULT_CONCURRENCY: Final[int] = 8
+# Lowered from 8 → 4 after the 2026-05-06 pilot showed Gemini Pro rate-
+# limiting under concurrency=8: ~10% per-branch ClientError/parse-error
+# rate clustered into ~20% trial-level abort rate (when all 4 ToT branches
+# in a single decision hit 429 within the same second). 4 keeps the wall
+# time tractable (~60 min for N=5×3-scenario pilot, ~120 min for the
+# Phase 0.7 N=20 run) while keeping joint-failure probability below the
+# paired-discard threshold. Tune up if Pro rate limits relax; tune down
+# if the abort rate exceeds 5% in the formal run.
+DEFAULT_CONCURRENCY: Final[int] = 4
 
 
 async def _worker(
@@ -717,8 +725,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=8,
-        help="Max in-flight paired trials. Default 8.",
+        default=DEFAULT_CONCURRENCY,
+        help=f"Max in-flight paired trials. Default {DEFAULT_CONCURRENCY}.",
     )
     parser.add_argument(
         "--output-dir",
