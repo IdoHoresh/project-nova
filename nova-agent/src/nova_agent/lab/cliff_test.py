@@ -71,6 +71,44 @@ def _check_anxiety_threshold(
     )
 
 
+# Per spec §2.3 + §2.6: cost-cap envelope.
+BUDGET_PER_SCENARIO_ARM_USD: Final[float] = 5.00
+HARD_CAP_MULTIPLIER: Final[float] = 1.3
+
+
+class _BudgetState:
+    """Per-(scenario_id, arm) running spend, with soft- and hard-cap checks.
+
+    Used by the worker (hard-cap pre-LLM gate) and the orchestrator
+    (soft-cap drain-in-flight halt). asyncio coroutines do not race on a
+    single-threaded event loop, so no lock is needed; ``add`` is a single
+    arithmetic update.
+    """
+
+    def __init__(
+        self,
+        *,
+        soft_cap_usd: float = BUDGET_PER_SCENARIO_ARM_USD,
+        hard_cap_multiplier: float = HARD_CAP_MULTIPLIER,
+    ) -> None:
+        self._soft_cap = soft_cap_usd
+        self._hard_cap = soft_cap_usd * hard_cap_multiplier
+        self._spent: dict[tuple[str, str], float] = {}
+
+    def add(self, scenario_id: str, arm: str, cost_usd: float) -> None:
+        key = (scenario_id, arm)
+        self._spent[key] = self._spent.get(key, 0.0) + cost_usd
+
+    def spent(self, scenario_id: str, arm: str) -> float:
+        return self._spent.get((scenario_id, arm), 0.0)
+
+    def soft_cap_hit(self, scenario_id: str, arm: str) -> bool:
+        return self.spent(scenario_id, arm) >= self._soft_cap
+
+    def hard_cap_hit(self, scenario_id: str, arm: str) -> bool:
+        return self.spent(scenario_id, arm) >= self._hard_cap
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cliff-test",
