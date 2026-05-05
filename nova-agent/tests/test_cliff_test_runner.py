@@ -204,3 +204,38 @@ async def test_run_cliff_test_refuses_overwrite_without_force(tmp_path: Path) ->
             reflection_llm=MockLLMClient(),
             bot_llm=MockLLMClient(),
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 10: main() e2e CLI smoke
+# ---------------------------------------------------------------------------
+
+
+def test_cli_e2e_pilot_smoke_via_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end: run the CLI as a subprocess in pilot mode against fresh-start.
+
+    Skipped when ANTHROPIC_API_KEY / GOOGLE_API_KEY absent (we don't want a
+    test that hits real providers). For production-tier validation, this
+    test runs with the real keys; for the standard pytest trio it skips.
+    """
+    if "ANTHROPIC_API_KEY" not in os.environ or "GOOGLE_API_KEY" not in os.environ:
+        pytest.skip("e2e smoke skipped: requires ANTHROPIC_API_KEY + GOOGLE_API_KEY")
+
+    output_dir = tmp_path / "runs" / "e2e-smoke"
+    result = _run_cli(
+        "--scenario",
+        "fresh-start",
+        "--n",
+        "1",
+        "--pilot",
+        "--concurrency",
+        "1",
+        "--output-dir",
+        str(output_dir),
+        env_overrides={"NOVA_TIER": "production"},
+    )
+    assert result.returncode in {0, 2, 3}, f"stderr: {result.stderr}"
+    csv_path = output_dir / "pilot_results" / "cliff_test_results.csv"
+    assert csv_path.exists()

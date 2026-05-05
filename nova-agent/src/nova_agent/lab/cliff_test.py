@@ -743,6 +743,89 @@ def _check_tier() -> str | None:
     return tier
 
 
+# Per spec §6.2: the three falsification scenarios (excludes the
+# fresh-start placeholder which is not part of the pass/fail gate).
+_CLIFF_TEST_SCENARIOS: Final[tuple[str, ...]] = (
+    "snake-collapse-128",
+    "512-wall",
+    "corner-abandonment-256",
+)
+
+
+def _resolve_scenarios(arg: str) -> list[Scenario]:
+    """Expand '--scenario all' to the three cliff-test scenarios, or look up a single id."""
+    from nova_agent.lab.scenarios import SCENARIOS, load as load_scenario
+
+    if arg == "all":
+        return [SCENARIOS[s] for s in _CLIFF_TEST_SCENARIOS]
+    return [load_scenario(arg)]
+
+
+def _default_output_dir() -> Path:
+    """Returns runs/<UTC-iso-timestamp>/."""
+    from datetime import datetime, timezone
+
+    ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return Path("runs") / ts
+
+
+def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
+    """Construct the four LLMs the runner needs via tier-resolved model names.
+
+    Roles per nova_agent.llm.tiers.TierConfig:
+      decision  — Carla react path + Baseline Bot (same family per Bot spec §2.4)
+      tot       — Carla Tree-of-Thoughts deliberation
+      reflection — Carla post-game reflection
+
+    model_for(role) reads NOVA_TIER from the environment (set by _check_tier
+    before this call). google_api_key and anthropic_api_key are plain str on
+    Settings (not SecretStr). Settings.daily_budget_usd is the cap field
+    (not daily_cap_usd — adapted from plan draft per actual Settings shape).
+    """
+    from nova_agent.config import get_settings
+    from nova_agent.llm import tiers as model_tiers
+    from nova_agent.llm.factory import build_llm
+
+    settings = get_settings()
+    # model_for() returns str | int (TierConfig includes int fields like
+    # tot_branches); cast to str — the string roles (decision/tot/reflection)
+    # are always str in every tier, and build_llm requires str.
+    decision_model = str(model_tiers.model_for("decision"))
+    tot_model = str(model_tiers.model_for("tot"))
+    reflection_model = str(model_tiers.model_for("reflection"))
+
+    google_api_key = settings.google_api_key
+    anthropic_api_key = settings.anthropic_api_key
+    daily_cap_usd = settings.daily_budget_usd
+
+    return (
+        build_llm(
+            model=decision_model,
+            google_api_key=google_api_key,
+            anthropic_api_key=anthropic_api_key,
+            daily_cap_usd=daily_cap_usd,
+        ),
+        build_llm(
+            model=tot_model,
+            google_api_key=google_api_key,
+            anthropic_api_key=anthropic_api_key,
+            daily_cap_usd=daily_cap_usd,
+        ),
+        build_llm(
+            model=reflection_model,
+            google_api_key=google_api_key,
+            anthropic_api_key=anthropic_api_key,
+            daily_cap_usd=daily_cap_usd,
+        ),
+        build_llm(
+            model=decision_model,
+            google_api_key=google_api_key,
+            anthropic_api_key=anthropic_api_key,
+            daily_cap_usd=daily_cap_usd,
+        ),  # bot — same family as decision per Bot spec §2.4
+    )
+
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
@@ -756,9 +839,25 @@ def main() -> None:
         )
         sys.exit(EXIT_TIER_REFUSED)
 
-    # Dispatch shell — Tasks 9-10 fill this in.
-    print(f"cliff-test placeholder: scenario={args.scenario}, n={args.n}, tier={tier}")
-    sys.exit(EXIT_OK)
+    scenarios = _resolve_scenarios(args.scenario)
+    output_dir = Path(args.output_dir) if args.output_dir else _default_output_dir()
+    decision_llm, tot_llm, reflection_llm, bot_llm = _build_llms()
+
+    code = asyncio.run(
+        run_cliff_test(
+            scenarios=scenarios,
+            n=args.n,
+            output_dir=output_dir,
+            concurrency=args.concurrency,
+            pilot=args.pilot,
+            force=args.force,
+            decision_llm=decision_llm,
+            tot_llm=tot_llm,
+            reflection_llm=reflection_llm,
+            bot_llm=bot_llm,
+        )
+    )
+    sys.exit(code)
 
 
 if __name__ == "__main__":
