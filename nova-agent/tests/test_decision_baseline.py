@@ -3,7 +3,62 @@
 Spec: docs/superpowers/specs/2026-05-05-baseline-bot-design.md
 """
 
+from typing import Any
+
 import pytest
+
+from nova_agent.llm.protocol import Usage
+from nova_agent.perception.types import BoardState
+
+
+class _RecordingMockLLM:
+    """Minimal LLM stub that records calls and returns scripted responses."""
+
+    def __init__(self, responses: list[str], model: str = "claude-sonnet-4-6"):
+        self.model = model
+        self._responses = list(responses)
+        self.calls: list[dict[str, Any]] = []
+
+    def complete(self, **kwargs: Any) -> tuple[str, Usage]:
+        self.calls.append(kwargs)
+        if not self._responses:
+            raise AssertionError("MockLLM ran out of scripted responses")
+        text = self._responses.pop(0)
+        return text, Usage(input_tokens=100, output_tokens=50, model=self.model)
+
+
+@pytest.mark.asyncio
+async def test_baseline_decide_returns_decision_on_valid_response() -> None:
+    from nova_agent.decision.baseline import BaselineDecider, BotDecision
+
+    valid_json = (
+        '{"observation": "two corner",'
+        ' "reasoning": "consolidate left",'
+        ' "action": "swipe_left",'
+        ' "confidence": "medium"}'
+    )
+    llm = _RecordingMockLLM(responses=[valid_json])
+    decider = BaselineDecider(llm=llm)
+    board = BoardState(grid=[[2, 0, 0, 0]] + [[0] * 4] * 3, score=0)
+
+    result = await decider.decide(board=board, trial_index=0, move_index=0)
+
+    assert isinstance(result, BotDecision)
+    assert result.action == "swipe_left"
+    assert result.observation == "two corner"
+    assert result.confidence == "medium"
+    # Verify the LLM was called with the right config
+    assert len(llm.calls) == 1
+    call = llm.calls[0]
+    assert call["temperature"] == 0.0
+    assert call["max_tokens"] == 500
+    assert call["response_schema"].__name__ == "_ReactOutput"
+    # Verify text-only message structure
+    assert len(call["messages"]) == 1
+    assert call["messages"][0]["role"] == "user"
+    assert all(b.get("type") != "image" for b in call["messages"][0]["content"])
+    # Verify the system prompt is the canonical Bot prompt
+    assert "maximize score" in call["system"]
 
 
 def test_baseline_module_exports_expected_symbols():

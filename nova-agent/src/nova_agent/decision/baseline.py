@@ -20,7 +20,11 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from nova_agent.bus.websocket import EventBus
+from nova_agent.decision.prompts import build_user_prompt
+from nova_agent.decision.react import _ReactOutput  # noqa: PLC2701
 from nova_agent.llm.protocol import LLM
+from nova_agent.llm.structured import parse_json
+from nova_agent.perception.types import BoardState
 
 
 # ADR-0007 prompt (verbatim) extended with JSON-output instructions matching
@@ -84,8 +88,28 @@ class BaselineDecider:
     async def decide(
         self,
         *,
-        board: Any,  # BoardState — typed in Task 3
+        board: BoardState,
         trial_index: int,
         move_index: int,
     ) -> BotDecision | TrialAborted:
-        raise NotImplementedError("Implemented in Task 3")
+        user_text = build_user_prompt(grid=board.grid, score=board.score)
+        messages: list[dict[str, Any]] = [
+            {"role": "user", "content": [{"type": "text", "text": user_text}]}
+        ]
+
+        # Happy path: single LLM call, single parse. Retry logic added in
+        # Tasks 4 and 5; telemetry added in Task 6.
+        text, _usage = self.llm.complete(
+            system=BASELINE_SYSTEM_PROMPT,
+            messages=messages,
+            max_tokens=BASELINE_MAX_TOKENS,
+            temperature=BASELINE_TEMPERATURE,
+            response_schema=_ReactOutput,
+        )
+        parsed = parse_json(text, _ReactOutput)
+        return BotDecision(
+            action=parsed.action,
+            observation=parsed.observation,
+            reasoning=parsed.reasoning,
+            confidence=parsed.confidence,
+        )
