@@ -25,6 +25,47 @@ export type SwipeAction =
   | "swipe_left"
   | "swipe_right";
 
+// Per backend `nova_agent/decision/baseline.py` publishes (Task 6 telemetry):
+//   bot_call_attempt:      {trial, move_index, attempt_n}
+//   bot_call_success:      {trial, move_index, action, latency_ms, prompt_tokens, completion_tokens}
+//   bot_call_api_error:    {trial, move_index, error_type, attempt_n}
+//   bot_call_parse_failure:{trial, move_index, raw_response_excerpt, attempt_n}
+//   bot_trial_aborted:     {trial, reason, last_move_index}
+export interface BotCallAttemptData {
+  trial: number;
+  move_index: number;
+  attempt_n: number;
+}
+
+export interface BotCallSuccessData {
+  trial: number;
+  move_index: number;
+  action: string;
+  latency_ms: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+}
+
+export interface BotCallApiErrorData {
+  trial: number;
+  move_index: number;
+  error_type: string;
+  attempt_n: number;
+}
+
+export interface BotCallParseFailureData {
+  trial: number;
+  move_index: number;
+  raw_response_excerpt: string;
+  attempt_n: number;
+}
+
+export interface BotTrialAbortedData {
+  trial: number;
+  reason: "api_error" | "parse_failure";
+  last_move_index: number;
+}
+
 // Per backend `nova_agent/decision/tot.py` publishes:
 //   tot_branch (complete):    {game_id, move_idx, direction, value, reasoning, status: "complete"}
 //   tot_branch (parse_error): {game_id, move_idx, direction, status: "parse_error", error}
@@ -101,4 +142,9 @@ export type AgentEvent =
   | { event: "trauma_active"; data: { active: boolean } }
   | { event: "tot_branch"; data: ToTBranchData }
   | { event: "tot_selected"; data: ToTSelectedData }
-  | { event: "game_over"; data: GameOverData };
+  | { event: "game_over"; data: GameOverData }
+  | { event: "bot_call_attempt"; data: BotCallAttemptData }
+  | { event: "bot_call_success"; data: BotCallSuccessData }
+  | { event: "bot_call_api_error"; data: BotCallApiErrorData }
+  | { event: "bot_call_parse_failure"; data: BotCallParseFailureData }
+  | { event: "bot_trial_aborted"; data: BotTrialAbortedData };

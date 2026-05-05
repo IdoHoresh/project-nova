@@ -2,6 +2,11 @@ import type {
   AffectVectorDTO,
   AgentEvent,
   AgentMode,
+  BotCallApiErrorData,
+  BotCallAttemptData,
+  BotCallParseFailureData,
+  BotCallSuccessData,
+  BotTrialAbortedData,
   GameOverData,
   RetrievedMemoryDTO,
   SwipeAction,
@@ -223,6 +228,52 @@ function isGameOverData(v: unknown): v is GameOverData {
   return true;
 }
 
+function isBotCallAttemptData(v: unknown): v is BotCallAttemptData {
+  if (!isRecord(v)) return false;
+  return isNumber(v.trial) && isNumber(v.move_index) && isNumber(v.attempt_n);
+}
+
+function isBotCallSuccessData(v: unknown): v is BotCallSuccessData {
+  if (!isRecord(v)) return false;
+  return (
+    isNumber(v.trial) &&
+    isNumber(v.move_index) &&
+    isString(v.action) &&
+    isNumber(v.latency_ms) &&
+    isNumber(v.prompt_tokens) &&
+    isNumber(v.completion_tokens)
+  );
+}
+
+function isBotCallApiErrorData(v: unknown): v is BotCallApiErrorData {
+  if (!isRecord(v)) return false;
+  return (
+    isNumber(v.trial) &&
+    isNumber(v.move_index) &&
+    isString(v.error_type) &&
+    isNumber(v.attempt_n)
+  );
+}
+
+function isBotCallParseFailureData(v: unknown): v is BotCallParseFailureData {
+  if (!isRecord(v)) return false;
+  return (
+    isNumber(v.trial) &&
+    isNumber(v.move_index) &&
+    isString(v.raw_response_excerpt) &&
+    isNumber(v.attempt_n)
+  );
+}
+
+function isBotTrialAbortedData(v: unknown): v is BotTrialAbortedData {
+  if (!isRecord(v)) return false;
+  return (
+    isNumber(v.trial) &&
+    (v.reason === "api_error" || v.reason === "parse_failure") &&
+    isNumber(v.last_move_index)
+  );
+}
+
 // Top-level dispatcher. Returns the validated AgentEvent or null. Caller
 // (useNovaSocket) is responsible for logging dropped frames.
 export function parseAgentEvent(raw: unknown): AgentEvent | null {
@@ -256,6 +307,26 @@ export function parseAgentEvent(raw: unknown): AgentEvent | null {
       return isToTSelectedData(data) ? { event: "tot_selected", data } : null;
     case "game_over":
       return isGameOverData(data) ? { event: "game_over", data } : null;
+    case "bot_call_attempt":
+      return isBotCallAttemptData(data)
+        ? { event: "bot_call_attempt", data }
+        : null;
+    case "bot_call_success":
+      return isBotCallSuccessData(data)
+        ? { event: "bot_call_success", data }
+        : null;
+    case "bot_call_api_error":
+      return isBotCallApiErrorData(data)
+        ? { event: "bot_call_api_error", data }
+        : null;
+    case "bot_call_parse_failure":
+      return isBotCallParseFailureData(data)
+        ? { event: "bot_call_parse_failure", data }
+        : null;
+    case "bot_trial_aborted":
+      return isBotTrialAbortedData(data)
+        ? { event: "bot_trial_aborted", data }
+        : null;
     default:
       // Unknown event names are dropped. The catch-all used to swallow these
       // silently; now they're an explicit drop. If the agent gains a new
