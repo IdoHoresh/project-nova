@@ -19,6 +19,10 @@ import sys
 from pathlib import Path
 from typing import Any, Final
 
+from nova_agent.action.adb import SwipeDirection
+from nova_agent.lab.io import SimGameIO
+from nova_agent.perception.types import BoardState
+
 # Per spec §2.6 + ADR-0006: cognitive-judgment models must run at production tier.
 _ALLOWED_TIERS: Final[frozenset[str]] = frozenset({"production", "demo"})
 
@@ -150,6 +154,62 @@ def _append_csv_row(csv_path: Path | str, **fields: Any) -> None:
         if write_header:
             writer.writerow(list(_CSV_COLUMNS))
         writer.writerow(row)
+
+
+# Tie-break order per scenarios spec §2.3 + Bot spec §2.3.
+_TIEBREAK_ORDER: Final[tuple[SwipeDirection, ...]] = (
+    SwipeDirection.UP,
+    SwipeDirection.RIGHT,
+    SwipeDirection.DOWN,
+    SwipeDirection.LEFT,
+)
+
+
+def _try_apply(
+    io: SimGameIO,
+    direction: SwipeDirection,
+    board_before: BoardState,
+) -> SwipeDirection | None:
+    """Apply ``direction`` via ``io``. Return the direction iff the board
+    changed, else None (the move was a no-op).
+
+    Relies on Game2048Sim's no-op contract (edge case #3 in sim.py): a no-op
+    swipe does not advance RNG and does not spawn a tile, so calling
+    apply_move on a no-op direction is safe and leaves the sim state unchanged.
+    """
+    io.apply_move(direction)
+    if io.read_board().grid == board_before.grid:
+        return None
+    return direction
+
+
+def _apply_with_tiebreak(
+    io: SimGameIO,
+    chosen: str,
+    board: BoardState,
+) -> SwipeDirection:
+    """Apply ``chosen`` (e.g. ``"swipe_up"``) via ``io``. If the move is a
+    no-op (board unchanged), fall through the tie-break order UP > RIGHT >
+    DOWN > LEFT and apply the first direction that changes the board.
+
+    Returns the SwipeDirection that was actually applied.
+    Raises ValueError if no direction changes the board (defensive; the
+    per-move loop should check ``is_game_over()`` before invoking the decider,
+    making this branch unreachable in normal operation).
+    """
+    chosen_direction = SwipeDirection(chosen)
+    applied = _try_apply(io, chosen_direction, board)
+    if applied is not None:
+        return applied
+
+    for direction in _TIEBREAK_ORDER:
+        if direction == chosen_direction:
+            continue
+        applied = _try_apply(io, direction, board)
+        if applied is not None:
+            return applied
+
+    raise ValueError("no legal move on this board (game-over should have caught this)")
 
 
 def _build_parser() -> argparse.ArgumentParser:

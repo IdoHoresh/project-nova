@@ -7,13 +7,19 @@ from pathlib import Path
 
 import pytest
 
+from nova_agent.action.adb import SwipeDirection
 from nova_agent.lab.cliff_test import (
     _BudgetState,
     _CSV_COLUMNS,
     _append_csv_row,
+    _apply_with_tiebreak,
     _check_anxiety_threshold,
     _first_threshold_index,
 )
+from nova_agent.lab.io import SimGameIO
+from nova_agent.lab.scenarios import SCENARIOS
+from nova_agent.lab.sim import Game2048Sim
+from nova_agent.perception.types import BoardState
 
 
 class TestCheckAnxietyThreshold:
@@ -214,3 +220,60 @@ class TestAppendCsvRow:
             is_right_censored=False,
         )
         assert csv_path.exists()
+
+
+class TestApplyWithTiebreak:
+    def test_chosen_direction_is_legal(self) -> None:
+        """Happy path: chosen direction changes the board → applied as-is."""
+        scenario = SCENARIOS["snake-collapse-128"]
+        sim = Game2048Sim(seed=scenario.seed(0), scenario=scenario)
+        io = SimGameIO(sim=sim)
+        board = io.read_board()
+        # snake-collapse-128 initial grid has empty cells in the top row;
+        # swipe_up compacts tiles upward and is legal on this starting board.
+        applied = _apply_with_tiebreak(io, "swipe_up", board)
+        assert applied == SwipeDirection.UP
+
+    def test_invalid_move_falls_back_through_tiebreak_order(self) -> None:
+        """If chosen direction is no-op, fall back UP > RIGHT > DOWN > LEFT
+        and apply the first legal one.
+
+        Rigged board: tiles only in top row → swipe_up is a no-op (already at
+        top) and swipe_right is also a no-op (row [2,4,8,16] can't merge or
+        shift further right). swipe_down is the first legal tiebreak.
+        """
+        scenario = SCENARIOS["snake-collapse-128"]
+        sim = Game2048Sim(seed=scenario.seed(0), scenario=scenario)
+        io = SimGameIO(sim=sim)
+        rigged_board = BoardState(
+            grid=[
+                [2, 4, 8, 16],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+            ],
+            score=0,
+        )
+        # Inject the rigged grid directly into the sim's internal state.
+        sim._grid = [row[:] for row in rigged_board.grid]  # type: ignore[attr-defined]
+        applied = _apply_with_tiebreak(io, "swipe_up", rigged_board)
+        # Tiebreak order: UP (chosen, skip) → RIGHT (no-op) → DOWN (legal).
+        assert applied == SwipeDirection.DOWN
+
+    def test_no_legal_move_raises(self) -> None:
+        """All four directions are no-ops (game-over board) → ValueError."""
+        # Construct a game-over board: interleaved 2s and 4s, no empty cells,
+        # no adjacent equal tiles.
+        scenario = SCENARIOS["snake-collapse-128"]
+        sim = Game2048Sim(seed=scenario.seed(0), scenario=scenario)
+        io = SimGameIO(sim=sim)
+        game_over_grid = [
+            [2, 4, 2, 4],
+            [4, 2, 4, 2],
+            [2, 4, 2, 4],
+            [4, 2, 4, 2],
+        ]
+        sim._grid = [row[:] for row in game_over_grid]  # type: ignore[attr-defined]
+        board = io.read_board()
+        with pytest.raises(ValueError, match="no legal move"):
+            _apply_with_tiebreak(io, "swipe_up", board)
