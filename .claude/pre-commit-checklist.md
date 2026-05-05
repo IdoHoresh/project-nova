@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 2 files: scenarios.py (+9 lines MAX_MOVES) + test_lab_scenarios.py (+86 lines corpus tests)
-- [x] Atomic commit — single logical change: add MAX_MOVES constant + corpus invariant tests
+- [x] `git diff --cached --stat` reviewed — 2 files: new Baseline Bot spec (+396 lines) + ADR-0007 Amendment 1 (+80 lines)
+- [x] Atomic commit — single coherent unit: Bot spec + companion ADR amendment must ship together (spec §6.1 references the amendment; amendment cites the companion spec)
 
 ## Verification
-- [x] `git diff --cached` scanned for secrets — no env values / API keys / tokens
-- [x] `nova-agent/` — pytest (210 passed) + mypy (clean) + ruff (clean) all green
-- [x] `nova-viewer/` not touched — N/A vitest/tsc/eslint
-- [x] Docs / config — none touched
+- [x] `git diff --cached` scanned for secrets — only "token" references are LLM-token-counts in spec text, no API keys / env values
+- [x] `nova-agent/` — N/A: doc-only commit, no Python touched
+- [x] `nova-viewer/` — N/A: doc-only commit, no TS touched
+- [x] Docs / config — both files are docs (spec + ADR amendment); no config changes
 
 ## Review
-- [x] `/review` dispatched — N/A: REVIEW.md taxonomy mechanical; TDD new test file + constant addition, no logic change
-- [x] `code-reviewer` subagent — N/A; mechanical TDD task, Layer 1.5 pre-push hook covers it
-- [x] `security-reviewer` — N/A: no secrets / env / LLM / bus paths
+- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: doc-only` (spec + ADR amendment, no code paths)
+- [x] `code-reviewer` subagent — N/A: doc-only commit
+- [x] `security-reviewer` — N/A: no secrets / env / LLM / bus paths touched
 
 ## Documentation
-- [x] LESSONS.md — N/A this commit
-- [x] CLAUDE.md "Common gotchas" — N/A
-- [x] ARCHITECTURE.md — N/A
-- [x] New ADR — N/A; adding MAX_MOVES constant + corpus tests is not an architectural decision
+- [x] LESSONS.md — N/A this commit; brainstorm-process lessons may land in a follow-up commit after the implementation plan ships
+- [x] CLAUDE.md "Common gotchas" — N/A: no new gotcha surfaced in this work
+- [x] ARCHITECTURE.md — N/A: spec is operational refinement of ADR-0007's existing two-arm design, not new architecture
+- [x] New ADR — N/A: ratifies six operational decisions within ADR-0007's scope via Amendment 1; not a new architectural decision
 
 ## Commit message
-- [x] Conventional Commits format: `feat(scenarios): add MAX_MOVES cap and corpus invariant tests`
-- [x] Body explains why — closes cliff-test scenarios spec implementation; invariants catch authoring errors before agent runs
+- [x] Conventional Commits format: `docs(spec): baseline bot design + ADR-0007 amendment 1`
+- [x] Body explains why — closes the second of two follow-up specs deferred from cliff-test scenarios spec; locks Bot architecture (LLM-based), schema/temperature configuration, failure-mode handling, and paired-discard threshold (≥ 18) through six rounds of red-team review
 - [x] Co-author tag present
