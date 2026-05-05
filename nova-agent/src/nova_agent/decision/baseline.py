@@ -1,0 +1,91 @@
+"""Phase 0.7 Baseline Bot — purely-logical score-maximizer (ADR-0007).
+
+The Baseline Bot is the control arm of the cliff test. It calls the LLM
+once per move with no affect, no memory, no Tree-of-Thoughts, no
+reflection. Its only job is to commit a move that maximizes score from
+the current grid + score.
+
+Per-call protocol:
+  - 3x exponential-backoff retry on API errors → trial abort
+  - 1x retry on parse failures → trial abort
+  - Invalid-move handling lives in the Test Runner (UP > RIGHT > DOWN >
+    LEFT tie-break per scenarios spec §2.3); the Bot does not see
+    post-swipe state.
+
+Spec: docs/superpowers/specs/2026-05-05-baseline-bot-design.md
+ADR:  docs/decisions/0007-blind-control-group-for-cliff-test.md (Amendment 1)
+"""
+
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from nova_agent.bus.websocket import EventBus
+from nova_agent.llm.protocol import LLM
+
+
+# ADR-0007 prompt (verbatim) extended with JSON-output instructions matching
+# the shared schema (Q4 / A1.3). Schema is _ReactOutput from decision/react.py.
+BASELINE_SYSTEM_PROMPT = """\
+You are an AI agent playing 2048. Your only goal is to maximize score.
+Compute the next move. Emit strict JSON only (no prose around it):
+{
+  "observation": "5-10 word fragment, what you see on the board",
+  "reasoning":   "5-15 word fragment, why this move maximizes score",
+  "action":      "swipe_up" | "swipe_down" | "swipe_left" | "swipe_right",
+  "confidence":  "low" | "medium" | "high"
+}
+"""
+
+# Per Q4 / A1.3 — Bot temp=0 (greedy max-prob), max_tokens=500 (Bot needs
+# no thinking budget; 500 leaves room for short reasoning + small JSON
+# payload).
+BASELINE_TEMPERATURE: float = 0.0
+BASELINE_MAX_TOKENS: int = 500
+
+
+AbortReason = Literal["api_error", "parse_failure"]
+
+
+@dataclass(frozen=True)
+class BotDecision:
+    """Successful per-call output from BaselineDecider."""
+
+    action: Literal["swipe_up", "swipe_down", "swipe_left", "swipe_right"]
+    observation: str
+    reasoning: str
+    confidence: Literal["low", "medium", "high"]
+
+
+@dataclass(frozen=True)
+class TrialAborted:
+    """Returned by BaselineDecider.decide when retries exhaust.
+
+    Per A1.5: aborted trials are not re-run (Bot at temp=0 + fixed seed
+    reproduces the same failure deterministically). The Test Runner
+    records the abort and applies paired-discard logic (A1.6) for test 2.
+    """
+
+    reason: AbortReason
+    last_move_index: int
+
+
+class BaselineDecider:
+    """LLM-based one-shot per-move decider for the Phase 0.7 control arm.
+
+    Call signature mirrors ReactDecider's text-only mode (no screenshot).
+    Implementation in subsequent tasks: Task 3 (happy path), Task 4
+    (API error retry), Task 5 (parse failure retry), Task 6 (telemetry).
+    """
+
+    def __init__(self, *, llm: LLM, bus: EventBus | None = None) -> None:
+        self.llm = llm
+        self.bus = bus
+
+    async def decide(
+        self,
+        *,
+        board: Any,  # BoardState — typed in Task 3
+        trial_index: int,
+        move_index: int,
+    ) -> BotDecision | TrialAborted:
+        raise NotImplementedError("Implemented in Task 3")
