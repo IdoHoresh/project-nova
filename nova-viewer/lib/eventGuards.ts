@@ -261,6 +261,7 @@ function isBotCallParseFailureData(v: unknown): v is BotCallParseFailureData {
     isNumber(v.trial) &&
     isNumber(v.move_index) &&
     isString(v.raw_response_excerpt) &&
+    isNumber(v.excerpt_length) &&
     isNumber(v.attempt_n)
   );
 }

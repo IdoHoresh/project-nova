@@ -29,7 +29,7 @@ export type SwipeAction =
 //   bot_call_attempt:      {trial, move_index, attempt_n}
 //   bot_call_success:      {trial, move_index, action, latency_ms, prompt_tokens, completion_tokens}
 //   bot_call_api_error:    {trial, move_index, error_type, attempt_n}
-//   bot_call_parse_failure:{trial, move_index, raw_response_excerpt, attempt_n}
+//   bot_call_parse_failure:{trial, move_index, raw_response_excerpt, excerpt_length, attempt_n}
 //   bot_trial_aborted:     {trial, reason, last_move_index}
 export interface BotCallAttemptData {
   trial: number;
@@ -57,6 +57,7 @@ export interface BotCallParseFailureData {
   trial: number;
   move_index: number;
   raw_response_excerpt: string;
+  excerpt_length: number;
   attempt_n: number;
 }
 

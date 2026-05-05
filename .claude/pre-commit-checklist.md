@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 2 modified files: types.ts (+38 lines: 5 new interfaces + 5 AgentEvent union arms) + eventGuards.ts (+57 lines: 5 guard functions + 5 switch cases + 5 imports); well within 500-line limit
-- [x] Atomic commit — single coherent unit: mirror bot telemetry event types in nova-viewer per bus contract (required by pre-push hook)
+- [x] `git diff --cached --stat` reviewed — 3 files: baseline.py (excerpt narrowed) + types.ts + eventGuards.ts (mirror schema update)
+- [x] Atomic commit — single coherent unit: security-reviewer MEDIUM #1 fix on commit 0bfcca3 (raw_response_excerpt narrowed 200→40 + excerpt_length added for diagnostics)
 
 ## Verification
-- [x] `git diff --cached` scanned for secrets — only TypeScript type definitions and guard functions; no API keys, no env values, no secrets
-- [x] `nova-agent/` — N/A: not touched in this commit; still 227 passing from prior commit
-- [x] `nova-viewer/` — vitest 98 passing, tsc --noEmit clean, eslint clean
+- [x] `git diff --cached` scanned for secrets — fix REMOVES a potential leak surface; no new secrets / API keys / env values
+- [x] `nova-agent/` — pytest 227 passing (14 baseline), mypy strict + ruff clean
+- [x] `nova-viewer/` — vitest 98 passing, tsc clean, eslint clean
 - [x] Docs / config — N/A: not touched
 
 ## Review
-- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: mechanical` — mirror-only change; adds type interfaces + guards matching exact Python payload spec from Task 6; no logic, no new seams
-- [x] `code-reviewer` subagent — N/A: per manual-dispatch policy, mirror-type change is mechanical; Layer 1.5 pre-push hook covers at push time
-- [x] `security-reviewer` — N/A: no secrets paths, no LLM calls, no env vars; guard functions validate exact payload shapes (type(exc).__name__ maps to error_type: string, 200-char excerpt maps to raw_response_excerpt: string)
+- [x] `/review` dispatched — N/A: this IS the security-reviewer MEDIUM #1 follow-up fix (verbatim recommendation from upstream review per memory feedback_subagent_dispatch_selectivity "skip re-review on verbatim fixes")
+- [x] `code-reviewer` subagent — N/A: mechanical follow-up; gate trio green
+- [x] `security-reviewer` — N/A: this IS the response to the prior security review (MEDIUM #1)
 
 ## Documentation
-- [x] LESSONS.md — N/A: no new lesson; bus contract mirroring is established pattern
-- [x] CLAUDE.md "Common gotchas" — N/A
-- [x] ARCHITECTURE.md — N/A
-- [x] New ADR — N/A: bus contract says "both types.ts and eventGuards.ts updated in same PR"; this commit satisfies that requirement
+- [x] LESSONS.md — N/A this commit; security-reviewer process learnings may land in a follow-up sweep
+- [x] CLAUDE.md "Common gotchas" — N/A: no new gotcha
+- [x] ARCHITECTURE.md — N/A: implementation detail change, not architecture
+- [x] New ADR — N/A: telemetry payload tightening within the existing telemetry contract (Bot spec §3.4 unchanged at the contract level, just one field narrower)
 
 ## Commit message
-- [x] Conventional Commits format: `feat(viewer): mirror bot telemetry event types in AgentEvent union`
-- [x] Body explains why — pre-push hook requires matching viewer types for any new bus event shape; five types added per spec §3.4 telemetry contract
+- [x] Conventional Commits format: `fix(baseline): narrow parse-failure excerpt to 40 chars + add length`
+- [x] Body explains why — security-reviewer MEDIUM #1 on commit 0bfcca3; 200-char excerpt fits Anthropic (~108) and Google (~39) API keys, with persistence via RecordingEventBus → JSONL on disk; 40 chars preserves debug shape and forces any current-format key into a truncated state; excerpt_length surfaces full size for diagnostics
 - [x] Co-author tag present

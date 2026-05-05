@@ -149,12 +149,21 @@ class BaselineDecider:
                     confidence=parsed.confidence,
                 )
             except StructuredOutputError:
+                # Excerpt narrowed from 200 to 40 chars per security-reviewer
+                # MEDIUM finding on commit 0bfcca3: 200-char window comfortably
+                # fits Anthropic (~108) and Google (~39) API keys; if a
+                # prompt-injection or confused-model response echoes a key,
+                # the excerpt persists via RecordingEventBus → JSONL on disk.
+                # 40 chars preserves debugging value (parse-failure shape) and
+                # forces any current-format key into a truncated state.
+                # excerpt_length surfaces full size for diagnostics.
                 await self._emit(
                     "bot_call_parse_failure",
                     {
                         "trial": trial_index,
                         "move_index": move_index,
-                        "raw_response_excerpt": text[:200],
+                        "raw_response_excerpt": text[:40],
+                        "excerpt_length": len(text),
                         "attempt_n": parse_attempt + 1,
                     },
                 )
