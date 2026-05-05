@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 2 modified files: baseline.py (~15 lines: import + constant + decide loop) + test_decision_baseline.py (+42 lines: 2 new parse-retry tests); well within 500-line limit
-- [x] Atomic commit — single coherent unit: parse-failure retry loop (1x, then TrialAborted) + 2 TDD tests per Task 5
+- [x] `git diff --cached --stat` reviewed — 2 modified files: baseline.py (~90 lines: import time + Usage, refactored decide/call_with_api_retry + new _emit helper) + test_decision_baseline.py (+82 lines: _CapturingBus + 3 new telemetry tests); well within 500-line limit
+- [x] Atomic commit — single coherent unit: Task 6 telemetry events via EventBus.publish
 
 ## Verification
 - [x] `git diff --cached` scanned for secrets — only Python source and test code; no API keys, no env values, no secrets
-- [x] `nova-agent/` — pytest 224 passing (was 222 prior; +2 new parse-retry tests), mypy strict clean, ruff clean
+- [x] `nova-agent/` — pytest 227 passing (was 224 prior; +3 new telemetry tests), mypy strict clean, ruff clean
 - [x] `nova-viewer/` — N/A: not touched
 - [x] Docs / config — N/A: not touched
 
 ## Review
-- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: mechanical` — TDD implementation of approved plan Task 5 (docs/superpowers/plans/2026-05-05-baseline-bot.md); parse-retry wraps existing parse_json call; no new architectural seams, no new bus paths, no secrets paths
-- [x] `code-reviewer` subagent — N/A: per manual-dispatch policy, Task 5 is isomorphic/mechanical TDD; Layer 1.5 pre-push hook covers at push time
-- [x] `security-reviewer` — N/A: no new LLM adapter, no env/secrets paths, no bus events
+- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: mechanical` — TDD implementation of approved plan Task 6 (docs/superpowers/plans/2026-05-05-baseline-bot.md); telemetry is a pure additive side-effect path with no new seams; security-reviewer dispatch is reserved for the controller per Task 6 spec
+- [x] `code-reviewer` subagent — N/A: per manual-dispatch policy, Task 6 is isomorphic/mechanical TDD; Layer 1.5 pre-push hook covers at push time
+- [x] `security-reviewer` — N/A: controller will dispatch security-reviewer post-commit per Task 6 spec §step-5; payload fields are narrowed per security.md contract (indices, action enum, token counts, latency, error class name, 200-char excerpt only)
 
 ## Documentation
-- [x] LESSONS.md — N/A: no new lesson from this task; parse-failure retry is straightforward try/continue pattern
+- [x] LESSONS.md — N/A: no new lesson from this task; telemetry pattern is additive and well-understood
 - [x] CLAUDE.md "Common gotchas" — N/A
 - [x] ARCHITECTURE.md — N/A
-- [x] New ADR — N/A: ADR-0007 already covers the Baseline Bot design; parse-retry policy is captured in spec §3.3 / A1.5
+- [x] New ADR — N/A: ADR-0007 covers Baseline Bot; telemetry contract is captured in spec §3.4
 
 ## Commit message
-- [x] Conventional Commits format: `feat(baseline): add parse-failure retry (1x, then abort)`
-- [x] Body explains why — wraps parse_json in 2-iteration loop; StructuredOutputError caught specifically; spec ref A1.5 / §3.3
+- [x] Conventional Commits format: `feat(baseline): add telemetry events for Test Runner consumption`
+- [x] Body explains why — five new bus event types (bot_call_attempt, bot_call_success, bot_call_api_error, bot_call_parse_failure, bot_trial_aborted); Test Runner spec §3.4
 - [x] Co-author tag present

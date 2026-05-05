@@ -244,3 +244,87 @@ async def test_baseline_decide_aborts_after_two_parse_failures(monkeypatch):
     assert result.reason == "parse_failure"
     assert result.last_move_index == 8
     assert len(llm.calls) == 2  # original + 1 retry per A1.5
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — Telemetry event tests
+# ---------------------------------------------------------------------------
+
+
+class _CapturingBus:
+    """Minimal stand-in for EventBus that captures published events."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, Any]]] = []
+
+    async def publish(self, event: str, data: Any) -> None:
+        self.events.append((event, data))
+
+
+@pytest.mark.asyncio
+async def test_baseline_telemetry_events_emit_on_success() -> None:
+    from nova_agent.decision.baseline import BaselineDecider
+
+    valid = '{"observation": "x", "reasoning": "y", "action": "swipe_up", "confidence": "low"}'
+    llm = _RetryingMockLLM(scripted=[valid])
+    bus = _CapturingBus()
+    decider = BaselineDecider(llm=llm, bus=bus)
+    board = BoardState(grid=[[2, 0, 0, 0]] + [[0] * 4] * 3, score=0)
+
+    await decider.decide(board=board, trial_index=3, move_index=7)
+
+    event_names = [name for name, _data in bus.events]
+    assert "bot_call_attempt" in event_names
+    assert "bot_call_success" in event_names
+
+    success = next(d for n, d in bus.events if n == "bot_call_success")
+    assert success["trial"] == 3
+    assert success["move_index"] == 7
+    assert success["action"] == "swipe_up"
+    assert "prompt_tokens" in success
+    assert "completion_tokens" in success
+    assert "latency_ms" in success
+
+
+@pytest.mark.asyncio
+async def test_baseline_telemetry_emits_api_error_and_trial_aborted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nova_agent.decision.baseline import BaselineDecider
+
+    monkeypatch.setattr("nova_agent.decision.baseline.asyncio.sleep", _noop_sleep)
+
+    llm = _RetryingMockLLM(scripted=[RuntimeError("e1"), RuntimeError("e2"), RuntimeError("e3")])
+    bus = _CapturingBus()
+    decider = BaselineDecider(llm=llm, bus=bus)
+    board = BoardState(grid=[[2, 0, 0, 0]] + [[0] * 4] * 3, score=0)
+
+    await decider.decide(board=board, trial_index=0, move_index=10)
+
+    api_errors = [d for n, d in bus.events if n == "bot_call_api_error"]
+    assert len(api_errors) == 3
+    aborted = [d for n, d in bus.events if n == "bot_trial_aborted"]
+    assert len(aborted) == 1
+    assert aborted[0]["reason"] == "api_error"
+    assert aborted[0]["last_move_index"] == 10
+
+
+@pytest.mark.asyncio
+async def test_baseline_telemetry_emits_parse_failure_and_trial_aborted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nova_agent.decision.baseline import BaselineDecider
+
+    monkeypatch.setattr("nova_agent.decision.baseline.asyncio.sleep", _noop_sleep)
+
+    llm = _RetryingMockLLM(scripted=["junk", "still junk"])
+    bus = _CapturingBus()
+    decider = BaselineDecider(llm=llm, bus=bus)
+    board = BoardState(grid=[[2, 0, 0, 0]] + [[0] * 4] * 3, score=0)
+
+    await decider.decide(board=board, trial_index=1, move_index=4)
+
+    parse_fails = [d for n, d in bus.events if n == "bot_call_parse_failure"]
+    assert len(parse_fails) == 2
+    aborted = [d for n, d in bus.events if n == "bot_trial_aborted"]
+    assert aborted[0]["reason"] == "parse_failure"

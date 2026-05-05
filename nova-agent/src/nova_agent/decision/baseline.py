@@ -17,13 +17,14 @@ ADR:  docs/decisions/0007-blind-control-group-for-cliff-test.md (Amendment 1)
 """
 
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from nova_agent.bus.websocket import EventBus
 from nova_agent.decision.prompts import build_user_prompt
 from nova_agent.decision.react import _ReactOutput  # noqa: PLC2701
-from nova_agent.llm.protocol import LLM
+from nova_agent.llm.protocol import LLM, Usage
 from nova_agent.llm.structured import StructuredOutputError, parse_json
 from nova_agent.perception.types import BoardState
 
@@ -111,12 +112,36 @@ class BaselineDecider:
         ]
 
         for parse_attempt in range(_PARSE_RETRY_LIMIT):
-            text = await self._call_with_api_retry(messages=messages)
-            if text is None:
+            call_result = await self._call_with_api_retry(
+                messages=messages,
+                trial_index=trial_index,
+                move_index=move_index,
+            )
+            if call_result is None:
+                await self._emit(
+                    "bot_trial_aborted",
+                    {
+                        "trial": trial_index,
+                        "reason": "api_error",
+                        "last_move_index": move_index,
+                    },
+                )
                 return TrialAborted(reason="api_error", last_move_index=move_index)
+
+            text, usage, latency_ms = call_result
             try:
-                # Telemetry added in Task 6.
                 parsed = parse_json(text, _ReactOutput)
+                await self._emit(
+                    "bot_call_success",
+                    {
+                        "trial": trial_index,
+                        "move_index": move_index,
+                        "action": parsed.action,
+                        "latency_ms": latency_ms,
+                        "prompt_tokens": usage.input_tokens,
+                        "completion_tokens": usage.output_tokens,
+                    },
+                )
                 return BotDecision(
                     action=parsed.action,
                     observation=parsed.observation,
@@ -124,28 +149,82 @@ class BaselineDecider:
                     confidence=parsed.confidence,
                 )
             except StructuredOutputError:
+                await self._emit(
+                    "bot_call_parse_failure",
+                    {
+                        "trial": trial_index,
+                        "move_index": move_index,
+                        "raw_response_excerpt": text[:200],
+                        "attempt_n": parse_attempt + 1,
+                    },
+                )
                 continue  # try once more with same prompt (A1.5)
+
+        await self._emit(
+            "bot_trial_aborted",
+            {
+                "trial": trial_index,
+                "reason": "parse_failure",
+                "last_move_index": move_index,
+            },
+        )
         return TrialAborted(reason="parse_failure", last_move_index=move_index)
 
-    async def _call_with_api_retry(self, *, messages: list[dict[str, Any]]) -> str | None:
+    async def _call_with_api_retry(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        trial_index: int,
+        move_index: int,
+    ) -> tuple[str, Usage, float] | None:
         """Call LLM with up to _API_RETRY_LIMIT attempts and exponential backoff.
 
-        Returns the response text on success, None on retry exhaustion.
+        Returns (text, usage, latency_ms) on success, None on retry exhaustion.
         Backoff: 2s, 4s, 8s after attempts 1, 2, 3 respectively (matches
         spec §3.3 pseudocode).
         """
         for attempt in range(_API_RETRY_LIMIT):
+            await self._emit(
+                "bot_call_attempt",
+                {
+                    "trial": trial_index,
+                    "move_index": move_index,
+                    "attempt_n": attempt + 1,
+                },
+            )
+            t0 = time.monotonic()
             try:
-                text, _usage = self.llm.complete(
+                text, usage = self.llm.complete(
                     system=BASELINE_SYSTEM_PROMPT,
                     messages=messages,
                     max_tokens=BASELINE_MAX_TOKENS,
                     temperature=BASELINE_TEMPERATURE,
                     response_schema=_ReactOutput,
                 )
-                return text
-            except _RETRYABLE_API_EXCEPTIONS:
+                latency_ms = (time.monotonic() - t0) * 1000
+                return text, usage, latency_ms
+            except _RETRYABLE_API_EXCEPTIONS as exc:
+                await self._emit(
+                    "bot_call_api_error",
+                    {
+                        "trial": trial_index,
+                        "move_index": move_index,
+                        "error_type": type(exc).__name__,
+                        "attempt_n": attempt + 1,
+                    },
+                )
                 if attempt + 1 < _API_RETRY_LIMIT:
                     await asyncio.sleep(2 ** (attempt + 1))
                 # else: fall through; loop ends; return None below
         return None
+
+    async def _emit(self, event: str, data: dict[str, Any]) -> None:
+        """Publish a telemetry event to the bus if one is wired in.
+
+        Security contract: callers must pass ONLY safe fields — indices,
+        action enum, token counts, latency, error class name, bounded
+        raw-response excerpt (≤200 chars). No API keys, env values, full
+        LLM responses, prompts, or memory contents.
+        """
+        if self.bus is not None:
+            await self.bus.publish(event, data)
