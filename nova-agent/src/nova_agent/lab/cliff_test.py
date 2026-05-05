@@ -798,18 +798,30 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
     anthropic_api_key = settings.anthropic_api_key
     daily_cap_usd = settings.daily_budget_usd
 
+    # Gemini thinking budgets — mirror main.py:165-193. Without these, Flash
+    # burns the entire max_output_tokens budget on hidden reasoning (see
+    # gemini_client.py:53-58 doc), leaving the visible JSON truncated mid-
+    # string. AnthropicLLM ignores thinking_budget, so the kwarg is safe to
+    # pass uniformly. Per ADR-0006 Amendment 1, the production-tier ToT now
+    # routes to Claude Sonnet 4.6 (Anthropic) — the thinking_budget=1024 on
+    # the second build_llm call is therefore a no-op at runtime; we keep
+    # the kwarg for code symmetry and so a future re-routing back to Gemini
+    # Pro (Pro accepts a positive cap, rejects 0) does not need to touch
+    # this construction site.
     return (
         build_llm(
             model=decision_model,
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
+            thinking_budget=0,
         ),
         build_llm(
             model=tot_model,
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
+            thinking_budget=1024,
         ),
         build_llm(
             model=reflection_model,
@@ -822,6 +834,7 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
+            thinking_budget=0,
         ),  # bot — same family as decision per Bot spec §2.4
     )
 

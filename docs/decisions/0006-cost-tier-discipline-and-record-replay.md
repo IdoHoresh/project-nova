@@ -121,3 +121,47 @@ Disk writes are offloaded via `asyncio.to_thread` so the agent's event loop neve
 - `nova_agent.bus.recorder` + `nova_agent.bus.replayer` — record-and-replay implementation
 - Recent commits: `feat(bus): add record-and-replay for AgentEvent streams`, `feat(llm): add response_schema enforcement to LLM protocol`, and the commit accompanying this ADR adding the `plumbing` tier and `NOVA_TIER` wiring in main.py.
 - Principal engineer red-team summary recorded in conversation transcript 2026-05-04.
+
+## Amendment 1 — Production-tier ToT switches Gemini Pro → Claude Sonnet 4.6 (2026-05-06)
+
+### Why this amendment
+
+The 2026-05-06 cliff-test pilot runs (commits `ed90695` thinking_budget fix; `60ac3bf` reverted at `9559367`) exposed two operational facts about Gemini 2.5 Pro at the production tier that the original ADR did not anticipate:
+
+1. **Gemini 2.5 Pro has a hard 1000 RPD shared daily quota on the API key.** A full pilot at production tier (3 scenarios × 5 trials × 2 arms with 4-branch ToT) consumes ~956 Pro calls — essentially the entire daily budget. The Phase 0.7 N=20 formal run would exceed the daily limit by 4×. This is a documented gotcha (CLAUDE.md gotcha #2) that scales catastrophically when ToT is the high-frequency cognitive path. Two consecutive cliff-test runs in the same UTC day cannot fit under the cap.
+
+2. **Pro produces clustered rate-limit failures under any non-trivial concurrency.** The 2026-05-06 pilot at concurrency=8 produced 78× empty-response (`tokens_out=0`) plus 20× tenacity-exhausted `RetryError[ClientError]` events, with all four ToT branches in the same decision failing within <1s of each other on the trial-aborting moves (see `events_512-wall_carla_3.jsonl move_idx=27`, `events_corner-abandonment-256_carla_4.jsonl move_idx=14`). The clustering inflates joint-failure probability above the per-branch independence model and produced a 20% trial-level abort rate, which is too high for paired-discard semantics at the formal-run N. Lowering concurrency does not fix this without burning more daily quota on retries.
+
+The original ADR-0006 selected Pro for production-tier ToT because Pro's per-token cost is lower than Sonnet's and the cross-provider story (Gemini for high-frequency cheap calls, Anthropic only for reflection) had a credibility benefit for external review. Both motivations remain valid in the abstract; in practice the daily quota wall makes Pro a non-starter for the cliff-test workload at the scale Phase 0.7 requires.
+
+### What this amendment changes
+
+- `production` tier `tot` → `claude-sonnet-4-6` (was `gemini-2.5-pro`)
+- `production` tier `tot_branches` stays at `4` (structure unchanged)
+- All other production-tier mappings unchanged: `decision = gemini-2.5-flash`, `reflection = claude-sonnet-4-6`, the bot LLM in `cliff_test._build_llms()` continues to mirror the decision model (gemini-2.5-flash) per Bot spec §2.4
+- ADR-0006's schema-enforcement contract is unaffected for `decision` (Gemini-flash still passes `response_schema`); ToT now hits the Anthropic accept-and-ignore path, so `parse_json` post-validation in `tot.py:177` becomes the only schema guarantee for ToT branches. This is acceptable: the post-validation has been the defense-in-depth path since the original ADR; we are merely losing the redundant generation-time enforcement on this one callsite.
+
+### Cost / performance implications
+
+- **Per-call cost.** Pro: $1.25/Mtok input, $10/Mtok output. Sonnet 4.6: $3/Mtok input, $15/Mtok output. Per-ToT-call (~460 input + 70 output tokens) goes from ~$0.001275 to ~$0.002430 — a ~1.9× increase. ToT calls are the high-volume Carla cost driver; the impact on full Phase 0.7 N=20 run cost is roughly 1.5–2× (estimate $6.60 production → ~$12 amended). Still well under the spec §2.6 $5/scenario/arm soft cap and the Phase 0 sprint budget envelope from the original ADR.
+- **Per-call wall time.** Sonnet has extended thinking enabled by default; comparable to Pro's dynamic thinking. No anticipated wall-time regression. Sonnet's API has no shared daily quota wall — the entire failure mode that prompted this amendment goes away.
+- **Reasoning quality.** Sonnet 4.6 ≥ Pro 2.5 on tactical-reasoning benchmarks (multi-step deliberation over a small constrained search space). 2048 ToT branch-value scoring is exactly that workload. No quality degradation expected; possibly small improvement.
+- **Retry / rate-limit profile.** Anthropic returns standard 429s with an explicit `Retry-After` header on rate limit; the existing tenacity `wait_exponential(min=1, max=8)` retries on Anthropic's `RateLimitError` will absorb transient pressure. There is no Anthropic-side daily call cap that scales like Pro's RPD; the only ceiling is the Stripe-credit balance (per CLAUDE.md gotcha #4, paid credits required, already in place).
+
+### What this amendment does NOT change
+
+- `dev` and `plumbing` tiers — both stay all-Gemini per their original cost-discipline goals.
+- `demo` tier — already all-Sonnet.
+- The Settings-fields fallback path in `main.py` for non-tier mode — `Settings.deliberation_model` default is still `gemini-2.5-pro` and that's the right default for live-agent runs against the emulator. The amendment scopes only to the `production` tier mapping which is the cliff-test path.
+- The cross-provider validation framing for external review. The story shifts from "we use both providers" to "we use both providers at the high-frequency cheap callsites (Bot+Carla react via Gemini Flash) and the high-cost cognitive callsite (ToT) on the more reliable single provider." This is honestly stronger as a methodology defense — the high-frequency path that runs ~50× per trial keeps the cross-provider proof, and the once-per-decision deliberation runs on the provider with the more permissive operational profile.
+
+### Reversibility
+
+The amendment is one-line in `tiers.py`. Reverting to Pro is trivial if Google relaxes the 1000 RPD limit on a future paid tier upgrade and we want to re-evaluate per-token cost economics. The amendment is captured here so a future engineer can find the operational justification rather than re-running the same pilot.
+
+### References
+
+- 2026-05-06 pilot CSVs: `runs/2026-05-06-pilot/pilot_results/cliff_test_results.csv` (production tier, c=8, surfaced the calibration failure + 20% abort rate); `runs/2026-05-06-pilot-c4/` (production tier, c=4, confounded by quota exhaustion → reverted).
+- LESSONS.md entries (2026-05-06): "Gemini Pro 2.5 has a hard 1000 RPD daily quota..." and "Carla anxiety firing at move 0–1 is fast reaction, not predictive lead-time" — the empirical evidence informing this amendment.
+- Commit `ed90695` (thinking_budget fix on Gemini-flash) — independent of this amendment, kept for the decision/bot path.
+- Commit `9559367` (revert of c=4 concurrency hypothesis) — the data that would have validated concurrency-as-fix was confounded by Pro quota; with this amendment the question becomes moot for cliff-test.
