@@ -50,6 +50,7 @@ def test_react_decider_preserves_image_when_screenshot_present() -> None:
     assert last_messages[0]["role"] == "user"
     content = last_messages[0]["content"]
     assert any(block.get("type") == "image" for block in content)
+    assert any(block.get("type") == "text" for block in content)
 
 
 def test_react_decider_handles_screenshot_none() -> None:

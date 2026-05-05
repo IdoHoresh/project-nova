@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 2 files: react.py (+14/-8), test_decision_react.py (+53/-0); well under 500-line threshold
-- [x] Atomic commit — single coherent unit: make screenshot_b64 optional in ReactDecider + 3 tests (1 regression + 2 new text-only)
+- [x] `git diff --cached --stat` reviewed — 1 line added to a single test file (regression-test text-block assertion)
+- [x] Atomic commit — single coherent unit: code-quality reviewer Should-1 fix on Task 1's regression test
 
 ## Verification
-- [x] `git diff --cached` scanned for secrets — no API keys, tokens, or env values; only type annotations and test assertions
-- [x] `nova-agent/` — pytest 213 passed, mypy clean (no issues in 53 source files), ruff clean (all checks passed)
-- [x] `nova-viewer/` — N/A: no TS files touched
-- [x] Docs / config — N/A: no doc or config changes
+- [x] `git diff --cached` scanned for secrets — only test assertion strings, no API keys / env values
+- [x] `nova-agent/` — pytest 213 passing, mypy + ruff clean
+- [x] `nova-viewer/` — N/A: not touched
+- [x] Docs / config — N/A: not touched
 
 ## Review
-- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: mechanical` — this is a straightforward type-signature relaxation (str → str | None) with TDD coverage; no new architecture, no security surface
-- [x] `code-reviewer` subagent — N/A: mechanical refactor per spec §5.1; covered by gate trio
-- [x] `security-reviewer` — N/A: no LLM adapter changes, no env/bus/secrets paths touched; screenshot_b64 content is never logged or published
+- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: mechanical` (one-line test assertion fix from upstream code-quality review)
+- [x] `code-reviewer` subagent — N/A: this IS the code-reviewer follow-up fix; no new review needed per memory feedback_subagent_dispatch_selectivity (skip re-review on verbatim fixes)
+- [x] `security-reviewer` — N/A: no secrets / env / LLM / bus paths touched
 
 ## Documentation
-- [x] LESSONS.md — N/A this commit; no new lesson; the optional-screenshot pattern is straightforward
-- [x] CLAUDE.md "Common gotchas" — N/A: no new gotcha
-- [x] ARCHITECTURE.md — N/A: no architectural change; signature relaxation only
-- [x] New ADR — N/A: no load-bearing architectural decision; spec already exists at docs/superpowers/specs/2026-05-05-baseline-bot-design.md §5.1
+- [x] LESSONS.md — N/A this commit
+- [x] CLAUDE.md "Common gotchas" — N/A
+- [x] ARCHITECTURE.md — N/A
+- [x] New ADR — N/A
 
 ## Commit message
-- [x] Conventional Commits format: `refactor(react): make screenshot_b64 optional for Phase 0.7 text-only mode`
-- [x] Body explains why — Game2048Sim produces no pixels; both Carla and Baseline Bot need text-only mode; production emulator path unchanged
+- [x] Conventional Commits format: `test(react): assert text block presence in screenshot regression test`
+- [x] Body explains why — code-quality reviewer Should-1 finding on commit 5534028; the regression test asserted image-block presence but not text-block presence, masking a future drop of the text block
 - [x] Co-author tag present
