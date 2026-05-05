@@ -92,14 +92,14 @@ def test_build_llms_passes_thinking_budget_for_gemini_models(
         "the visible JSON truncates mid-string"
     )
 
-    # ToT (Carla deliberation): Gemini-pro can't accept 0 (rejected by API).
-    # Must pass a positive cap so visible JSON has room.
-    assert tot_kwargs["model"] == "gemini-2.5-pro"
-    assert isinstance(tot_kwargs.get("thinking_budget"), int)
-    assert tot_kwargs["thinking_budget"] > 0, (
-        "ToT LLM (Gemini-pro) needs a positive thinking_budget cap; "
-        "Pro rejects 0 and unbounded thinking starves visible tokens"
-    )
+    # ToT (Carla deliberation): Claude Sonnet 4.6 per ADR-0006 Amendment 1.
+    # Anthropic's adapter accepts-and-ignores `thinking_budget` (Anthropic
+    # Messages API has no equivalent knob — Sonnet's extended thinking is
+    # configured separately). Passing the kwarg is harmless; we kept the
+    # arg-routing uniform across all four build_llm calls in cliff_test.py
+    # for code symmetry. Assertion: model is Sonnet, thinking_budget value
+    # is not enforced here.
+    assert tot_kwargs["model"] == "claude-sonnet-4-6"
 
     # Reflection (Carla post-game): Anthropic ignores thinking_budget. We
     # don't enforce a value here — the contract is "factory must not crash"

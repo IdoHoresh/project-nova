@@ -12,7 +12,13 @@ plumbing   — UI-dev / smoke / infra-only mode. Flash-Lite EVERYWHERE.
 dev        — daily Flash-everywhere (Flash-Lite is rejected for decisions
              due to documented JSON reliability issues; kept for
              importance_rating only).
-production — Week 5–6 §8 acceptance: Flash + Pro + Sonnet 4.6.
+production — Week 5–6 §8 acceptance: Flash for decision/bot, Sonnet 4.6
+             for tot + reflection. ToT moved Pro → Sonnet 4.6 in
+             ADR-0006 Amendment 1 (2026-05-06) — the 1000 RPD daily
+             quota on Gemini Pro is too tight for the cliff-test
+             workload; Sonnet has no per-day call cap and avoids the
+             rate-limit-clustering failure mode surfaced in the
+             2026-05-06 pilot.
 demo       — Week 6 LinkedIn recording: Sonnet 4.6 everywhere.
 """
 
@@ -52,7 +58,14 @@ TIERS: dict[TierName, TierConfig] = {
     },
     "production": {
         "decision": "gemini-2.5-flash",
-        "tot": "gemini-2.5-pro",
+        # ADR-0006 Amendment 1 (2026-05-06): ToT moved from gemini-2.5-pro
+        # to claude-sonnet-4-6. Pro's 1000 RPD shared daily quota cannot
+        # absorb a Phase 0.7 N=20 run (~4× over budget) and rate-limit
+        # clustering at any non-trivial concurrency produced a 20% Carla
+        # trial-abort rate in the 2026-05-06 pilot. Sonnet has no per-day
+        # call cap, comparable reasoning depth, and ~1.9× per-call cost —
+        # which keeps the full Phase 0.7 run under the spec §2.6 cap.
+        "tot": "claude-sonnet-4-6",
         "tot_branches": 4,
         "reflection": "claude-sonnet-4-6",
         "perception_fallback": "gemini-2.5-flash",

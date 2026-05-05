@@ -802,9 +802,12 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
     # burns the entire max_output_tokens budget on hidden reasoning (see
     # gemini_client.py:53-58 doc), leaving the visible JSON truncated mid-
     # string. AnthropicLLM ignores thinking_budget, so the kwarg is safe to
-    # pass uniformly. Pro rejects thinking_budget=0; a positive cap keeps
-    # ToT branches under the per-branch token limit while leaving room for
-    # the small action+value+reasoning JSON.
+    # pass uniformly. Per ADR-0006 Amendment 1, the production-tier ToT now
+    # routes to Claude Sonnet 4.6 (Anthropic) — the thinking_budget=1024 on
+    # the second build_llm call is therefore a no-op at runtime; we keep
+    # the kwarg for code symmetry and so a future re-routing back to Gemini
+    # Pro (Pro accepts a positive cap, rejects 0) does not need to touch
+    # this construction site.
     return (
         build_llm(
             model=decision_model,

@@ -18,9 +18,17 @@ def test_dev_uses_flash_for_decision(monkeypatch):
     assert tiers.model_for("decision") == "gemini-2.5-flash"
 
 
-def test_production_uses_pro_for_tot(monkeypatch):
+def test_production_uses_sonnet_for_tot(monkeypatch):
+    """Production-tier ToT runs on Claude Sonnet 4.6 per ADR-0006 Amendment 1.
+
+    Original ADR-0006 mapped this to gemini-2.5-pro. The amendment moved
+    ToT to Sonnet because Pro's 1000 RPD daily quota cannot absorb the
+    Phase 0.7 N=20 workload and rate-limit clustering at any non-trivial
+    concurrency produced a 20% Carla trial-abort rate in the 2026-05-06
+    pilot. See ADR-0006 Amendment 1 for the full rationale.
+    """
     monkeypatch.setenv("NOVA_TIER", "production")
-    assert tiers.model_for("tot") == "gemini-2.5-pro"
+    assert tiers.model_for("tot") == "claude-sonnet-4-6"
 
 
 def test_demo_is_sonnet_only_for_decisions(monkeypatch):
