@@ -220,8 +220,11 @@ def test_cli_e2e_pilot_smoke_via_subprocess(
     test that hits real providers). For production-tier validation, this
     test runs with the real keys; for the standard pytest trio it skips.
     """
-    if "ANTHROPIC_API_KEY" not in os.environ or "GOOGLE_API_KEY" not in os.environ:
-        pytest.skip("e2e smoke skipped: requires ANTHROPIC_API_KEY + GOOGLE_API_KEY")
+    # Truthy check, not ``in os.environ`` — CI exposes these as empty strings,
+    # which the membership check accepts but pydantic-settings rejects when
+    # the runner tries to load real provider credentials. Gotcha #3 in CLAUDE.md.
+    if not os.environ.get("ANTHROPIC_API_KEY") or not os.environ.get("GOOGLE_API_KEY"):
+        pytest.skip("e2e smoke skipped: requires populated ANTHROPIC_API_KEY + GOOGLE_API_KEY")
 
     output_dir = tmp_path / "runs" / "e2e-smoke"
     result = _run_cli(
