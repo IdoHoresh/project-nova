@@ -277,6 +277,16 @@ Each rate is citable; the model is scientifically defensible; Day-3 frustration 
 
 ## Workflow / process learnings
 
+### Test-runner spec drift — collector creeping into analyzer
+
+**Date:** 2026-05-05 | **Cost:** ~0 minutes (caught in Q6 of Test Runner spec brainstorm), but pattern compounds across spec evolution if uncaught.
+
+**What happened:** Brainstorming "what artifacts does the cliff-test runner produce?" my initial proposal was a 3-tier JSON hierarchy: per-trial + per-scenario aggregate (mean Δ, prediction-validity %) + run-level verdict (pass/fail per methodology §5.3). The red team flagged it as a Separation-of-Concerns violation: the per-scenario and run-level tiers were no longer "data the runner collected" — they were *statistical analysis* hardcoded into the orchestrator. If the analysis methodology evolves (e.g., switch from paired-mean Δ to bootstrap CI, or change the prediction-validity threshold post-pilot), the runner code would have to change in lockstep. Conceded; final shape is flat CSV row-per-trial + JSONL events, with all aggregate stats and pass/fail logic deferred to a separate `analyze_results.py` (out of Test Runner spec scope).
+
+**Lesson:** When designing an experiment-runner spec, the natural drift is: "runner produces data" → "runner produces summary" → "runner produces verdict." Each step feels like it's serving the consumer (the analyst eventually wants pass/fail, so why not just include it?). But the consequence is methodology-orchestrator coupling: any future change to the stats has to thread through the runner code. Specs that conflate collection with analysis are harder to evolve and harder to defend in methodology review (the runner becomes part of the experimental method). Hold the line: runner = collector. Analyzer = separate artifact.
+
+**How to apply:** When drafting an experiment-runner spec, draw an explicit boundary in the Out-of-Scope section: "the runner does NOT compute aggregate statistics, summary means, pass/fail verdicts, or cross-trial comparisons. Those live in a downstream analysis script that consumes the runner's flat per-trial output." The boundary survives only if it's stated. Per-trial *derived flags* (e.g., "did this trial meet threshold X?") are acceptable in the runner output because they're per-trial observations, not cross-trial aggregations. The line is at "across-trial / across-arm / across-scenario math" — anything inside one trial is data; anything across trials is analysis.
+
 ### Verify red-team cost-leakage claims numerically before accepting framing
 
 **Date:** 2026-05-05 | **Cost:** ~0 minutes (caught in-loop), but pattern-cost across the brainstorm system is large if uncaught.
