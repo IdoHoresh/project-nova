@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from nova_agent.bus.recorder import RecordingEventBus
-from nova_agent.lab.cliff_test import BotTrialResult, _run_bot_trial
+from nova_agent.lab.cliff_test import (
+    BotTrialResult,
+    CarlaTrialResult,
+    _run_bot_trial,
+    _run_carla_trial,
+)
 from nova_agent.lab.scenarios import SCENARIOS
 from nova_agent.llm.mock import MockLLMClient
 
@@ -81,5 +87,62 @@ async def test_bot_trial_right_censored_when_no_game_over(tmp_path: Path) -> Non
         if result.is_right_censored:
             assert result.t_baseline_fails == 50
             assert result.final_move_index == 49  # last move attempted
+    finally:
+        await bus.stop()
+
+
+@pytest.mark.asyncio
+async def test_carla_trial_completes_happy_path(tmp_path: Path) -> None:
+    """One Carla trial runs to game-over OR MAX_MOVES; returns a CarlaTrialResult
+    with anxiety_trajectory non-empty.
+    """
+    scenario = SCENARIOS["snake-collapse-128"]
+    decision_llm = MockLLMClient()
+    tot_llm = MockLLMClient()
+    reflection_llm = MockLLMClient()
+    bus = RecordingEventBus(host="127.0.0.1", port=0, path=tmp_path / "events.jsonl")
+    try:
+        result = await _run_carla_trial(
+            scenario=scenario,
+            trial_index=0,
+            decision_llm=decision_llm,
+            tot_llm=tot_llm,
+            reflection_llm=reflection_llm,
+            bus=bus,
+        )
+        assert isinstance(result, CarlaTrialResult)
+        assert len(result.anxiety_trajectory) >= 1
+        # t_predicts is None or an int; anxiety_threshold_met is the boolean form.
+        if result.t_predicts is not None:
+            assert result.anxiety_threshold_met is True
+        else:
+            assert result.anxiety_threshold_met is False
+    finally:
+        await bus.stop()
+
+
+@pytest.mark.asyncio
+async def test_carla_trial_tempdir_is_cleaned_up(tmp_path: Path) -> None:
+    """The MemoryCoordinator tempdir is removed at trial end (context-manager exit)."""
+    scenario = SCENARIOS["snake-collapse-128"]
+    decision_llm = MockLLMClient()
+    tot_llm = MockLLMClient()
+    reflection_llm = MockLLMClient()
+    bus = RecordingEventBus(host="127.0.0.1", port=0, path=tmp_path / "events.jsonl")
+    try:
+        # Snapshot existing tempdirs that match the runner's prefix.
+        tmp_root = Path(tempfile.gettempdir())
+        before = {p.name for p in tmp_root.iterdir() if p.name.startswith("nova-cliff-")}
+        await _run_carla_trial(
+            scenario=scenario,
+            trial_index=0,
+            decision_llm=decision_llm,
+            tot_llm=tot_llm,
+            reflection_llm=reflection_llm,
+            bus=bus,
+        )
+        after = {p.name for p in tmp_root.iterdir() if p.name.startswith("nova-cliff-")}
+        # No new nova-cliff- tempdirs leaked.
+        assert before == after
     finally:
         await bus.stop()

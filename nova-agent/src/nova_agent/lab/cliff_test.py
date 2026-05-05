@@ -16,18 +16,29 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
 from nova_agent.action.adb import SwipeDirection
+from nova_agent.affect.rpe import rpe as compute_rpe
+from nova_agent.affect.state import AffectState
+from nova_agent.affect.verbalize import describe as describe_affect
 from nova_agent.bus.websocket import EventBus
+from nova_agent.decision.arbiter import should_use_tot
 from nova_agent.decision.baseline import BaselineDecider, TrialAborted
+from nova_agent.decision.heuristic import is_game_over
+from nova_agent.decision.react import Decision, ReactDecider
+from nova_agent.decision.tot import ToTDecider
 from nova_agent.lab.io import SimGameIO
 from nova_agent.lab.scenarios import MAX_MOVES
 from nova_agent.lab.sim import Game2048Sim, Scenario
 from nova_agent.llm.protocol import LLM
+from nova_agent.memory.coordinator import MemoryCoordinator
+from nova_agent.memory.types import AffectSnapshot
 from nova_agent.perception.types import BoardState
+from nova_agent.reflection import run_reflection
 
 # Per spec §2.6 + ADR-0006: cognitive-judgment models must run at production tier.
 _ALLOWED_TIERS: Final[frozenset[str]] = frozenset({"production", "demo"})
@@ -311,6 +322,185 @@ def _bot_call_cost_estimate() -> float:
     cap accounting. analyze_results.py recomputes from JSONL telemetry.
     """
     return 0.0001
+
+
+@dataclass(frozen=True)
+class CarlaTrialResult:
+    """Outcome of a single Carla trial.
+
+    ``anxiety_trajectory`` records every post-decision anxiety value (one per
+    ``affect.update`` call); ``t_predicts`` is the §2.7 first-breach index
+    (or None if the anxiety threshold was never breached).
+    """
+
+    scenario_id: str
+    trial_index: int
+    final_move_index: int
+    cost_usd: float
+    abort_reason: str | None
+    anxiety_trajectory: list[float]
+    t_predicts: int | None
+    anxiety_threshold_met: bool
+    is_right_censored: bool
+
+
+async def _run_carla_trial(
+    *,
+    scenario: Scenario,
+    trial_index: int,
+    decision_llm: LLM,
+    tot_llm: LLM,
+    reflection_llm: LLM,
+    bus: EventBus,
+) -> CarlaTrialResult:
+    """Run one Carla trial end-to-end.
+
+    Mirrors the canonical per-move loop pattern at ``nova_agent/main.py:240-319``
+    with these differences:
+    - ``SimGameIO`` instead of ``LiveGameIO``; no OCR.
+    - Bus passed in by the caller; lifecycle (start/stop) is the caller's.
+    - Fresh ``MemoryCoordinator`` on a ``tempfile.TemporaryDirectory`` — auto-
+      cleaned on context-manager exit.
+    - Memory retrieval disabled; ``trauma_triggered=False`` always (no retrieval
+      → no aversive-tag lookups).
+    - Anxiety captured from ``affect.update()`` return value, not from the bus
+      (WebSocket bus silently drops headless events; return-value is the
+      measurement channel per spec §2.4).
+    - ``run_reflection`` called at end; failure is non-blocking.
+    """
+    seed = scenario.seed(trial_index)
+    sim = Game2048Sim(seed=seed, scenario=scenario)
+    io = SimGameIO(sim=sim)
+    affect = AffectState()
+    react_decider = ReactDecider(llm=decision_llm)
+    tot_decider = ToTDecider(llm=tot_llm, bus=bus)
+
+    anxiety_trajectory: list[float] = []
+    cost_usd = 0.0
+    abort_reason: str | None = None
+    move_index = 0
+    prev_board: BoardState | None = None
+    prev_decision: Decision | None = None
+
+    with tempfile.TemporaryDirectory(prefix=f"nova-cliff-{scenario.id}-{trial_index}-") as tmp:
+        memory = MemoryCoordinator(
+            sqlite_path=Path(tmp) / "episodic.db",
+            lancedb_path=Path(tmp) / "vector.lance",
+        )
+
+        for move_index in range(MAX_MOVES):
+            board = io.read_board()
+            if is_game_over(board):
+                break
+
+            mode = "tot" if should_use_tot(board=board, affect=affect.vector) else "react"
+            try:
+                if mode == "tot":
+                    decision = await tot_decider.decide(
+                        board=board,
+                        screenshot_b64=io.screenshot_b64(),
+                        move_idx=move_index,
+                    )
+                else:
+                    affect_text = describe_affect(affect.vector)
+                    decision = react_decider.decide_with_context(
+                        board=board,
+                        screenshot_b64=None,
+                        memories=[],
+                        affect_text=affect_text,
+                    )
+            except Exception:  # noqa: BLE001
+                # Per LESSONS: never silently swallow LLM exceptions. Mark
+                # trial aborted with a structured reason.
+                abort_reason = "api_error"
+                break
+
+            cost_usd += _carla_call_cost_estimate(mode)
+
+            io.apply_move(SwipeDirection(decision.action))
+
+            # Affect update — only when there is a previous board to compute
+            # RPE against (first move has no reference point).
+            if prev_board is not None and prev_decision is not None:
+                score_delta = board.score - prev_board.score
+                delta_rpe = compute_rpe(actual_score_delta=score_delta, board_before=prev_board)
+                # Memory retrieval is disabled in cliff-test trials to remove
+                # network/DB latency as a confound; trauma detection requires
+                # retrieval, so trauma_triggered is always False here.
+                v = affect.update(
+                    rpe=delta_rpe,
+                    empty_cells=board.empty_cells,
+                    terminal=False,
+                    trauma_triggered=False,
+                )
+                anxiety_trajectory.append(v.anxiety)
+
+                snapshot = AffectSnapshot(
+                    valence=v.valence,
+                    arousal=v.arousal,
+                    dopamine=v.dopamine,
+                    frustration=v.frustration,
+                    anxiety=v.anxiety,
+                    confidence=v.confidence,
+                )
+                memory.write_move(
+                    board_before=prev_board,
+                    board_after=board,
+                    action=prev_decision.action,
+                    score_delta=score_delta,
+                    rpe=delta_rpe,
+                    importance=1,
+                    source_reasoning=prev_decision.reasoning,
+                    affect=snapshot,
+                )
+
+            prev_board = board
+            prev_decision = decision
+
+        # End-of-trial reflection. run_reflection is synchronous; failure is
+        # non-blocking — the per-move trajectory is the load-bearing measurement.
+        try:
+            run_reflection(
+                llm=reflection_llm,
+                last_30_moves_summary="cliff-test trial completed",
+                prior_lessons=[],
+            )
+            cost_usd += _carla_call_cost_estimate("reflection")
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Derive termination state from trajectory + sim state.
+    threshold_met = _check_anxiety_threshold(anxiety_trajectory)
+    t_predicts = _first_threshold_index(anxiety_trajectory)
+    if abort_reason is not None:
+        is_right_censored = False
+    else:
+        is_right_censored = (move_index == MAX_MOVES - 1) and not is_game_over(io.read_board())
+
+    return CarlaTrialResult(
+        scenario_id=scenario.id,
+        trial_index=trial_index,
+        final_move_index=move_index,
+        cost_usd=cost_usd,
+        abort_reason=abort_reason,
+        anxiety_trajectory=anxiety_trajectory,
+        t_predicts=t_predicts,
+        anxiety_threshold_met=threshold_met,
+        is_right_censored=is_right_censored,
+    )
+
+
+def _carla_call_cost_estimate(mode: str) -> float:
+    """Per-Carla-call USD estimate.
+
+    Spec §2.6: ~$0.11/trial total = (50 react × X) + (8 ToT × Y) + (1 reflection × Z).
+    Coarse placeholder; analyze_results.py recomputes from JSONL telemetry.
+    """
+    if mode == "tot":
+        return 0.005  # ToT bursts dominate cost
+    if mode == "reflection":
+        return 0.01  # Sonnet reflection is the largest single call
+    return 0.001  # React (Flash) per move
 
 
 def _build_parser() -> argparse.ArgumentParser:
