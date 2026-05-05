@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import csv as _csv
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -10,10 +12,15 @@ import pytest
 
 from nova_agent.bus.recorder import RecordingEventBus
 from nova_agent.lab.cliff_test import (
+    BUDGET_PER_SCENARIO_ARM_USD,
     BotTrialResult,
     CarlaTrialResult,
+    HARD_CAP_MULTIPLIER,
+    _BudgetState,
+    _CSV_COLUMNS,
     _run_bot_trial,
     _run_carla_trial,
+    _worker,
 )
 from nova_agent.lab.scenarios import SCENARIOS
 from nova_agent.llm.mock import MockLLMClient
@@ -146,3 +153,121 @@ async def test_carla_trial_tempdir_is_cleaned_up(tmp_path: Path) -> None:
         assert before == after
     finally:
         await bus.stop()
+
+
+# ---------------------------------------------------------------------------
+# Task 8: _worker paired-trial coroutine tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_paired_worker_runs_both_arms(tmp_path: Path) -> None:
+    """One paired trial; both arms run; both CSV rows written."""
+    scenario = SCENARIOS["snake-collapse-128"]
+    decision_llm = MockLLMClient()
+    tot_llm = MockLLMClient()
+    reflection_llm = MockLLMClient()
+    bot_llm = MockLLMClient()
+    csv_path = tmp_path / "results.csv"
+    semaphore = asyncio.Semaphore(1)
+    budget = _BudgetState()
+    output_dir = tmp_path
+
+    await _worker(
+        pair=(scenario, 0),
+        semaphore=semaphore,
+        budget=budget,
+        csv_path=csv_path,
+        output_dir=output_dir,
+        decision_llm=decision_llm,
+        tot_llm=tot_llm,
+        reflection_llm=reflection_llm,
+        bot_llm=bot_llm,
+    )
+
+    # Both rows written.
+    with csv_path.open() as f:
+        rows = list(_csv.reader(f))
+    # 1 header + 2 data rows.
+    assert len(rows) == 3
+    arms_written = {rows[1][2], rows[2][2]}
+    assert arms_written == {"carla", "bot"}
+
+
+@pytest.mark.asyncio
+async def test_paired_worker_records_carla_abort_and_bot_success(tmp_path: Path) -> None:
+    """If Carla aborts on api_error and Bot completes normally, both rows are
+    written with the appropriate abort_reason values per Bot spec §2.6
+    (paired-discard logic lives in analyze_results.py, not in the runner)."""
+
+    scenario = SCENARIOS["snake-collapse-128"]
+
+    class FailOnReact(MockLLMClient):
+        def complete(self, *a: Any, **kw: Any) -> tuple[str, object]:  # type: ignore[override]
+            raise RuntimeError("simulated provider outage on Carla path")
+
+    decision_llm = FailOnReact()
+    tot_llm = FailOnReact()
+    reflection_llm = MockLLMClient()
+    bot_llm = MockLLMClient()
+    csv_path = tmp_path / "results.csv"
+    semaphore = asyncio.Semaphore(1)
+    budget = _BudgetState()
+
+    await _worker(
+        pair=(scenario, 0),
+        semaphore=semaphore,
+        budget=budget,
+        csv_path=csv_path,
+        output_dir=tmp_path,
+        decision_llm=decision_llm,
+        tot_llm=tot_llm,
+        reflection_llm=reflection_llm,
+        bot_llm=bot_llm,
+    )
+
+    with csv_path.open() as f:
+        rows = list(_csv.reader(f))
+    # Both rows present.
+    assert len(rows) == 3
+    by_arm = {row[2]: row for row in rows[1:]}
+    # Carla row: abort_reason populated; t_predicts may be None.
+    idx_abort = list(_CSV_COLUMNS).index("abort_reason")
+    assert by_arm["carla"][idx_abort] == "api_error"
+    # Bot row: no abort_reason.
+    assert by_arm["bot"][idx_abort] == ""
+
+
+@pytest.mark.asyncio
+async def test_paired_worker_skips_when_hard_cap_hit(tmp_path: Path) -> None:
+    """If hard cap is already hit on entry, _worker returns immediately
+    without invoking any LLM and writes no CSV rows."""
+    scenario = SCENARIOS["snake-collapse-128"]
+    csv_path = tmp_path / "results.csv"
+    semaphore = asyncio.Semaphore(1)
+    budget = _BudgetState()
+    # Pre-load the budget past the hard cap.
+    budget.add(scenario.id, "carla", BUDGET_PER_SCENARIO_ARM_USD * HARD_CAP_MULTIPLIER + 0.01)
+
+    class TripWireLLM(MockLLMClient):
+        def complete(self, *a: Any, **kw: Any) -> tuple[str, object]:  # type: ignore[override]
+            raise AssertionError("hard cap hit — no LLM calls should occur")
+
+    await _worker(
+        pair=(scenario, 0),
+        semaphore=semaphore,
+        budget=budget,
+        csv_path=csv_path,
+        output_dir=tmp_path,
+        decision_llm=TripWireLLM(),
+        tot_llm=TripWireLLM(),
+        reflection_llm=TripWireLLM(),
+        bot_llm=TripWireLLM(),
+    )
+
+    # No CSV rows (file may not even exist).
+    if csv_path.exists():
+        with csv_path.open() as f:
+            rows = list(_csv.reader(f))
+        # At most a header — no data rows.
+        assert len(rows) <= 1

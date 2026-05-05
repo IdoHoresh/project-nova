@@ -14,6 +14,7 @@ Spec: ``docs/superpowers/specs/2026-05-05-test-runner-design.md``.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv
 import sys
 import tempfile
@@ -25,6 +26,7 @@ from nova_agent.action.adb import SwipeDirection
 from nova_agent.affect.rpe import rpe as compute_rpe
 from nova_agent.affect.state import AffectState
 from nova_agent.affect.verbalize import describe as describe_affect
+from nova_agent.bus.recorder import RecordingEventBus
 from nova_agent.bus.websocket import EventBus
 from nova_agent.decision.arbiter import should_use_tot
 from nova_agent.decision.baseline import BaselineDecider, TrialAborted
@@ -501,6 +503,92 @@ def _carla_call_cost_estimate(mode: str) -> float:
     if mode == "reflection":
         return 0.01  # Sonnet reflection is the largest single call
     return 0.001  # React (Flash) per move
+
+
+DEFAULT_CONCURRENCY: Final[int] = 8
+
+
+async def _worker(
+    *,
+    pair: tuple[Scenario, int],
+    semaphore: asyncio.Semaphore,
+    budget: _BudgetState,
+    csv_path: Path,
+    output_dir: Path,
+    decision_llm: LLM,
+    tot_llm: LLM,
+    reflection_llm: LLM,
+    bot_llm: LLM,
+) -> None:
+    """Run one paired (scenario, trial_index) trial under the semaphore.
+
+    Both arms run concurrently inside the pair via asyncio.gather. Hard-cap
+    pre-check happens BEFORE any LLM call. Writes both CSV rows on completion.
+    Per spec §2.2 + §4.3.
+    """
+    scenario, trial_index = pair
+    async with semaphore:
+        # Hard-cap pre-LLM gate (per spec §2.3). Check either arm; both share
+        # the same scenario envelope so a hit on either means skip the pair.
+        if budget.hard_cap_hit(scenario.id, "carla") or budget.hard_cap_hit(scenario.id, "bot"):
+            return  # caller observes via budget and exits with code 3
+
+        # Build per-trial buses (one per arm — per spec §2.7 "one JSONL file per trial").
+        carla_jsonl = output_dir / f"events_{scenario.id}_carla_{trial_index}.jsonl"
+        bot_jsonl = output_dir / f"events_{scenario.id}_bot_{trial_index}.jsonl"
+        carla_bus = RecordingEventBus(host="127.0.0.1", port=0, path=carla_jsonl)
+        bot_bus = RecordingEventBus(host="127.0.0.1", port=0, path=bot_jsonl)
+
+        try:
+            carla_result, bot_result = await asyncio.gather(
+                _run_carla_trial(
+                    scenario=scenario,
+                    trial_index=trial_index,
+                    decision_llm=decision_llm,
+                    tot_llm=tot_llm,
+                    reflection_llm=reflection_llm,
+                    bus=carla_bus,
+                ),
+                _run_bot_trial(
+                    scenario=scenario,
+                    trial_index=trial_index,
+                    llm=bot_llm,
+                    bus=bot_bus,
+                ),
+            )
+        finally:
+            await carla_bus.stop()
+            await bot_bus.stop()
+
+        budget.add(scenario.id, "carla", carla_result.cost_usd)
+        budget.add(scenario.id, "bot", bot_result.cost_usd)
+
+        _append_csv_row(
+            csv_path,
+            scenario_id=scenario.id,
+            trial_index=trial_index,
+            arm="carla",
+            t_predicts=carla_result.t_predicts,
+            t_baseline_fails=None,
+            cost_usd=round(carla_result.cost_usd, 6),
+            abort_reason=carla_result.abort_reason,
+            anxiety_threshold_met=carla_result.anxiety_threshold_met,
+            final_move_index=carla_result.final_move_index,
+            is_right_censored=carla_result.is_right_censored,
+        )
+        _append_csv_row(
+            csv_path,
+            scenario_id=scenario.id,
+            trial_index=trial_index,
+            arm="bot",
+            t_predicts=None,
+            t_baseline_fails=bot_result.t_baseline_fails,
+            cost_usd=round(bot_result.cost_usd, 6),
+            abort_reason=bot_result.abort_reason,
+            anxiety_threshold_met=None,
+            final_move_index=bot_result.final_move_index,
+            is_right_censored=bot_result.is_right_censored,
+        )
 
 
 def _build_parser() -> argparse.ArgumentParser:
