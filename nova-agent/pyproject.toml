@@ -33,6 +33,7 @@ dev = [
 
 [project.scripts]
 nova = "nova_agent.main:cli"
+cliff-test = "nova_agent.lab.cliff_test:main"
 
 [build-system]
 requires = ["hatchling"]
