@@ -48,6 +48,73 @@ def test_cli_help_runs_clean() -> None:
     assert "cliff-test" in result.stdout.lower() or "usage" in result.stdout.lower()
 
 
+def test_build_llms_passes_thinking_budget_for_gemini_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_build_llms` must disable Gemini-flash thinking and cap Gemini-pro thinking.
+
+    Without `thinking_budget=0`, Flash burns the entire `max_output_tokens`
+    budget on hidden reasoning (gemini_client.py:53-58 doc), leaving 0-8 tokens
+    for the visible JSON payload — every Bot+Carla-react call truncates
+    mid-string and parse_json raises StructuredOutputError. main.py:165-193
+    has the canonical fix; the cliff-test runner must mirror it.
+    """
+    from nova_agent.llm import factory as llm_factory
+    from nova_agent.lab import cliff_test as runner
+
+    # Populate Settings inputs and force tier=production.
+    monkeypatch.setenv("NOVA_TIER", "production")
+    monkeypatch.setenv("GOOGLE_API_KEY", "fake-google-key-for-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-anthropic-key-for-test")
+    # Clear get_settings cache so the env vars above are re-read.
+    import nova_agent.config as config_mod
+
+    monkeypatch.setattr(config_mod, "_settings", None)
+
+    captured: list[dict[str, Any]] = []
+
+    def _recorder(**kwargs: Any) -> object:
+        captured.append(kwargs)
+        return object()  # sentinel — runner only stores the LLMs
+
+    monkeypatch.setattr(llm_factory, "build_llm", _recorder)
+
+    runner._build_llms()
+
+    assert len(captured) == 4, f"expected 4 build_llm calls, got {len(captured)}"
+    decision_kwargs, tot_kwargs, reflection_kwargs, bot_kwargs = captured
+
+    # Decision (Carla react): Gemini-flash → thinking must be disabled.
+    assert decision_kwargs["model"] == "gemini-2.5-flash"
+    assert decision_kwargs.get("thinking_budget") == 0, (
+        "decision LLM (Gemini-flash) must pass thinking_budget=0 — "
+        "without it, max_output_tokens is consumed by hidden thinking and "
+        "the visible JSON truncates mid-string"
+    )
+
+    # ToT (Carla deliberation): Gemini-pro can't accept 0 (rejected by API).
+    # Must pass a positive cap so visible JSON has room.
+    assert tot_kwargs["model"] == "gemini-2.5-pro"
+    assert isinstance(tot_kwargs.get("thinking_budget"), int)
+    assert tot_kwargs["thinking_budget"] > 0, (
+        "ToT LLM (Gemini-pro) needs a positive thinking_budget cap; "
+        "Pro rejects 0 and unbounded thinking starves visible tokens"
+    )
+
+    # Reflection (Carla post-game): Anthropic ignores thinking_budget. We
+    # don't enforce a value here — the contract is "factory must not crash"
+    # which `build_llm` already guarantees.
+    assert reflection_kwargs["model"] == "claude-sonnet-4-6"
+
+    # Bot: same family as decision per Bot spec §2.4 → same Gemini-flash
+    # thinking constraint. Bot calls outnumber any other arm; if this regresses
+    # the entire control arm aborts at move 0 silently.
+    assert bot_kwargs["model"] == "gemini-2.5-flash"
+    assert bot_kwargs.get("thinking_budget") == 0, (
+        "bot LLM (Gemini-flash, decision-family) must pass thinking_budget=0"
+    )
+
+
 def test_cli_rejects_dev_tier() -> None:
     """Runner refuses NOVA_TIER=dev (per spec §6.1 + ADR-0006)."""
     result = _run_cli(

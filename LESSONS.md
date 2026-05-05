@@ -21,6 +21,24 @@
 
 ## Engineering / debugging gotchas
 
+### `thinking_budget=None` on Gemini Flash silently truncates JSON output
+
+**Date:** 2026-05-06 | **Cost:** ~30 min wall + ~$0.05 burned on a hosed pilot calibration before diagnosis. Caught during the first real-LLM cliff-test run; every Bot trial parse-failed at move 0 and every Carla react trial silently aborted (the `except Exception` in `_run_carla_trial` swallowed it).
+
+**What happened:** `nova_agent/lab/cliff_test.py:_build_llms()` shipped without forwarding a `thinking_budget` to `build_llm()` for the Gemini Flash decision/bot LLMs. Default is `thinking_budget=None`, which `gemini_client.py:53-58` documents as "model decides — Flash burns the entire budget on thinking." With `BASELINE_MAX_TOKENS=500`, the model spent all 500 tokens on hidden reasoning and emitted only 8 visible tokens (`{\n  "observation": "Large` — same prefix every time). `parse_json` couldn't find a closing `}` → `StructuredOutputError` → 1 retry (deterministic at temp=0, identical failure) → `TrialAborted(reason="parse_failure")`. Bot side telemetry showed it; Carla react side hit the same wall but silently aborted before publishing any bus events, so no `events_*_carla_*.jsonl` files were created — making it look like Carla "didn't run" when in fact every trial died at move 0.
+
+The canonical fix already existed in `main.py:165-193` — `thinking_budget=0` for Flash, `thinking_budget=1024` for Pro (Pro rejects 0). The cliff-test runner shipped without mirroring it because the Task 10 manual smoke ran on the `fresh-start` scenario, which evidently produced a small enough JSON payload to squeak through under whatever thinking the model chose; the production scenarios (snake-collapse-128, corner-abandonment-256, 512-wall) all failed.
+
+**Lesson:** Every Gemini call site must explicitly set `thinking_budget`. The factory's `thinking_budget=None` default is a footgun, not a sane default — Flash interprets None as "go wild on thinking" and Pro interprets None as "dynamic budget." Both starve visible-token output under tight `max_output_tokens` limits. Never let a new code path pass through `build_llm` for a Gemini model without picking a value. Diagnostic fingerprint: `tokens_out` very small (≤10), response is a JSON prefix, parse failure is deterministic across retries, and the failure happens on every move.
+
+**How to apply:**
+
+- For any new `build_llm(model="gemini-flash-...", ...)` call site: pass `thinking_budget=0`.
+- For `gemini-pro`: pass a positive cap (1024 is the established value for ToT branches; tune for your output size).
+- Add a regression test asserting the kwargs at the construction site (see `test_build_llms_passes_thinking_budget_for_gemini_models`). Mocked-LLM tests can't catch this because mocks ignore `thinking_budget`; the assertion has to be at the factory boundary.
+- If a manual smoke "passes" but the call site differs from `main.py`, run the real scenario corpus before declaring victory. `fresh-start` is not representative of cliff-test scenarios.
+- Long-term: consider making `thinking_budget` a required kwarg on the Gemini side of `build_llm` (no None default). Documented as a follow-up in this entry rather than implemented — would be a small ADR.
+
 ### Pydantic-settings silently drops field-name kwargs when aliases exist + `extra="ignore"`
 
 **Date:** 2026-05-04 | **Cost:** ~10 min during Task 5 of the Game2048Sim build (factory test failed before the spec reviewer flagged the same issue independently).

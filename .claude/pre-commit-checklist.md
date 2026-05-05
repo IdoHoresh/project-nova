@@ -2,8 +2,8 @@
 
 > Hook-enforced: any unchecked-box line blocks the commit. Mark `[x]` when done; for N/A items use `[x] N/A: <reason>`. Silent skip is forbidden. Post-commit hook auto-resets boxes to unchecked for the next commit.
 
-- [x] **Branch + scope** — on claude/practical-swanson-4b6468; atomic unit: e2e smoke now opt-in via NOVA_E2E_SMOKE=1 (1 file, +9/-3 lines)
-- [x] **Verification** — diff scanned, no secrets; local pytest confirms SKIP fires in normal env (1 skipped in 1.5s, no LLM calls). Prior fix attempt (truthy guard) failed in CI because the workflow now exposes real API keys (per resume-point one-time setup), making any presence-based guard wrong against `_run_cli`'s strip behavior.
-- [x] **Review** — N/A: REVIEW.md taxonomy `N/A: mechanical` (test-only opt-in skip; no production paths; Layer 1.5 pre-push covers)
-- [x] **Documentation** — inline rationale references the conflict between `_run_cli`'s strip-design and e2e's need-keys-design
-- [x] **Commit message** — `fix(cliff-test): make e2e smoke opt-in via NOVA_E2E_SMOKE=1`, body explains the strip-vs-keys design conflict, co-author tag present
+- [x] **Branch + scope** — on claude/practical-swanson-4b6468; atomic unit: pass `thinking_budget` to Gemini-flash decision/bot LLMs (=0) and Gemini-pro tot LLM (=1024) in `cliff_test._build_llms` (3 files staged: src + test + LESSONS, +95/-0 lines)
+- [x] **Verification** — `git diff --cached` scanned, no secrets (test uses literal "fake-google-key-for-test" / "fake-anthropic-key-for-test" strings; gitleaks regex requires real Google/Anthropic key prefixes); `/check-agent` trio clean (267 pytest passed, mypy strict clean, ruff clean); pilot calibration repro confirmed Gemini-flash thinking_budget=None emits `tokens_out=8` truncated JSON.
+- [x] **Review** — `/code-review` dispatched; APPROVE with one WARN (pre-existing bare-except at cliff_test.py:471, captured as Task #10 follow-up) and one NIT (test side-effect on data dirs, accepted). REVIEW.md taxonomy match: `nova-agent/src/**` + `nova-agent/tests/**`; security-reviewer not required (no llm/config/bus modification, only kwarg routing).
+- [x] **Documentation** — inline comment in `_build_llms` cross-references `main.py:165-193` and `gemini_client.py:53-58`; LESSONS.md entry captures the failure mode + fingerprint + how-to-apply for future call sites.
+- [x] **Commit message** — `fix(cliff-test): pass thinking_budget to Gemini build_llm calls`, body explains why Flash without thinking_budget=0 truncates output, references `main.py` canonical pattern, co-author tag present.

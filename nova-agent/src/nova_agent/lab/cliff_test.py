@@ -798,18 +798,27 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
     anthropic_api_key = settings.anthropic_api_key
     daily_cap_usd = settings.daily_budget_usd
 
+    # Gemini thinking budgets — mirror main.py:165-193. Without these, Flash
+    # burns the entire max_output_tokens budget on hidden reasoning (see
+    # gemini_client.py:53-58 doc), leaving the visible JSON truncated mid-
+    # string. AnthropicLLM ignores thinking_budget, so the kwarg is safe to
+    # pass uniformly. Pro rejects thinking_budget=0; a positive cap keeps
+    # ToT branches under the per-branch token limit while leaving room for
+    # the small action+value+reasoning JSON.
     return (
         build_llm(
             model=decision_model,
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
+            thinking_budget=0,
         ),
         build_llm(
             model=tot_model,
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
+            thinking_budget=1024,
         ),
         build_llm(
             model=reflection_model,
@@ -822,6 +831,7 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
+            thinking_budget=0,
         ),  # bot — same family as decision per Bot spec §2.4
     )
 
