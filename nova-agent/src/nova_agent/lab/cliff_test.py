@@ -16,11 +16,17 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
 from nova_agent.action.adb import SwipeDirection
+from nova_agent.bus.websocket import EventBus
+from nova_agent.decision.baseline import BaselineDecider, TrialAborted
 from nova_agent.lab.io import SimGameIO
+from nova_agent.lab.scenarios import MAX_MOVES
+from nova_agent.lab.sim import Game2048Sim, Scenario
+from nova_agent.llm.protocol import LLM
 from nova_agent.perception.types import BoardState
 
 # Per spec §2.6 + ADR-0006: cognitive-judgment models must run at production tier.
@@ -210,6 +216,101 @@ def _apply_with_tiebreak(
             return applied
 
     raise ValueError("no legal move on this board (game-over should have caught this)")
+
+
+@dataclass(frozen=True)
+class BotTrialResult:
+    """Outcome of a single Bot trial.
+
+    ``cost_usd`` aggregates token costs over all bot_call_success events
+    emitted during the trial. The placeholder per-call estimate (see
+    ``_bot_call_cost_estimate``) is used for cap accounting; exact per-call
+    USD is recomputed by ``analyze_results.py`` from JSONL telemetry.
+    """
+
+    scenario_id: str
+    trial_index: int
+    final_move_index: int
+    cost_usd: float
+    abort_reason: str | None
+    t_baseline_fails: int | None
+    is_right_censored: bool
+
+
+async def _run_bot_trial(
+    *,
+    scenario: Scenario,
+    trial_index: int,
+    llm: LLM,
+    bus: EventBus,
+) -> BotTrialResult:
+    """Run one Bot trial against ``Game2048Sim``. Returns the per-trial summary.
+
+    Per spec §4.2 pseudocode + Bot spec §3.4 telemetry contract:
+    - Game-over before MAX_MOVES → t_baseline_fails = move_index,
+      is_right_censored = False.
+    - Abort (api_error / parse_failure) → t_baseline_fails = None,
+      is_right_censored = False.
+    - Exhausted MAX_MOVES without game-over → t_baseline_fails = MAX_MOVES
+      sentinel per scenarios spec §5.1, is_right_censored = True.
+    """
+    seed = scenario.seed(trial_index)
+    sim = Game2048Sim(seed=seed, scenario=scenario)
+    io = SimGameIO(sim=sim)
+    decider = BaselineDecider(llm=llm, bus=bus)
+
+    cost_usd = 0.0
+    abort_reason: str | None = None
+    move_index = 0
+
+    for move_index in range(MAX_MOVES):
+        if sim.is_game_over():
+            break
+        board = io.read_board()
+        decision = await decider.decide(
+            board=board,
+            trial_index=trial_index,
+            move_index=move_index,
+        )
+        if isinstance(decision, TrialAborted):
+            abort_reason = decision.reason
+            break
+        _apply_with_tiebreak(io, decision.action, board)
+        cost_usd += _bot_call_cost_estimate()
+
+    # Termination state derivation per scenarios spec §5.1.
+    t_baseline_fails: int | None
+    is_right_censored: bool
+    if abort_reason is not None:
+        t_baseline_fails = None
+        is_right_censored = False
+    elif sim.is_game_over():
+        t_baseline_fails = move_index
+        is_right_censored = False
+    else:
+        # Exhausted MAX_MOVES cap without game-over → right-censored sentinel.
+        t_baseline_fails = MAX_MOVES
+        is_right_censored = True
+
+    return BotTrialResult(
+        scenario_id=scenario.id,
+        trial_index=trial_index,
+        final_move_index=move_index,
+        cost_usd=cost_usd,
+        abort_reason=abort_reason,
+        t_baseline_fails=t_baseline_fails,
+        is_right_censored=is_right_censored,
+    )
+
+
+def _bot_call_cost_estimate() -> float:
+    """Per-Bot-call USD estimate at production tier (gemini-2.5-flash for
+    the bot decision role). Calibrated to spec §2.6: ~$0.005/trial × 50
+    moves = $0.0001/move. The exact tier-rate composition lives in
+    nova_agent/llm/tiers.py; this estimate is a coarse placeholder for
+    cap accounting. analyze_results.py recomputes from JSONL telemetry.
+    """
+    return 0.0001
 
 
 def _build_parser() -> argparse.ArgumentParser:
