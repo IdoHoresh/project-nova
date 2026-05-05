@@ -26,6 +26,51 @@ EXIT_HARD_CAP: Final[int] = 3
 EXIT_TIER_REFUSED: Final[int] = 4  # USAGE error; not the methodology >2-aborts-per-scenario flag
 
 
+# Per spec §2.7 / scenarios spec §2.7: Carla "predicts the cliff" iff
+# anxiety > 0.6 for >= 2 consecutive moves. Strict greater-than.
+ANXIETY_THRESHOLD: Final[float] = 0.6
+ANXIETY_CONSECUTIVE: Final[int] = 2
+
+
+def _first_threshold_index(
+    trajectory: list[float],
+    *,
+    threshold: float = ANXIETY_THRESHOLD,
+    consecutive: int = ANXIETY_CONSECUTIVE,
+) -> int | None:
+    """Return the index of the first move that begins a run of ``consecutive``
+    moves with anxiety strictly greater than ``threshold``. Return None if no
+    such run exists.
+
+    Spec §2.7: ``t_predicts`` for Carla = this index, or null if no breach.
+    """
+    if consecutive <= 0 or len(trajectory) < consecutive:
+        return None
+    run = 0
+    for i, v in enumerate(trajectory):
+        if v > threshold:
+            run += 1
+            if run >= consecutive:
+                return i - consecutive + 1
+        else:
+            run = 0
+    return None
+
+
+def _check_anxiety_threshold(
+    trajectory: list[float],
+    *,
+    threshold: float = ANXIETY_THRESHOLD,
+    consecutive: int = ANXIETY_CONSECUTIVE,
+) -> bool:
+    """True iff the trajectory contains >= ``consecutive`` consecutive values
+    strictly greater than ``threshold``.
+    """
+    return (
+        _first_threshold_index(trajectory, threshold=threshold, consecutive=consecutive) is not None
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cliff-test",
