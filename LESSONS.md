@@ -277,6 +277,16 @@ Each rate is citable; the model is scientifically defensible; Day-3 frustration 
 
 ## Workflow / process learnings
 
+### Verify red-team cost-leakage claims numerically before accepting framing
+
+**Date:** 2026-05-05 | **Cost:** ~0 minutes (caught in-loop), but pattern-cost across the brainstorm system is large if uncaught.
+
+**What happened:** During the Test Runner spec brainstorm (Q2, parallelism strategy), the red team flagged "critical budget leakage" from independent arm scheduling under the paired-discard rule (Bot spec §2.6) — claim being that Bot tokens spent before a paired Carla abort would be wasted. Running the actual numbers (Bot abort rate <2% at temp=0 + 3× API retry, Carla abort rate ~3-5%, Bot per-trial cost ~$0.10, Carla ~$1-2, N=20 × 3 scenarios) showed expected wasted-pair leakage was **~$2-3 over the entire cliff test** — not "critical." Accepted the structural change (paired-trial as unit-of-concurrency) on independent code-clarity grounds, explicitly rejected the cost-leakage framing in the analysis. If the framing had been accepted as-stated, the spec would have anchored the budget envelope discussion around a phantom $-figure problem and downstream calibration runs would have over-engineered for it.
+
+**Lesson:** A red-team claim that sounds rigorous (units, percentages, "wasted tokens", "leakage") may still be 10× over-calibrated. The rigor of the *structure* (named units, percentages quoted) is independent of the rigor of the *magnitudes*. Always run the actual numbers — abort rates × per-trial costs × N — before accepting either the proposed fix or the framing that motivates it. The fix may still be correct on other grounds (in this case, paired bookkeeping is a real code-clarity win); separating "is the fix right?" from "is the framing right?" keeps the spec honest and prevents spec text from anchoring on a phantom problem.
+
+**How to apply:** When a `/redteam` analysis surfaces a quantitative claim (cost leakage, latency overhead, error rate, overshoot percentage), §3 of the protocol output ("Where the red team is weaker than they framed") MUST include explicit math — quote the inputs, compute the magnitude, compare to the threshold of "critical." If the math shows the magnitude is small, accept the fix only on its other merits (or reject) and call out the framing miscalibration. This is now part of how the redteam slash command is meant to be exercised; no skill-file change needed, but next round's §3 should treat numerical-claim verification as mandatory not optional.
+
 ### Open PR on the active long-lived branch silently swallows new commits
 
 **Date:** 2026-05-05 | **Cost:** ~5 minutes of cleanup at end of session + a non-trivial methodology hit (PR #7's scope misrepresented for several hours)
