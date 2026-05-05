@@ -408,61 +408,13 @@ For larger changes, use the workflow:
 
 ## Active phase + next task
 
-**As of 2026-05-04 (end of Week 0 Day 2):** Week 0 of the 30-day
-validation sprint, on the revised plan per
-[ADR-0005](./docs/decisions/0005-defer-v1-demo-until-phase-0.7.md)
-which deferred the v1.0.0 demo recording until Phase 0.7 cliff test
-passes. Days 3-7 of Week 0 reallocate to early `Game2048Sim` build
-so the cliff test can start on Day 1 of Week 1 instead of Day 3.
-
-**What shipped today (2026-05-04, 10 commits):**
-
-- 5-commit Gibor-pattern review-system port: `REVIEW.md` checklist + `/review`,
-  `/code-review`, `/security-review` slash skills + workflow.md / CLAUDE.md
-  / pre-commit-checklist wiring + `claude-code-action` GH workflow + LESSONS.md
-- Pre-push agent hook for auto code-review on `git push:*` (`.claude/settings.json`)
-- All 3 dependabot moderate alerts closed on this branch (esbuild, postcss,
-  vite — pinned via `pnpm.overrides` and a vitest 2->3 / vite 5->6 bump)
-- ADR-0005 (defer demo until Phase 0.7) + roadmap Week 0 rewrite
-- Record-and-replay for AgentEvent streams (`nova_agent.bus.recorder` +
-  `nova_agent.bus.replayer`) — UI dev no longer pays LLM cost per iteration
-- Response-schema enforcement on every Gemini JSON callsite (LLM Protocol
-  extension); accept-and-ignore on Anthropic + Mock for cross-provider symmetry
-- ADR-0006 (cost-tier discipline + record-replay rationale) + `plumbing` tier
-  (flash-lite everywhere — UI / smoke / infra ONLY, NEVER for cognitive
-  judgment) + `NOVA_TIER` env wiring through `Settings.tier`
-- ADR-0007 (Blind Control Group) + methodology.md §4.1 rewrite: cliff test
-  is now two-armed (Carla + Baseline Bot, same seeded sequences), pass
-  criterion is `Δ ≥ 2` lead time over baseline in ≥ 3 of 3-5 scenarios
-- Phase 1 hard constraints in roadmap (Zero-PII guarantee, Unity 2022.3 LTS
-  lock) + Phase 5 hosting strategy (Modal default, RunPod GPU fallback)
-
-**Next session — first task (per the revised Week 0 plan):**
-
-1. Boot emulator + agent: `~/Library/Android/sdk/emulator/emulator @Pixel_6
-   -no-snapshot &`, `adb wait-for-device`, then `uv run nova` from
-   `nova-agent/`. Watch a full 50-move game with the brain panel running.
-   Zero AgentEvent parse failures expected (validator landed in PR #1).
-2. Synthetic "demo dry run" — walk through the brain panel as if recording
-   (no OBS). Surface UX gaps the recording would have caught. This replaces
-   the original demo's UX-forcing-function per ADR-0005.
-3. `/review` on the recent cognitive-architecture commits — first real-world
-   exercise of the new orchestrator against live cog-arch code.
-4. **Begin `nova_agent.lab.Game2048Sim` build** (~2 days). Pure Python
-   in-process simulator with the same `BoardState` interface the cognitive
-   layer already consumes. Removes OCR + emulator latency as confounds for
-   the Phase 0.7 cliff test. Pulled forward from Week 1 into the Days 3-4
-   slot vacated by demo prep.
-
-**One-time setup the next session must verify:**
-
-- Open `/hooks` once OR restart Claude Code so the pre-push agent hook
-  activates (settings watcher only sees files that existed at session start).
-- Add `ANTHROPIC_API_KEY` to GitHub repo secrets so the Layer 2
-  `claude-code-action` workflow actually runs on the next PR.
-
-Detailed pickup state lives in
+Current phase, recent ships, next task, and one-time setup notes live in
+the auto-loaded resume-point memory file:
 `~/.claude/projects/-Users-idohoresh-Desktop-a/memory/project_nova_resume_point.md`.
+
+Read it first each session. CLAUDE.md intentionally does NOT duplicate
+that state — resume-point updates per-session, CLAUDE.md does not, and
+duplication produces stale CLAUDE.md (which is loaded every turn).
 
 ---
 
