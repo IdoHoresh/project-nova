@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
+from math import log2
 
 from nova_agent.action.adb import SwipeDirection
 from nova_agent.perception.types import BoardState
@@ -37,12 +38,64 @@ _SPAWN_FOUR_PROB = 0.1
 
 @dataclass(frozen=True)
 class Scenario:
-    """Frozen, JSON-serializable starting condition for a game."""
+    """Frozen, JSON-serializable starting condition for a game.
+
+    `seed_base` is the per-scenario base seed; `seed(trial_index)` derives
+    a per-trial seed for paired Carla/Bot runs per
+    docs/superpowers/specs/2026-05-05-cliff-test-scenarios-design.md §2.2.
+
+    Validators (see __post_init__) enforce: 4×4 grid, in-palette tiles,
+    initial_score equals the minimum-implied-score derived from the grid,
+    high_tile_magnitude matches the grid max, cliff window well-formed.
+    """
 
     id: str
     initial_grid: list[list[int]]
     initial_score: int
-    seed: int
+    seed_base: int
+    pattern_name: str
+    high_tile_magnitude: int
+    expected_cliff_window: tuple[int, int]
+    source_citation: str
+
+    def __post_init__(self) -> None:
+        # 4×4 grid shape.
+        if len(self.initial_grid) != 4 or any(len(r) != 4 for r in self.initial_grid):
+            raise ValueError(f"{self.id}: initial_grid must be 4x4")
+        # Tile palette (canonical 2048 powers + zero).
+        valid_tiles = {0, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048}
+        bad = [v for r in self.initial_grid for v in r if v not in valid_tiles]
+        if bad:
+            raise ValueError(f"{self.id}: initial_grid contains out-of-palette tile(s): {bad}")
+        # initial_score equals minimum-implied-score derived from the grid.
+        derived = sum(int((log2(v) - 1) * v) for r in self.initial_grid for v in r if v > 0)
+        if self.initial_score != derived:
+            raise ValueError(
+                f"{self.id}: initial_score {self.initial_score} does not match "
+                f"minimum-implied-score {derived} derived from initial_grid"
+            )
+        # high_tile_magnitude matches grid max.
+        max_tile = max((v for r in self.initial_grid for v in r), default=0)
+        if self.high_tile_magnitude != max_tile:
+            raise ValueError(
+                f"{self.id}: high_tile_magnitude {self.high_tile_magnitude} does not "
+                f"match grid max {max_tile}"
+            )
+        # Cliff window well-formed: 0 < lo <= hi.
+        lo, hi = self.expected_cliff_window
+        if not (0 < lo <= hi):
+            raise ValueError(
+                f"{self.id}: expected_cliff_window {self.expected_cliff_window} ill-formed"
+            )
+
+    def seed(self, trial_index: int) -> int:
+        """Derive the per-trial seed: seed_base + trial_index.
+
+        Carla trial `i` and Bot trial `i` use the same trial seed so the
+        spawn schedule is identical until their decisions diverge — see
+        scenarios spec §2.2.
+        """
+        return self.seed_base + trial_index
 
 
 class Game2048Sim:

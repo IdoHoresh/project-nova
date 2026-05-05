@@ -277,6 +277,20 @@ Each rate is citable; the model is scientifically defensible; Day-3 frustration 
 
 ## Workflow / process learnings
 
+### Open PR on the active long-lived branch silently swallows new commits
+
+**Date:** 2026-05-05 | **Cost:** ~5 minutes of cleanup at end of session + a non-trivial methodology hit (PR #7's scope misrepresented for several hours)
+
+**What happened:** Project Nova uses a long-lived feature branch (`claude/practical-swanson-4b6468`) and a one-PR-per-coherent-unit cadence (workflow.md). PR #7 was opened with the cliff-test scenarios unit (8 commits) and left open awaiting review. A new session started and shipped a second coherent unit (Baseline Bot decider — spec + ADR amendment + 7-task implementation = 13 more commits) on the same branch. Every push auto-updated PR #7 because GitHub tracks branches not commits, so PR #7 silently grew from 8 commits to 21 — but its title/body still described only the cliff-test unit. The "one-big-PR drift trap" workflow.md explicitly warns about. Caught only at PR-creation time when the finishing-a-development-branch skill asked which option to take.
+
+**Lesson:** Long-lived feature branches + open PRs are a hidden mode: you cannot open a "new" PR from the same branch — you can only update the existing one. Any work committed before the prior PR merges stacks under that PR's title/body. Without an explicit check at session start, the stack can grow several units deep before anyone notices, and at that point the choices are (a) update PR meta to encompass everything, (b) force-push branch surgery (destroys in-flight Layer 2 review). Both are recoveries; neither is the cadence the workflow rule wants.
+
+**How to apply:**
+
+1. **SessionStart hook in `.claude/settings.json`** — runs `gh pr list --head $(git branch --show-current) --state open --json number,title` at every session start and emits a `systemMessage` warning listing any open PRs on the current branch with a reminder to confirm the new work belongs in the same unit before committing. Hook beats discipline; landed in this same commit. Note: the hook only registers after `/hooks` reload or session restart in the session that introduced it (settings watcher catches new files at session start only).
+2. **Memory entry on the same topic** in user-scope auto-memory so future-me checks PR state at session start across `/clear` boundaries.
+3. **If the stack already happened**: prefer (A) updating the existing PR's title/body to honestly describe both units over (B) force-pushing branch surgery — (A) is reversible, preserves the in-flight Layer 2 review (which is now reviewing the combined diff anyway), and avoids a force-push on a branch tracked by an open PR. (B) only makes sense if the two units are genuinely unrelated; coupled units (where the second's spec depends on the first's) ship cleanly under one combined PR.
+
 ### `# type: ignore` staging across multi-task plans creates a peel-as-you-go cleanup chain
 
 **Date:** 2026-05-04 | **Context:** the 7-task Game2048Sim build (Tasks 1, 2, 4, 5).
