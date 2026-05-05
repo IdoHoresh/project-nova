@@ -591,6 +591,105 @@ async def _worker(
         )
 
 
+async def run_cliff_test(
+    *,
+    scenarios: list[Scenario],
+    n: int,
+    output_dir: Path,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    pilot: bool = False,
+    force: bool = False,
+    decision_llm: LLM,
+    tot_llm: LLM,
+    reflection_llm: LLM,
+    bot_llm: LLM,
+    _budget_for_test: _BudgetState | None = None,
+) -> int:
+    """Top-level cliff-test orchestrator. Returns an exit code:
+
+    - EXIT_OK (0): all pairs ran, no cap hit.
+    - EXIT_SOFT_CAP (2): soft cap hit; drained in-flight; partial CSV written.
+    - EXIT_HARD_CAP (3): hard cap hit; some trials never started.
+
+    Raises FileExistsError if the target subdirectory exists, is non-empty,
+    and ``force`` is False.
+
+    ``_budget_for_test`` is a deliberate test seam for cap-halt tests. Production
+    callers must not pass it; it exists only to pre-load budget state in tests.
+    """
+    subdir = output_dir / ("pilot_results" if pilot else "results")
+    if subdir.exists() and any(subdir.iterdir()) and not force:
+        raise FileExistsError(f"output subdir {subdir} is non-empty; pass force=True to overwrite")
+    subdir.mkdir(parents=True, exist_ok=True)
+    csv_path = subdir / "cliff_test_results.csv"
+
+    budget = _budget_for_test if _budget_for_test is not None else _BudgetState()
+    semaphore = asyncio.Semaphore(concurrency)
+
+    # Pair queue: scheduling is round-robin across scenarios so soft-cap halt
+    # affects all scenarios uniformly rather than running scenario A to
+    # completion first.
+    queue: list[tuple[Scenario, int]] = []
+    for trial_index in range(n):
+        for scenario in scenarios:
+            queue.append((scenario, trial_index))
+
+    soft_cap_observed = False
+    hard_cap_observed = False
+    in_flight: list[asyncio.Task[None]] = []
+
+    for pair in queue:
+        scenario, _ = pair
+        # Hard-cap halt: do not start new workers; existing in-flight will see
+        # the same condition on their pre-check and self-skip.
+        if budget.hard_cap_hit(scenario.id, "carla") or budget.hard_cap_hit(scenario.id, "bot"):
+            hard_cap_observed = True
+            continue
+        # Soft-cap halt: stop dequeuing new pairs (in-flight finish).
+        if budget.soft_cap_hit(scenario.id, "carla") or budget.soft_cap_hit(scenario.id, "bot"):
+            soft_cap_observed = True
+            continue
+        task: asyncio.Task[None] = asyncio.create_task(
+            _worker(
+                pair=pair,
+                semaphore=semaphore,
+                budget=budget,
+                csv_path=csv_path,
+                output_dir=subdir,
+                decision_llm=decision_llm,
+                tot_llm=tot_llm,
+                reflection_llm=reflection_llm,
+                bot_llm=bot_llm,
+            )
+        )
+        in_flight.append(task)
+
+        # Drain completed tasks to keep in_flight bounded to ``concurrency``.
+        # Draining here lets the budget state update between dequeue steps so
+        # that the soft-cap check at the top of this loop fires as soon as a
+        # worker's spend tips the budget over the cap — rather than after all
+        # pairs have been dispatched. This is the mechanism that makes "drain
+        # in-flight, then stop dequeuing" work correctly when concurrency < n.
+        while len(in_flight) >= concurrency:
+            done, pending = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                t.result()  # re-raises any exception (matches return_exceptions=False)
+            in_flight = list(pending)
+
+    if in_flight:
+        await asyncio.gather(*in_flight, return_exceptions=False)
+
+    # Re-check caps after drain — workers may have lifted spend past either cap.
+    final_hard = any(budget.hard_cap_hit(s.id, arm) for s in scenarios for arm in ("carla", "bot"))
+    final_soft = any(budget.soft_cap_hit(s.id, arm) for s in scenarios for arm in ("carla", "bot"))
+
+    if hard_cap_observed or final_hard:
+        return EXIT_HARD_CAP
+    if soft_cap_observed or final_soft:
+        return EXIT_SOFT_CAP
+    return EXIT_OK
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cliff-test",
