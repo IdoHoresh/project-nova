@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 1 file: test_decision_baseline.py (+55 lines, integration test only)
-- [x] Atomic commit — single coherent unit: Task 7 integration test (Bot + Game2048Sim full trial)
+- [x] `git diff --cached --stat` reviewed — 1 file: integration test polish (Should-fixes from code-quality review on cfde06f)
+- [x] Atomic commit — single coherent unit: 3 Should-fixes on Task 7's integration test (import canonical MAX_MOVES, replace tautological assertion with progress assertions, use Scenario.seed(0) over .seed_base for runner-fidelity intent)
 
 ## Verification
-- [x] `git diff --cached` scanned for secrets — test-only addition; no secrets, keys, tokens, or env values
-- [x] `nova-agent/` — pytest 228 passing (15 baseline, +1 integration), mypy strict + ruff clean
-- [x] `nova-viewer/` — N/A: no viewer files touched
+- [x] `git diff --cached` scanned for secrets — no API keys / env values
+- [x] `nova-agent/` — pytest 228 passing (15 baseline including integration), mypy strict + ruff clean
+- [x] `nova-viewer/` — N/A: not touched
 - [x] Docs / config — N/A: not touched
 
 ## Review
-- [x] `/review` dispatched — N/A: test-only change, mechanical Task 7 spec implementation; Layer 1.5 hook covers at push
-- [x] `code-reviewer` subagent — N/A: single test file addition, gate trio green
-- [x] `security-reviewer` — N/A: test file only, no new secrets surface
+- [x] `/review` dispatched — N/A: this IS the code-quality reviewer Should-fix follow-up (verbatim recommendations from upstream review per memory feedback_subagent_dispatch_selectivity "skip re-review on verbatim fixes")
+- [x] `code-reviewer` subagent — N/A: this is the response to the prior code-quality review on cfde06f
+- [x] `security-reviewer` — N/A: no secrets / env / LLM / bus paths touched
 
 ## Documentation
-- [x] LESSONS.md — N/A: no new lesson; Baseline Bot lessons already captured in prior commits
+- [x] LESSONS.md — N/A this commit; brainstorm-process lessons may land in a follow-up sweep after the plan completes
 - [x] CLAUDE.md "Common gotchas" — N/A: no new gotcha
-- [x] ARCHITECTURE.md — N/A: test-only change
-- [x] New ADR — N/A: no architectural decision; test validates existing contract
+- [x] ARCHITECTURE.md — N/A
+- [x] New ADR — N/A
 
 ## Commit message
-- [x] Conventional Commits format: `test(baseline): integration test — Bot + Game2048Sim full trial`
-- [x] Body explains why — validates BaselineDecider/sim contract end-to-end without production-tier LLM cost; cycling mock covers all four directions; real cliff-test execution lives in Test Runner (gated by ADR-0006)
+- [x] Conventional Commits format: `test(baseline): tighten integration assertions per code review`
+- [x] Body explains why — code-quality reviewer Should-fixes on commit cfde06f; canonical MAX_MOVES import prevents drift, progress assertions catch silent-no-op regressions that the tautological loop-exit assertion missed, scenario.seed(0) matches runner intent
 - [x] Co-author tag present
