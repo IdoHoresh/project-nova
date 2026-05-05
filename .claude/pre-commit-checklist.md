@@ -14,27 +14,27 @@
 
 ## Branch + scope
 - [x] On feature branch `claude/practical-swanson-4b6468`, not `main`
-- [x] `git diff --cached --stat` reviewed — 1 file: integration test polish (Should-fixes from code-quality review on cfde06f)
-- [x] Atomic commit — single coherent unit: 3 Should-fixes on Task 7's integration test (import canonical MAX_MOVES, replace tautological assertion with progress assertions, use Scenario.seed(0) over .seed_base for runner-fidelity intent)
+- [x] `git diff --cached --stat` reviewed — 2 files: SessionStart hook in .claude/settings.json + LESSONS.md entry capturing the incident
+- [x] Atomic commit — single coherent unit: prevention work for the commits-stacked-on-open-PR drift trap (PR #7 incident on 2026-05-05). Hook + lesson + memory entry are one logical artifact triple — hook is enforcement, lesson is project-internal record, memory is cross-session backstop.
 
 ## Verification
 - [x] `git diff --cached` scanned for secrets — no API keys / env values
-- [x] `nova-agent/` — pytest 228 passing (15 baseline including integration), mypy strict + ruff clean
-- [x] `nova-viewer/` — N/A: not touched
-- [x] Docs / config — N/A: not touched
+- [x] `nova-agent/` — N/A: no Python touched
+- [x] `nova-viewer/` — N/A: no TS touched
+- [x] Docs / config — settings.json hook validated via `jq -e` + pipe-tested with current branch state (returned valid JSON systemMessage); LESSONS.md entry follows the existing section structure
 
 ## Review
-- [x] `/review` dispatched — N/A: this IS the code-quality reviewer Should-fix follow-up (verbatim recommendations from upstream review per memory feedback_subagent_dispatch_selectivity "skip re-review on verbatim fixes")
-- [x] `code-reviewer` subagent — N/A: this is the response to the prior code-quality review on cfde06f
-- [x] `security-reviewer` — N/A: no secrets / env / LLM / bus paths touched
+- [x] `/review` dispatched — N/A: REVIEW.md taxonomy `N/A: Claude-tooling-only` (settings.json hook + LESSONS.md doc; no production code paths)
+- [x] `code-reviewer` subagent — N/A: Claude-tooling change, no production code
+- [x] `security-reviewer` — N/A: settings.json hook is read-only (gh pr list + jq); no secrets / env / LLM / bus paths touched
 
 ## Documentation
-- [x] LESSONS.md — N/A this commit; brainstorm-process lessons may land in a follow-up sweep after the plan completes
-- [x] CLAUDE.md "Common gotchas" — N/A: no new gotcha
-- [x] ARCHITECTURE.md — N/A
-- [x] New ADR — N/A
+- [x] LESSONS.md — IS the documentation update in this commit (Workflow / process learnings § new entry at top)
+- [x] CLAUDE.md "Common gotchas" — N/A: this is a workflow-process gotcha, not an engineering gotcha; LESSONS.md is the right home
+- [x] ARCHITECTURE.md — N/A: workflow tooling, not architecture
+- [x] New ADR — N/A: no architectural decision; tooling improvement
 
 ## Commit message
-- [x] Conventional Commits format: `test(baseline): tighten integration assertions per code review`
-- [x] Body explains why — code-quality reviewer Should-fixes on commit cfde06f; canonical MAX_MOVES import prevents drift, progress assertions catch silent-no-op regressions that the tautological loop-exit assertion missed, scenario.seed(0) matches runner intent
+- [x] Conventional Commits format: `chore(workflow): SessionStart hook + LESSONS entry for open-PR drift trap`
+- [x] Body explains why — captures the 2026-05-05 PR #7 incident where Baseline Bot work stacked under a still-open cliff-test scenarios PR; SessionStart hook surfaces open PRs on the current branch at every session start as a systemMessage; companion LESSONS.md entry records the failure mode + recovery options. Memory entry saved separately to user-scope auto-memory (not part of this repo commit).
 - [x] Co-author tag present

@@ -157,6 +157,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "branch=$(git branch --show-current 2>/dev/null); [ -z \"$branch\" ] && exit 0; prs=$(gh pr list --head \"$branch\" --state open --json number,title 2>/dev/null); [ -n \"$prs\" ] && [ \"$(echo \"$prs\" | jq 'length')\" -gt 0 ] && jq -n --argjson prs \"$prs\" '{systemMessage: (\"WARNING: Open PR(s) on current branch (\\($prs | length)):\\n\" + ($prs | map(\"  - PR #\\(.number) — \\(.title)\") | join(\"\\n\")) + \"\\n\\nBefore committing more work: confirm the new unit belongs in the existing PR, or wait for merge first. Commits-stacked-on-open-PR is the workflow.md \\\"one-big-PR drift trap.\\\"\")}'",
+            "timeout": 15,
+            "statusMessage": "Checking open PRs on current branch..."
+          }
+        ]
+      }
     ]
   }
 }
