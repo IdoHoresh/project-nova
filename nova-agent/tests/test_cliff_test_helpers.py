@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import csv
+from pathlib import Path
+
 import pytest
 
 from nova_agent.lab.cliff_test import (
     _BudgetState,
+    _CSV_COLUMNS,
+    _append_csv_row,
     _check_anxiety_threshold,
     _first_threshold_index,
 )
@@ -107,3 +112,105 @@ class TestBudgetState:
         for _ in range(100):
             bs.add("snake-collapse-128", "carla", 0.01)
         assert bs.spent("snake-collapse-128", "carla") == pytest.approx(1.00)
+
+
+class TestAppendCsvRow:
+    def test_writes_header_on_first_row(self, tmp_path: Path) -> None:
+        csv_path = tmp_path / "results.csv"
+        _append_csv_row(
+            csv_path,
+            scenario_id="snake-collapse-128",
+            trial_index=0,
+            arm="carla",
+            t_predicts=11,
+            t_baseline_fails=None,
+            cost_usd=0.11,
+            abort_reason=None,
+            anxiety_threshold_met=True,
+            final_move_index=14,
+            is_right_censored=False,
+        )
+        with csv_path.open() as f:
+            rows = list(csv.reader(f))
+        assert rows[0] == list(_CSV_COLUMNS)
+        assert rows[1][0] == "snake-collapse-128"
+        assert rows[1][2] == "carla"
+        assert rows[1][3] == "11"
+
+    def test_no_duplicate_header_on_second_append(self, tmp_path: Path) -> None:
+        csv_path = tmp_path / "results.csv"
+        _append_csv_row(
+            csv_path,
+            scenario_id="s",
+            trial_index=0,
+            arm="bot",
+            t_predicts=None,
+            t_baseline_fails=11,
+            cost_usd=0.005,
+            abort_reason=None,
+            anxiety_threshold_met=None,
+            final_move_index=11,
+            is_right_censored=False,
+        )
+        _append_csv_row(
+            csv_path,
+            scenario_id="s",
+            trial_index=1,
+            arm="bot",
+            t_predicts=None,
+            t_baseline_fails=12,
+            cost_usd=0.005,
+            abort_reason=None,
+            anxiety_threshold_met=None,
+            final_move_index=12,
+            is_right_censored=False,
+        )
+        with csv_path.open() as f:
+            rows = list(csv.reader(f))
+        assert len(rows) == 3  # 1 header + 2 data rows
+        assert rows[0] == list(_CSV_COLUMNS)
+        assert rows[1][1] == "0"
+        assert rows[2][1] == "1"
+
+    def test_nulls_serialize_as_empty_strings(self, tmp_path: Path) -> None:
+        """t_predicts=None, abort_reason=None, anxiety_threshold_met=None → empty CSV cells."""
+        csv_path = tmp_path / "results.csv"
+        _append_csv_row(
+            csv_path,
+            scenario_id="s",
+            trial_index=0,
+            arm="bot",
+            t_predicts=None,
+            t_baseline_fails=11,
+            cost_usd=0.005,
+            abort_reason=None,
+            anxiety_threshold_met=None,
+            final_move_index=11,
+            is_right_censored=False,
+        )
+        with csv_path.open() as f:
+            rows = list(csv.reader(f))
+        # row[0] is the header
+        idx_t_predicts = list(_CSV_COLUMNS).index("t_predicts")
+        idx_abort_reason = list(_CSV_COLUMNS).index("abort_reason")
+        idx_anxiety_met = list(_CSV_COLUMNS).index("anxiety_threshold_met")
+        assert rows[1][idx_t_predicts] == ""
+        assert rows[1][idx_abort_reason] == ""
+        assert rows[1][idx_anxiety_met] == ""
+
+    def test_creates_parent_dir_if_missing(self, tmp_path: Path) -> None:
+        csv_path = tmp_path / "subdir" / "results.csv"
+        _append_csv_row(
+            csv_path,
+            scenario_id="s",
+            trial_index=0,
+            arm="bot",
+            t_predicts=None,
+            t_baseline_fails=11,
+            cost_usd=0.005,
+            abort_reason=None,
+            anxiety_threshold_met=None,
+            final_move_index=11,
+            is_right_censored=False,
+        )
+        assert csv_path.exists()

@@ -14,8 +14,10 @@ Spec: ``docs/superpowers/specs/2026-05-05-test-runner-design.md``.
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
-from typing import Final
+from pathlib import Path
+from typing import Any, Final
 
 # Per spec §2.6 + ADR-0006: cognitive-judgment models must run at production tier.
 _ALLOWED_TIERS: Final[frozenset[str]] = frozenset({"production", "demo"})
@@ -107,6 +109,47 @@ class _BudgetState:
 
     def hard_cap_hit(self, scenario_id: str, arm: str) -> bool:
         return self.spent(scenario_id, arm) >= self._hard_cap
+
+
+# Per spec §2.7. Order is contract — analyze_results.py reads by name,
+# not position, but appending new columns at the end is the ratchet.
+_CSV_COLUMNS: Final[tuple[str, ...]] = (
+    "scenario_id",
+    "trial_index",
+    "arm",
+    "t_predicts",
+    "t_baseline_fails",
+    "cost_usd",
+    "abort_reason",
+    "anxiety_threshold_met",
+    "final_move_index",
+    "is_right_censored",
+)
+
+
+def _append_csv_row(csv_path: Path | str, **fields: Any) -> None:
+    """Append a single trial row to ``csv_path``. Creates the file (and parent
+    dirs) if missing; writes the header iff the file does not exist or is empty.
+
+    None values serialize as empty strings (CSV null convention). Raises
+    KeyError if any expected column is missing from ``fields``.
+    """
+    path = Path(csv_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists() or path.stat().st_size == 0
+
+    row = []
+    for col in _CSV_COLUMNS:
+        if col not in fields:
+            raise KeyError(f"missing column {col!r} in CSV row append")
+        v = fields[col]
+        row.append("" if v is None else str(v))
+
+    with path.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(list(_CSV_COLUMNS))
+        writer.writerow(row)
 
 
 def _build_parser() -> argparse.ArgumentParser:
