@@ -21,6 +21,41 @@
 
 ## Engineering / debugging gotchas
 
+### Carla anxiety firing at move 0–1 is "fast reaction," not "predictive lead-time"
+
+**Date:** 2026-05-06 | **Cost:** would have been ~$50 + a damaged external-review pitch if we'd shipped Phase 0.7 against the current scenarios. Caught by the red-team round on the first pilot CSV.
+
+**What happened:** The 2026-05-06 pilot at production tier produced a Δ = `t_baseline_fails - t_predicts` ≥ 2 in 15/15 paired trials. On paper that's a perfect methodology pass (per ADR-0007 Amendment 1, ≥3/3 scenarios with ≥3/5 trials at Δ ≥ 2). But Carla's `t_predicts` was 0 or 1 in nearly every trial — anxiety crossed threshold on the first move that had affect signal. Bot's `t_baseline_fails` averaged 4–5 moves on corner-abandonment-256 (window 12–17). Reframed: identifying a cliff at move 1 when Bot dies at move 4 is *fast reaction to a catastrophic state*, not *predictive lead-time over a developing decline*. An external reviewer (per scenarios spec §2.4 "external review credibility is load-bearing") would correctly say "Carla just panics on hard-looking boards; this isn't prediction."
+
+The §7.4 calibration check ("Bot game-over within `expected_cliff_window` for ≥3/5 trials") is what catches this: all 3 scenarios failed Bot calibration in the pilot (snake-collapse-128: 1/5; corner-abandonment-256: 0/5 — Bot crashes too fast; 512-wall: 1/5 — Bot survives slightly past window). The §7.4 check exists precisely to prevent the failure mode of "Carla wins because the scenarios are so harsh that the cliff is at move 1, so any anxiety signal beats Bot."
+
+**Lesson:** Methodology-pass-with-Δ-clean is necessary but not sufficient. `t_predicts` near 0 is a *red flag*, not a green light — it means Carla is reacting, not predicting. Calibration is the load-bearing gate; never ship a Phase 0.7 run on scenarios that fail §7.4. The methodology and the calibration are separable contracts, both must pass.
+
+**How to apply:**
+
+- When inspecting cliff-test CSV output, before computing Δ, check the `t_predicts` distribution per scenario. If the median is 0 or 1, the scenarios are mis-calibrated regardless of what Δ says.
+- Re-author scenarios so Bot's game-over move falls inside `expected_cliff_window` for ≥3/5 trials before re-running the formal Phase 0.7.
+- Keep the §7.4 calibration check as a separate validation step in the analysis pipeline (`analyze_results.py` follow-up spec) — don't fold it into the Δ test.
+- When framing Phase 0.7 results for external review, lead with `t_baseline_fails - t_predicts ≥ 2 AND t_predicts is meaningfully past move 0`, not just Δ. The "predictive" claim has to survive the move-0 attack.
+
+### Gemini Pro 2.5 has a hard 1000 RPD daily quota that is shared across the whole repo's API key
+
+**Date:** 2026-05-06 | **Cost:** ~$0.30 wasted on a second pilot whose data was unusable; ~30 min misdiagnosing concurrency as the root cause; 1 commit revert.
+
+**What happened:** First pilot consumed 956 Gemini Pro calls (4 ToT branches × N moves × 5 trials × 3 scenarios). Triggered a hypothesis that 20% Carla abort rate was due to concurrency=8 hitting transient 429s. Lowered DEFAULT_CONCURRENCY to 4 and re-piloted — abort rate jumped to **88% per-branch** (74/84 ToT branches `RetryError[ClientError]`). The cause was not concurrency: cumulative Pro calls across both pilots exceeded the 1000 RPD daily quota and Pro was hard-throttling for the rest of the UTC day. The c=4 commit (`60ac3bf`) had to be reverted because its data was confounded — we have no quota-clean evidence on whether concurrency=4 actually helps versus concurrency=8.
+
+CLAUDE.md gotcha #2 documents the 1000 RPD limit and a workaround (`NOVA_DELIBERATION_MODEL=gemini-2.5-flash` env override). Initially I thought cliff-test should respect that override, but `main.py:148-152` shows the override is *only* read when `Settings.tier` is unset. Cliff-test requires `NOVA_TIER=production` (per spec §6.1 + ADR-0006), so `model_for("tot")` returns `gemini-2.5-pro` regardless of the env override. The documented workaround does not apply in tier mode.
+
+**Lesson:** Under NOVA_TIER=production, cliff-test runs at the strict tier mapping with no env-override escape hatch. A single full pilot (~3 scenarios × 5 trials × 4 branches × ~30 moves) burns ~1000 Pro calls — basically the entire daily RPD quota. Plan the daily Gemini Pro call budget before starting any pilot. The 4-branches-per-ToT multiplier is the dominant cost factor.
+
+**How to apply:**
+
+- Before starting a cliff-test pilot, count today's prior Pro calls. If `prior_calls + estimated_run_calls` ≥ 1000, do not start; wait for UTC-midnight reset.
+- Do not change concurrency or runner parameters in response to mid-day Carla aborts without first confirming the Pro quota state. Throttle-cluster aborts and quota-exhaustion aborts produce the same `RetryError[ClientError]` payload — they are not distinguishable from the Carla telemetry alone.
+- For Phase 0.7 N=20 formal run, the per-day budget allows ~1 scenario/day at production tier with Pro for ToT, OR switch to NOVA_TIER=demo (Sonnet for ToT, no Pro RPD limit, ~5× per-call cost).
+- The `tot_branch` event with `status=api_error error="RetryError ... ClientError"` is the diagnostic signature for both rate-limit clustering AND quota exhaustion. Disambiguate by counting Pro calls in the day's logs, not by inspecting the error payload.
+- Long-term: the cliff-test runner should track a `pro_calls_today` counter against the 1000 RPD ceiling and refuse to start if a pilot/full-run would exceed it. Captured as a follow-up rather than implemented.
+
 ### `thinking_budget=None` on Gemini Flash silently truncates JSON output
 
 **Date:** 2026-05-06 | **Cost:** ~30 min wall + ~$0.05 burned on a hosed pilot calibration before diagnosis. Caught during the first real-LLM cliff-test run; every Bot trial parse-failed at move 0 and every Carla react trial silently aborted (the `except Exception` in `_run_carla_trial` swallowed it).
