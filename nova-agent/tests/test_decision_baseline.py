@@ -128,3 +128,77 @@ def test_trial_aborted_reason_is_constrained_to_known_values():
 
     args = typing.get_args(AbortReason)
     assert set(args) == {"api_error", "parse_failure"}
+
+
+# ---------------------------------------------------------------------------
+# Task 4 — API-error retry tests
+# ---------------------------------------------------------------------------
+
+
+class _RetryingMockLLM:
+    """Mock that raises scripted exceptions before scripted text responses."""
+
+    def __init__(
+        self,
+        scripted: list[str | BaseException],
+        model: str = "claude-sonnet-4-6",
+    ):
+        self.model = model
+        self._scripted = list(scripted)
+        self.calls: list[dict[str, Any]] = []
+
+    def complete(self, **kwargs: Any) -> tuple[str, Usage]:
+        self.calls.append(kwargs)
+        if not self._scripted:
+            raise AssertionError("MockLLM ran out of scripted items")
+        item = self._scripted.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item, Usage(input_tokens=100, output_tokens=50, model=self.model)
+
+
+@pytest.mark.asyncio
+async def test_baseline_decide_retries_on_api_error_then_succeeds() -> None:
+    from nova_agent.decision.baseline import BaselineDecider, BotDecision
+
+    valid_json = '{"observation": "x", "reasoning": "y", "action": "swipe_up", "confidence": "low"}'
+    llm = _RetryingMockLLM(scripted=[RuntimeError("transient 503"), valid_json])
+    decider = BaselineDecider(llm=llm)
+    board = BoardState(grid=[[2, 0, 0, 0]] + [[0] * 4] * 3, score=0)
+
+    result = await decider.decide(board=board, trial_index=0, move_index=0)
+
+    assert isinstance(result, BotDecision)
+    assert result.action == "swipe_up"
+    assert len(llm.calls) == 2  # 1 failed + 1 succeeded
+
+
+@pytest.mark.asyncio
+async def test_baseline_decide_aborts_after_three_api_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nova_agent.decision.baseline import BaselineDecider, TrialAborted
+
+    # Patch asyncio.sleep so the test doesn't actually wait the backoff intervals
+    monkeypatch.setattr("nova_agent.decision.baseline.asyncio.sleep", _noop_sleep)
+
+    llm = _RetryingMockLLM(
+        scripted=[
+            RuntimeError("err 1"),
+            RuntimeError("err 2"),
+            RuntimeError("err 3"),
+        ]
+    )
+    decider = BaselineDecider(llm=llm)
+    board = BoardState(grid=[[2, 0, 0, 0]] + [[0] * 4] * 3, score=0)
+
+    result = await decider.decide(board=board, trial_index=0, move_index=12)
+
+    assert isinstance(result, TrialAborted)
+    assert result.reason == "api_error"
+    assert result.last_move_index == 12
+    assert len(llm.calls) == 3
+
+
+async def _noop_sleep(_seconds: float) -> None:
+    return None

@@ -16,6 +16,7 @@ Spec: docs/superpowers/specs/2026-05-05-baseline-bot-design.md
 ADR:  docs/decisions/0007-blind-control-group-for-cliff-test.md (Amendment 1)
 """
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -48,6 +49,13 @@ BASELINE_MAX_TOKENS: int = 500
 
 
 AbortReason = Literal["api_error", "parse_failure"]
+
+# Retry budget for transient API failures.  _RETRYABLE_API_EXCEPTIONS is
+# deliberately broad (Exception) for now — the LLM provider exception
+# hierarchy has not yet been audited across Anthropic, Gemini, and Mock
+# adapters.  Narrow in a follow-up commit once the audit is complete.
+_API_RETRY_LIMIT: int = 3
+_RETRYABLE_API_EXCEPTIONS: tuple[type[BaseException], ...] = (Exception,)
 
 
 @dataclass(frozen=True)
@@ -97,15 +105,11 @@ class BaselineDecider:
             {"role": "user", "content": [{"type": "text", "text": user_text}]}
         ]
 
-        # Happy path: single LLM call, single parse. Retry logic added in
-        # Tasks 4 and 5; telemetry added in Task 6.
-        text, _usage = self.llm.complete(
-            system=BASELINE_SYSTEM_PROMPT,
-            messages=messages,
-            max_tokens=BASELINE_MAX_TOKENS,
-            temperature=BASELINE_TEMPERATURE,
-            response_schema=_ReactOutput,
-        )
+        text = await self._call_with_api_retry(messages=messages)
+        if text is None:
+            return TrialAborted(reason="api_error", last_move_index=move_index)
+
+        # Parse-failure retry added in Task 5; telemetry added in Task 6.
         parsed = parse_json(text, _ReactOutput)
         return BotDecision(
             action=parsed.action,
@@ -113,3 +117,26 @@ class BaselineDecider:
             reasoning=parsed.reasoning,
             confidence=parsed.confidence,
         )
+
+    async def _call_with_api_retry(self, *, messages: list[dict[str, Any]]) -> str | None:
+        """Call LLM with up to _API_RETRY_LIMIT attempts and exponential backoff.
+
+        Returns the response text on success, None on retry exhaustion.
+        Backoff: 2s, 4s, 8s after attempts 1, 2, 3 respectively (matches
+        spec §3.3 pseudocode).
+        """
+        for attempt in range(_API_RETRY_LIMIT):
+            try:
+                text, _usage = self.llm.complete(
+                    system=BASELINE_SYSTEM_PROMPT,
+                    messages=messages,
+                    max_tokens=BASELINE_MAX_TOKENS,
+                    temperature=BASELINE_TEMPERATURE,
+                    response_schema=_ReactOutput,
+                )
+                return text
+            except _RETRYABLE_API_EXCEPTIONS:
+                if attempt + 1 < _API_RETRY_LIMIT:
+                    await asyncio.sleep(2 ** (attempt + 1))
+                # else: fall through; loop ends; return None below
+        return None
