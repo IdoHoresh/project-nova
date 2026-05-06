@@ -181,3 +181,104 @@ If trial `i` aborts in *either* arm, trial `i` is discarded from the paired Δ c
 - `nova_agent/decision/react.py:18-22` — the `_ReactOutput` schema this amendment ratifies as Bot's output schema
 - `nova_agent/decision/arbiter.py:should_use_tot` — the affect channel that grounds the bundle-attribution rationale (A1.4)
 - Six-round red-team review of the Bot spec recorded in conversation transcript 2026-05-05.
+
+---
+
+## Amendment 2 — Power analysis for N = 20 per arm per scenario (2026-05-06)
+
+**Status:** Accepted (σ̂ placeholder — fill from pilot CSV before Phase 0.7 runs)
+
+### Why this amendment
+
+The original ADR fixed N = 20 per arm per scenario as a judgment call — matching the single-armed
+design it superseded.  Amendment 1 tightened operational mechanics but left the statistical
+adequacy of N = 20 unverified.  The synthesis red-team (2026-05-06) flagged this as a gap:
+without a power calculation we cannot claim the design is sensitive enough to detect the
+minimum Δ ≥ 2 lead-time advantage stated in the pass criterion.
+
+This amendment closes the gap by (a) specifying the power-analysis method, (b) inserting the
+derived N once σ̂ is available from a pilot run, and (c) codifying the two adjustment rules
+that govern what happens when σ̂ lands outside the expected range.
+
+### Test structure for the power calculation
+
+The load-bearing test is the **paired one-sided t-test on the per-scenario mean Δ**:
+
+- **H₀:** μ_Δ = 0 (affect adds no lead time over Baseline Bot)
+- **H₁:** μ_Δ ≥ Δ_min (affect adds at least Δ_min = 2 moves of warning)
+- **N:** trials per arm per scenario (paired by seed index)
+- **σ:** standard deviation of per-trial paired differences
+  `δᵢ = t_baseline_fails_i − t_carla_predicts_i`
+- **α:** 0.05 one-sided
+- **Power target:** 0.80
+
+Under these parameters the required N is:
+
+```
+N ≥ ⌈((z_α + z_β) × σ̂ / Δ_min)²⌉
+```
+
+where z_α = 1.645 (one-sided 0.05) and z_β = 0.842 (power 0.80), giving:
+
+```
+N ≥ ⌈(2.487 × σ̂ / 2)²⌉  =  ⌈1.543 × σ̂²⌉
+```
+
+### σ̂ source
+
+σ̂ is extracted from the Carla arm of the morning pilot:
+
+```
+nova-agent/runs/2026-05-06-pilot/pilot_results/cliff_test_results.csv
+```
+
+Extraction (run once, fill the placeholder below):
+
+```python
+import csv, statistics
+rows = [r for r in csv.DictReader(open("cliff_test_results.csv"))
+        if r["arm"] == "carla" and r["t_predicts"] not in ("", "None")]
+deltas = [float(r["game_over_move"]) - float(r["t_predicts"]) for r in rows]
+print(f"n={len(deltas)}, mean={statistics.mean(deltas):.2f}, stdev={statistics.stdev(deltas):.2f}")
+```
+
+`t_predicts` is the move index at which Carla's Anxiety first crossed 0.6; `game_over_move`
+is the index of her final move.  The standard deviation of this per-trial lead time is a
+conservative proxy for the paired σ (Bot at temperature 0 with fixed seed is near-deterministic,
+so per-trial variance in Δ is dominated by the Carla side).
+
+### Placeholder — fill before Phase 0.7 runs
+
+| quantity | value |
+|----------|-------|
+| pilot n (Carla rows with finite t_predicts) | **[TBD — fill from CSV]** |
+| σ̂ (stdev of game_over_move − t_predicts) | **[TBD — fill from CSV]** |
+| Required N ⌈1.543 × σ̂²⌉ | **[TBD — compute from σ̂]** |
+| N = 20 adequate? | **[TBD — compare]** |
+
+### Adjustment rules
+
+These rules are pre-committed — they may not be softened retroactively once σ̂ is known.
+
+| σ̂ range | action |
+|----------|--------|
+| σ̂ > 4 | Raise N to ⌈1.543 × σ̂²⌉ (e.g. σ̂ = 5 → N = 39). Requires coordinated update to ADR-0007 §Decision N-and-seeding clause and recalibration spec §3.1. |
+| 2 ≤ σ̂ ≤ 4 | N = 20 is adequate. No change needed. |
+| σ̂ < 2 | N = 20 is over-powered for the Δ_min = 2 threshold; consider raising Δ_min to 3 (more demanding pass criterion). Document in a follow-up ADR amendment rather than silently tightening. |
+
+The σ̂ < 2 branch is logged explicitly so an unexpectedly small variance is not
+silently treated as a "free pass" — if the board geometry makes Anxiety peak very
+reliably, we should raise the bar, not pocket the surplus power.
+
+### What this amendment does NOT change
+
+- N = 20 remains the current working value until σ̂ is filled in.
+- Pass criteria 1 and 2 as stated in §Decision are unchanged.
+- Δ_min = 2 is unchanged unless the σ̂ < 2 rule fires and a follow-up amendment raises it.
+- The paired-discard logic (A1.6) and ≥ 18 valid pairs threshold (A1.7) are unchanged.
+
+### References
+
+- Synthesis red-team report 2026-05-06 — flagged missing power analysis as a methodology gap.
+- `nova-agent/runs/2026-05-06-pilot/pilot_results/cliff_test_results.csv` — σ̂ source (not committed; generated at pilot runtime).
+- `docs/superpowers/specs/2026-05-05-recalibration-spec.md` §3.1 — N per arm per scenario (the value this amendment may require updating).
