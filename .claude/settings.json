@@ -127,7 +127,7 @@
       "Write(**/.env.production)"
     ]
   },
-  "_hooks_explanation": "Pre-commit framework (.pre-commit-config.yaml) handles formatting + linting + gitleaks on commit; CI (.github/workflows/ci.yml) handles full test/lint/type runs on push. The pre-push hook is a fast command-only gate: regex secret grep (API key patterns) + diff stat. No LLM agent. Cost: ~$0/push. Quality judgment (logic bugs, missing tests, design issues) is deferred to Layer 2 (Opus 4.7) at PR open, where it earns its keep on a coherent diff. PostToolUse formatters intentionally NOT added — they create read/write race conditions with Claude's edit cycle. Personal hooks can be added in settings.local.json.",
+  "_hooks_explanation": "Pre-commit framework (.pre-commit-config.yaml) handles formatting + linting + gitleaks on commit; CI (.github/workflows/ci.yml) handles full test/lint/type runs on push. The pre-push command hook is a fast deterministic gate: regex secret grep + diff stat + PR-cadence warning + post-merge /clear hint. No LLM agent runs at push time — token cost ~$0/push. Quality judgment (logic bugs, missing tests, design issues) is deferred to Layer 2 (Opus 4.7) at PR open, where it earns its keep on a coherent diff. PostToolUse formatters intentionally NOT added — they create read/write race conditions with Claude's edit cycle. Personal hooks can be added in settings.local.json.",
   "hooks": {
     "PreToolUse": [
       {
@@ -139,14 +139,6 @@
             "command": "up=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null); [ -z \"$up\" ] && exit 0; n=$(git rev-list @{u}..HEAD --count 2>/dev/null || echo 0); [ \"${n:-0}\" = \"0\" ] && exit 0; sec=$(git diff @{u}..HEAD 2>/dev/null | grep -E '^[+].*(ANTHROPIC_API_KEY|OPENAI_API_KEY|sk-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{35})' | head -3); [ -n \"$sec\" ] && printf '{\"continue\":false,\"stopReason\":\"possible API key in diff\",\"systemMessage\":\"API key pattern found — inspect before pushing\"}' && exit 0; risky=$(git diff @{u}..HEAD --name-only 2>/dev/null | grep -E 'nova_agent/(llm|perception|memory)|AgentEvent|bus' | tr '\\n' ' '); stat=$(git diff @{u}..HEAD --stat 2>/dev/null | tail -1); [ -n \"$risky\" ] && printf '{\"continue\":true,\"systemMessage\":\"%s commits (%s). Cognitive paths touched: %s\"}' \"$n\" \"$stat\" \"$risky\" || printf '{\"continue\":true,\"systemMessage\":\"%s commits (%s)\"}' \"$n\" \"$stat\"",
             "timeout": 15,
             "statusMessage": "Fast pre-push gate (secret grep + stat)..."
-          },
-          {
-            "type": "agent",
-            "if": "Bash(git push:*)",
-            "model": "claude-haiku-4-5-20251001",
-            "prompt": "Pre-push architectural gate for Project Nova. Run fast — most pushes will be clean and exit early.\n\n1. Check upstream exists: `git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null`. Empty → output {\"continue\":true,\"systemMessage\":\"no upstream — Haiku gate skipped\"} and stop.\n2. Count changed lines: `git diff @{u}..HEAD --numstat 2>/dev/null | awk '{s+=$1+$2} END {print s+0}'`. Store as LINES.\n3. Check cognitive paths: `git diff @{u}..HEAD --name-only 2>/dev/null | grep -cE 'nova_agent/(llm|perception|memory|bus)|AgentEvent|MemoryCoordinator'`. Store as COG.\n4. If LINES < 80 AND COG is 0 → output {\"continue\":true,\"systemMessage\":\"diff <80 lines, no cognitive paths — Haiku gate skipped\"} and stop.\n5. Run `git diff @{u}..HEAD` and scan for: (a) secrets gitleaks may miss — base64-dense 20+ char strings, key/token/secret assigned non-env-var values; (b) game logic leaking into cognitive layer — tile values/board arrays/score math in nova_agent/ outside game adapter; (c) MemoryCoordinator bypass — direct lancedb/sqlite write outside coordinator; (d) bus contract gap — new event type without matching TypeScript discriminated-union entry; (e) load-bearing seam (new Protocol/subsystem) without ADR reference in commit.\n6. CRITICAL = real secret committed or cognitive-layer crash bug. WARN = architectural drift, bus gap, missing ADR.\n7. Output JSON only, no prose:\n   - CRITICAL: {\"continue\":false,\"stopReason\":\"<one line>\",\"systemMessage\":\"<file:line + brief>\"}\n   - Otherwise: {\"continue\":true,\"systemMessage\":\"Haiku gate: <N> lines, <M> cognitive paths. <WARN findings or clean>\"}",
-            "timeout": 60,
-            "statusMessage": "Haiku architectural gate (large/cognitive diffs)..."
           },
           {
             "type": "command",
