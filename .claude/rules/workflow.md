@@ -158,36 +158,26 @@ all-day conversation that crossed ~5 natural break points
 without ever resetting. Session hygiene is a discipline, not a
 nice-to-have.
 
-**`/clear` triggers** (reset context with a curated handoff
-prompt):
+**`/clear` triggers — MANDATORY. Claude MUST offer after every commit + push.**
 
-- After every PR merges to `main` — branch is synced, work chapter
-  complete, natural break. A `PreToolUse` command hook in
-  `.claude/settings.json` fires on the next `git push:*` after a
-  merge and emits a `systemMessage` reminder; you can also `/clear`
-  proactively the moment the merge lands.
-- When switching to a different concern (e.g., from review-system
-  tooling to `Game2048Sim` build).
-- When the context window exceeds ~150k tokens (visible via
-  `/usage`).
-- After ~2 hours of continuous work in one session.
+Do NOT wait for the user to ask. This is the #1 token cost lever. Missing it is what drives $25 sessions and 150k+ context. Every trigger below requires a proactive `/clear` suggestion with a ready-to-paste handoff prompt in the same response. The user decides whether to act; the Claude pair must surface it without fail.
 
-**Curated handoff prompt template** (paste into the new session
-after `/clear`):
+**Triggers (all non-negotiable):**
 
-```
-Last shipped: <PR # + 1-line summary>
-Next task: <from CLAUDE.md "Active phase + next task">
-Read: CLAUDE.md, project_nova_resume_point memory, recent git log
-```
+- **After every commit + push** — check every single time, even for small changes, even if the next task is on the same branch. The branch surviving does not mean the conversation should.
+- After PR merges to `main`
+- When switching to a different concern
+- Context >150k tokens (`/usage`)
+- ~2h continuous work in one session
+- After any artifact commit (spec written, plan written, implementation committed)
 
-The auto-loaded `CLAUDE.md` + the resume-point memory file +
-`git log --oneline -10` together reconstruct ~95% of what the
-prior session knew. The remaining 5% (mid-feature flow context)
-is what `/compact` is for.
+**Proactive suggestion format:**
 
-**`/compact` triggers** (middle ground — keep continuity but
-free context):
+> "`/clear` recommended — [one-line trigger reason]. Handoff: `Last shipped: <sha + 1-line summary>. Next: <task from resume-point memory>. Read: CLAUDE.md, resume-point memory, git log --oneline -10`"
+
+**Before artifact-cliff `/clear`:** write a Context Checkpoint to `project_nova_resume_point.md` memory first (architectural intent + edge-case warnings + rejected alternatives). Format lives in `feedback_session_hygiene.md` memory. Cost: ~150 tokens. Value: preserves the "why" that the spec doesn't capture.
+
+**`/compact` triggers** (middle ground — keep continuity but free context):
 
 - Mid-feature when you want flow but context is heavy (>200k).
 - Long debugging session that's still ongoing.
