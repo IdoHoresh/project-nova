@@ -21,6 +21,19 @@
 
 ## Engineering / debugging gotchas
 
+### [migrated from CLAUDE.md] nova-viewer requires pnpm, not npm
+
+**Date:** ~2026-01-01 (pre-existing, exact date unknown) | **Cost:** ~5-10 min of "why does the install fail?"
+
+**What happened:** `nova-viewer/` is a Next.js project with a pnpm lockfile (`pnpm-lock.yaml`). Running `npm install` on a pnpm-shaped `node_modules` directory causes installation to fail or create an inconsistent state.
+
+**Lesson:** Package manager lockfiles are not interchangeable. Using the wrong manager (npm vs yarn vs pnpm) produces silent failures that look like dependency conflicts.
+
+**How to apply:**
+- Always check `pnpm-lock.yaml` or `yarn.lock` before running install commands. If the file exists, use that manager.
+- For nova-viewer specifically: `pnpm install` (not `npm install`).
+- Include this requirement in onboarding docs and repo README so new contributors don't hit it.
+
 ### Carla anxiety firing at move 0–1 is "fast reaction," not "predictive lead-time"
 
 **Date:** 2026-05-06 | **Cost:** would have been ~$50 + a damaged external-review pitch if we'd shipped Phase 0.7 against the current scenarios. Caught by the red-team round on the first pilot CSV.

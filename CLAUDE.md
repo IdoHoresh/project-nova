@@ -103,15 +103,8 @@ git config merge.ours.driver true
 
 ## Common gotchas
 
-1. **UF_HIDDEN venv** — `export UV_PROJECT_ENVIRONMENT="$HOME/.cache/uv-envs/nova-agent"` every session. See Build section.
-2. **Gemini Pro RPD limit** — 1000/day; exhausts at ~250 ToT calls. Workaround: `NOVA_DELIBERATION_MODEL=gemini-2.5-flash` in `.env`.
-3. **Empty shell env shadows `.env`** — `ANTHROPIC_API_KEY=""` in shell beats `.env`. Fixed via `env_ignore_empty=True`; check `printenv | grep ANTHROPIC` on API key errors.
-4. **Anthropic API needs paid credits** — "Credit grant" rows ≠ API access. Need "Credit purchase", status "Paid".
-5. **Unity ignores `adb shell input swipe`** — DPAD keyevents only (19/20/21/22). `ADB.swipe()` already uses these.
-6. **OCR palette must match Unity colors** — `_PALETTE` in `nova_agent/perception/ocr.py`. 64 + 256 unsampled; missing tiles → silent wrong perception.
-7. **`pm clear` doesn't reset Unity save state** — cold-boot AVD to fully reset.
-8. **Viewer = pnpm, not npm** — `npm install` crashes.
-9. **AgentEvent catch-all defeats TS narrowing** — `{event: string; data: unknown}` arm blocks discriminated narrowing; `as` casts in `deriveStream.ts` until fixed.
+See `LESSONS.md` "Engineering / debugging gotchas" section. Two-strikes rule for
+additions: only add a gotcha the second time the same mistake costs time.
 
 ---
 
