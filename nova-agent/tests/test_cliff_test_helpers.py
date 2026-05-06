@@ -229,8 +229,8 @@ class TestApplyWithTiebreak:
         sim = Game2048Sim(seed=scenario.seed(0), scenario=scenario)
         io = SimGameIO(sim=sim)
         board = io.read_board()
-        # snake-collapse-128 initial grid is fully packed but UP is legal
-        # via the col-3 4+4 merge (per spec recalibration 2026-05-06 §3.2).
+        # snake-collapse-128 UP is legal via the col-3 4+4 merge
+        # (re-recalibrated 2026-05-07; grid has 4 empty cells).
         applied = _apply_with_tiebreak(io, "swipe_up", board)
         assert applied == SwipeDirection.UP
 

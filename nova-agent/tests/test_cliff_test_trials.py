@@ -103,10 +103,10 @@ async def test_carla_trial_completes_happy_path(tmp_path: Path) -> None:
     """One Carla trial runs to game-over OR MAX_MOVES; returns a CarlaTrialResult
     with structurally valid fields.
 
-    Note: snake-collapse-128 was recalibrated 2026-05-06 to a fully-packed grid
-    (0 empty cells). MockLLMClient always plays swipe_up, which can trigger
-    game-over in one move on a packed board. anxiety_trajectory is therefore
-    not guaranteed to be non-empty; we only assert structural invariants.
+    Note: snake-collapse-128 was re-recalibrated 2026-05-07 to a grid with 4
+    empty cells. MockLLMClient always plays swipe_up; immediate game-over is
+    now less likely, but anxiety_trajectory is still not guaranteed to be
+    non-empty; we only assert structural invariants.
     """
     scenario = SCENARIOS["snake-collapse-128"]
     decision_llm = MockLLMClient()
