@@ -439,6 +439,16 @@ The hook is the safety net for "I forgot Layer 1," and Layer 2 is the safety net
 
 ## Strategic / product learnings
 
+### Within-game adaptation ≠ cross-game speedrunning — check faithful-simulation framing before stripping behavioral DVs
+
+**Date:** 2026-05-06 | **Cost:** ~20 min of two /redteam rounds to converge on the right §4.2 design
+
+**What happened:** Designing the methodology §4.2 trauma-ablation rewrite, a first red-team round challenged the avoidance-recurrence behavioral DV as "anti-product — agent learns to skip the trap, becoming a speedrunner instead of a playtester." I accepted it and proposed Option D (affective-only DV). A second red-team round identified the conflation: a human player who hits a brutal trap mid-session plays more cautiously for the remaining moves of that session. That within-session adaptation IS the faithful-simulation signal studios pay for. The speedrunner critique correctly targets cross-session optimization (RL-style: "next game, skip the trap"). It does not apply to within-game adaptation. Stripping the behavioral DV based on the first round's framing would have removed a product-valuable observation and coupled Phase 0.8's pass criterion to the Anxiety pathway — which the C1 ablation had already shown was weak.
+
+**Lesson:** "Avoidance is anti-product for a playtester" is only true for cross-game behavioral learning. Within-game adaptation (playing more cautiously after hitting a trap in the same session) is exactly what the product should simulate. The two are easily conflated under a surface-level "speedrunner" framing. When a red-team challenges a behavioral DV as anti-product, the load-bearing question is temporal scope: within-session or cross-session?
+
+**How to apply:** Before accepting an "anti-product" critique on a behavioral test: (1) Identify whether the behavior is within-game or cross-game. (2) Ask "would a real human player show this behavior in the same session?" — if yes, it IS the playtester signal. (3) Keep the behavioral DV as primary when it tests the mechanism's function; demote only if it tests optimization-across-sessions. Also: the existing LESSONS entry "Variance reduction is the on-thesis test for trauma-tagging" (2026-05-02, Architecture / design decisions) is superseded by the §4.2 rewrite — the on-thesis test is now within-game trap-recurrence rate (behavioral primary) + Anxiety lift (affective secondary, descriptive).
+
 ### Category positioning matters more than feature parity
 
 **Date:** 2026-05-02 | **Context:** dossier writing decision on Nova's positioning
