@@ -13,8 +13,9 @@ from nova_agent.lab.sim import Scenario
 
 # Per cliff-test scenarios spec §2.8: hard cap of 50 moves per trial.
 # Trials reaching this cap right-censor (recorded but flagged as
-# scenario-invalidation evidence). Calibration: ~3× the upper safety
-# margin above the maximum expected_cliff_window upper bound (~17).
+# scenario-invalidation evidence). Calibration: 5-move buffer above
+# snake-collapse-128 window upper bound (45); other cliff scenarios
+# have wider buffers (~3× their upper bound of 17).
 MAX_MOVES: Final[int] = 50
 
 SCENARIOS: dict[str, Scenario] = {
@@ -31,16 +32,16 @@ SCENARIOS: dict[str, Scenario] = {
     "snake-collapse-128": Scenario(
         id="snake-collapse-128",
         initial_grid=[
-            [16, 4, 8, 16],
-            [4, 32, 4, 4],
+            [0, 4, 0, 0],
+            [0, 32, 4, 4],
             [8, 4, 32, 4],
             [2, 8, 64, 128],
         ],
-        initial_score=1512,
+        initial_score=1396,
         seed_base=20260505001,
         pattern_name="snake-collapse",
         high_tile_magnitude=128,
-        expected_cliff_window=(11, 16),
+        expected_cliff_window=(20, 45),
         source_citation=(
             "2048 strategy guides describing snake-formation collapse "
             "(e.g. Hak.is 'How to beat 2048' walkthrough; r/2048 community "

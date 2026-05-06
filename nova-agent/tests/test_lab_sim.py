@@ -478,7 +478,9 @@ def test_snake_collapse_128_loads_into_sim() -> None:
     sim = Game2048Sim(seed=s.seed(0), scenario=s)
     assert sim.board.grid == s.initial_grid
     assert sim.board.score == s.initial_score
-    assert sim.board.score == 1512  # explicit cross-check of the formula (recalibrated 2026-05-06)
+    assert (
+        sim.board.score == 1396
+    )  # explicit cross-check of the formula (re-recalibrated 2026-05-07)
     assert s.high_tile_magnitude == 128
 
 

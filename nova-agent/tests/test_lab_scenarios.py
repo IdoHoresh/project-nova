@@ -89,12 +89,14 @@ def test_non_cliff_scenarios_documented() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Recalibration pins (2026-05-06)
+# Recalibration pins (2026-05-06; snake-collapse-128 re-recalibrated 2026-05-07)
 #
 # Per docs/superpowers/specs/2026-05-06-scenarios-recalibration-design.md §3,
 # the three cliff scenarios were recalibrated after the 2026-05-06 pilot
-# exposed §7.4 calibration failures. These tests pin the recalibrated values
-# so a future revert is caught.
+# exposed §7.4 calibration failures. snake-collapse-128 was re-recalibrated
+# 2026-05-07 after the N=5 pilot (adjudication doc 2026-05-07) showed C1
+# window mismatch and fast-react failure caused by a fully-packed grid.
+# These tests pin the recalibrated values so a future revert is caught.
 # ---------------------------------------------------------------------------
 
 
@@ -112,16 +114,16 @@ def test_corner_abandonment_recalibrated_2026_05_06() -> None:
     assert s.pattern_name == "corner-abandonment"
 
 
-def test_snake_collapse_recalibrated_2026_05_06() -> None:
+def test_snake_collapse_recalibrated_2026_05_07() -> None:
     s = SCENARIOS["snake-collapse-128"]
     assert s.initial_grid == [
-        [16, 4, 8, 16],
-        [4, 32, 4, 4],
+        [0, 4, 0, 0],
+        [0, 32, 4, 4],
         [8, 4, 32, 4],
         [2, 8, 64, 128],
     ]
-    assert s.initial_score == 1512
-    assert s.expected_cliff_window == (11, 16)
+    assert s.initial_score == 1396
+    assert s.expected_cliff_window == (20, 45)
     assert s.high_tile_magnitude == 128
     assert s.pattern_name == "snake-collapse"
 

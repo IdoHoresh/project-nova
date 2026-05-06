@@ -26,6 +26,22 @@ name: Claude PR Review (Layer 2)
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths:
+      # Cognitive layer — LLM adapters, bus protocol, memory, perception, affect, decision, reflection
+      - 'nova-agent/src/nova_agent/llm/**'
+      - 'nova-agent/src/nova_agent/bus/**'
+      - 'nova-agent/src/nova_agent/memory/**'
+      - 'nova-agent/src/nova_agent/perception/**'
+      - 'nova-agent/src/nova_agent/affect/**'
+      - 'nova-agent/src/nova_agent/decision/**'
+      - 'nova-agent/src/nova_agent/reflection/**'
+      # Frontend
+      - 'nova-viewer/lib/**'
+      - 'nova-viewer/app/**'
+      # Secrets surface
+      - '.env*'
+      # CI self-review — catches broken path filters in this file
+      - '.github/workflows/**'
 
 # Minimal permissions: read code + write PR comments + OIDC token (the
 # action authenticates via OIDC even when an API key is provided; without
@@ -123,7 +139,7 @@ jobs:
           git fetch origin "${{ github.base_ref }}" --depth=1
           changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
           # Match nova_agent cognitive paths or .env* files
-          hits=$(echo "$changed" | grep -E '(nova_agent/(config|llm|bus|perception|memory)|^\.env)' || true)
+          hits=$(echo "$changed" | grep -E '(nova_agent/(llm|bus|memory|perception|affect|decision|reflection)|^\.env)' || true)
           if [ -n "$hits" ]; then
             echo "fire=true" >> "$GITHUB_OUTPUT"
           else
