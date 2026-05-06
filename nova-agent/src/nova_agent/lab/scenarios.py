@@ -31,12 +31,12 @@ SCENARIOS: dict[str, Scenario] = {
     "snake-collapse-128": Scenario(
         id="snake-collapse-128",
         initial_grid=[
-            [0, 0, 0, 2],
-            [4, 2, 4, 8],
-            [0, 4, 16, 32],
+            [16, 4, 8, 16],
+            [4, 32, 4, 4],
+            [8, 4, 32, 4],
             [2, 8, 64, 128],
         ],
-        initial_score=1308,
+        initial_score=1512,
         seed_base=20260505001,
         pattern_name="snake-collapse",
         high_tile_magnitude=128,
@@ -51,12 +51,12 @@ SCENARIOS: dict[str, Scenario] = {
     "512-wall": Scenario(
         id="512-wall",
         initial_grid=[
-            [0, 4, 8, 2],
+            [0, 4, 8, 0],
             [4, 8, 16, 32],
             [8, 16, 32, 128],
-            [256, 64, 128, 512],
+            [256, 32, 128, 512],
         ],
-        initial_score=8152,
+        initial_score=7960,
         seed_base=20260505002,
         pattern_name="high-tile-wall",
         high_tile_magnitude=512,
@@ -72,16 +72,16 @@ SCENARIOS: dict[str, Scenario] = {
     "corner-abandonment-256": Scenario(
         id="corner-abandonment-256",
         initial_grid=[
-            [0, 4, 8, 2],
-            [4, 8, 16, 32],
-            [16, 32, 64, 128],
-            [64, 256, 128, 4],
+            [0, 4, 0, 0],
+            [4, 8, 4, 2],
+            [0, 16, 8, 128],
+            [64, 256, 128, 32],
         ],
-        initial_score=4364,
+        initial_score=3868,
         seed_base=20260505003,
         pattern_name="corner-abandonment",
         high_tile_magnitude=256,
-        expected_cliff_window=(12, 18),
+        expected_cliff_window=(12, 17),
         source_citation=(
             "r/2048 community posts on corner-abandonment failures and "
             "strategy walkthroughs describing high-tile mobility "

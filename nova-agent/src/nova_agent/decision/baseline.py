@@ -24,6 +24,7 @@ from typing import Any, Literal
 from nova_agent.bus.websocket import EventBus
 from nova_agent.decision.prompts import build_user_prompt
 from nova_agent.decision.react import _ReactOutput  # noqa: PLC2701
+from nova_agent.budget import BudgetExceeded
 from nova_agent.llm.protocol import LLM, Usage
 from nova_agent.llm.structured import StructuredOutputError, parse_json
 from nova_agent.perception.types import BoardState
@@ -212,6 +213,8 @@ class BaselineDecider:
                 )
                 latency_ms = (time.monotonic() - t0) * 1000
                 return text, usage, latency_ms
+            except BudgetExceeded:
+                raise  # M-07: budget abort must propagate, not be retried
             except _RETRYABLE_API_EXCEPTIONS as exc:
                 await self._emit(
                     "bot_call_api_error",

@@ -16,12 +16,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import os
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from nova_agent.budget import BudgetExceeded
 from nova_agent.action.adb import SwipeDirection
 from nova_agent.affect.rpe import rpe as compute_rpe
 from nova_agent.affect.state import AffectState
@@ -49,6 +51,7 @@ EXIT_OK: Final[int] = 0
 EXIT_SOFT_CAP: Final[int] = 2
 EXIT_HARD_CAP: Final[int] = 3
 EXIT_TIER_REFUSED: Final[int] = 4  # USAGE error; not the methodology >2-aborts-per-scenario flag
+EXIT_SESSION_CAP: Final[int] = 5  # M-07: total session budget cap exceeded
 
 
 # Per spec §2.7 / scenarios spec §2.7: Carla "predicts the cliff" iff
@@ -411,6 +414,8 @@ async def _run_carla_trial(
                         memories=[],
                         affect_text=affect_text,
                     )
+            except BudgetExceeded:
+                raise  # M-07: propagate to terminate the run
             except Exception:  # noqa: BLE001
                 # Per LESSONS: never silently swallow LLM exceptions. Mark
                 # trial aborted with a structured reason.
@@ -468,6 +473,8 @@ async def _run_carla_trial(
                 prior_lessons=[],
             )
             cost_usd += _carla_call_cost_estimate("reflection")
+        except BudgetExceeded:
+            raise  # M-07: reflection cost also counts toward session cap
         except Exception:  # noqa: BLE001
             pass
 
@@ -735,8 +742,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _check_tier() -> str | None:
     """Validate NOVA_TIER env var. Returns the tier string if OK, else None."""
-    import os
-
     tier = os.environ.get("NOVA_TIER", "").strip()
     if tier not in _ALLOWED_TIERS:
         return None
@@ -840,6 +845,9 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
 
 
 def main() -> None:
+    from nova_agent.budget import BudgetExceeded, SessionBudget
+    from nova_agent.llm.protocol import BudgetedLLM
+
     parser = _build_parser()
     args = parser.parse_args()
 
@@ -854,22 +862,35 @@ def main() -> None:
 
     scenarios = _resolve_scenarios(args.scenario)
     output_dir = Path(args.output_dir) if args.output_dir else _default_output_dir()
-    decision_llm, tot_llm, reflection_llm, bot_llm = _build_llms()
 
-    code = asyncio.run(
-        run_cliff_test(
-            scenarios=scenarios,
-            n=args.n,
-            output_dir=output_dir,
-            concurrency=args.concurrency,
-            pilot=args.pilot,
-            force=args.force,
-            decision_llm=decision_llm,
-            tot_llm=tot_llm,
-            reflection_llm=reflection_llm,
-            bot_llm=bot_llm,
+    session_cap_usd = float(os.environ.get("NOVA_SESSION_CAP_USD", "15.0"))
+    session_budget = SessionBudget(cap_usd=session_cap_usd)
+
+    raw_decision, raw_tot, raw_reflection, raw_bot = _build_llms()
+    decision_llm: LLM = BudgetedLLM(raw_decision, session_budget)
+    tot_llm: LLM = BudgetedLLM(raw_tot, session_budget)
+    reflection_llm: LLM = BudgetedLLM(raw_reflection, session_budget)
+    bot_llm: LLM = BudgetedLLM(raw_bot, session_budget)
+
+    try:
+        code = asyncio.run(
+            run_cliff_test(
+                scenarios=scenarios,
+                n=args.n,
+                output_dir=output_dir,
+                concurrency=args.concurrency,
+                pilot=args.pilot,
+                force=args.force,
+                decision_llm=decision_llm,
+                tot_llm=tot_llm,
+                reflection_llm=reflection_llm,
+                bot_llm=bot_llm,
+            )
         )
-    )
+    except BudgetExceeded as exc:
+        print(f"M-07 session cap exceeded: {exc}", file=sys.stderr)
+        code = EXIT_SESSION_CAP
+
     sys.exit(code)
 
 

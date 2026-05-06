@@ -3,6 +3,8 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel
 
+from nova_agent.budget import BudgetExceeded, SessionBudget
+
 
 # Per-1M-token pricing in USD. Verified against provider pricing pages May 2026.
 # Update if providers change pricing — the budget guard relies on these.
@@ -54,3 +56,56 @@ class LLM(Protocol):
         temperature: float = 0.7,
         response_schema: type[BaseModel] | None = None,
     ) -> tuple[str, Usage]: ...
+
+
+def _max_output_estimate(model: str, max_tokens: int) -> float:
+    """Conservative pre-call cost: worst-case all max_tokens as output tokens."""
+    _, out_rate = PRICING.get(model, (5.0, 25.0))
+    return max_tokens * out_rate / 1_000_000
+
+
+class BudgetedLLM:
+    """M-07 Cost-Abort Gate: wraps any LLM, enforces a shared session spend cap.
+
+    Satisfies the LLM Protocol (``model`` attribute + ``complete``). Multiple
+    instances sharing the same ``SessionBudget`` aggregate spend across all
+    LLM roles (decision, tot, reflection, bot).
+
+    Pre-charges a pessimistic estimate (all ``max_tokens`` as output) before
+    the call. On success, trues up to actual cost. On failure, refunds the
+    estimate so failed calls do not consume budget.
+    """
+
+    model: str
+
+    def __init__(self, llm: LLM, budget: SessionBudget) -> None:
+        self._llm = llm
+        self._budget = budget
+        self.model = llm.model
+
+    def complete(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        response_schema: type[BaseModel] | None = None,
+    ) -> tuple[str, Usage]:
+        estimate = _max_output_estimate(self._llm.model, max_tokens)
+        self._budget.pre_charge(estimate)  # raises BudgetExceeded if over cap
+        try:
+            text, usage = self._llm.complete(
+                system=system,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                response_schema=response_schema,
+            )
+        except BudgetExceeded:
+            raise
+        except Exception:
+            self._budget.refund(estimate)
+            raise
+        self._budget.true_up(estimate, usage.cost_usd)
+        return text, usage

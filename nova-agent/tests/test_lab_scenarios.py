@@ -86,3 +86,55 @@ def test_non_cliff_scenarios_documented() -> None:
         f"_NON_CLIFF_SCENARIOS or _CLIFF_SCENARIO_IDS — classify it "
         f"in this test file"
     )
+
+
+# ---------------------------------------------------------------------------
+# Recalibration pins (2026-05-06)
+#
+# Per docs/superpowers/specs/2026-05-06-scenarios-recalibration-design.md §3,
+# the three cliff scenarios were recalibrated after the 2026-05-06 pilot
+# exposed §7.4 calibration failures. These tests pin the recalibrated values
+# so a future revert is caught.
+# ---------------------------------------------------------------------------
+
+
+def test_corner_abandonment_recalibrated_2026_05_06() -> None:
+    s = SCENARIOS["corner-abandonment-256"]
+    assert s.initial_grid == [
+        [0, 4, 0, 0],
+        [4, 8, 4, 2],
+        [0, 16, 8, 128],
+        [64, 256, 128, 32],
+    ]
+    assert s.initial_score == 3868
+    assert s.expected_cliff_window == (12, 17)
+    assert s.high_tile_magnitude == 256
+    assert s.pattern_name == "corner-abandonment"
+
+
+def test_snake_collapse_recalibrated_2026_05_06() -> None:
+    s = SCENARIOS["snake-collapse-128"]
+    assert s.initial_grid == [
+        [16, 4, 8, 16],
+        [4, 32, 4, 4],
+        [8, 4, 32, 4],
+        [2, 8, 64, 128],
+    ]
+    assert s.initial_score == 1512
+    assert s.expected_cliff_window == (11, 16)
+    assert s.high_tile_magnitude == 128
+    assert s.pattern_name == "snake-collapse"
+
+
+def test_512_wall_recalibrated_2026_05_06() -> None:
+    s = SCENARIOS["512-wall"]
+    assert s.initial_grid == [
+        [0, 4, 8, 0],
+        [4, 8, 16, 32],
+        [8, 16, 32, 128],
+        [256, 32, 128, 512],
+    ]
+    assert s.initial_score == 7960
+    assert s.expected_cliff_window == (12, 17)
+    assert s.high_tile_magnitude == 512
+    assert s.pattern_name == "high-tile-wall"
