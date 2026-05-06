@@ -197,7 +197,7 @@ free context):
 
 The three layers cover the surface automatically:
 
-- Layer 1.5 — auto pre-push hook (Sonnet) on every `git push:*`
+- Layer 1.5 — auto pre-push hook (fast command: secret grep + stat, no LLM) on every `git push:*`
 - Layer 2 — auto PR workflow (Opus) on every PR open / sync
 - Layer 1 — manual dispatch for operator judgment
 
