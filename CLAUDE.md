@@ -131,7 +131,7 @@ git config merge.ours.driver true
 | Wrapping up branch / opening PR | `superpowers:finishing-a-development-branch` |
 | Gate trio | `/check-agent` or `/check-viewer` |
 
-**Model rule:** brainstorm + plan = Opus required (refuse to start on Sonnet; tell user `/model claude-opus-4-7[1m]` first, swap back after). All other work = Sonnet default.
+**Model rule:** see `## Model escalation` below for the full trigger table.
 
 ---
 
@@ -157,8 +157,7 @@ continuing. Triggers are binary path-or-keyword signals, NOT judgment.
 If unsure → Sonnet asks the user before starting. After a Path A task
 completes, Sonnet reminds: `/model claude-sonnet-4-6` to swap back.
 
-Source of truth for path-vs-skill mapping detail:
-`feedback_session_model_selection.md` memory.
+Detail: `feedback_session_model_selection.md` memory.
 
 ---
 
