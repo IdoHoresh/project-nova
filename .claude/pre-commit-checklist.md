@@ -2,8 +2,8 @@
 
 > Hook-enforced: any unchecked-box line blocks the commit. Mark `[x]` when done; for N/A items use `[x] N/A: <reason>`. Silent skip is forbidden. Post-commit hook auto-resets boxes to unchecked for the next commit.
 
-- [x] **Branch + scope** — on `claude/recalibration-spec-rewrite` (sub-branch off `main`, per Fork B per-rewrite-sub-branch convention). Atomic unit: `docs/superpowers/specs/2026-05-06-scenarios-recalibration-design.md` §5 rewrite per `docs/external-review/round-3-synthesis.md` §7(b)#2, addressing C3 / H6 / M-04 / M-07 / M-08 / M-19. Strikes "1/5 = borderline PASS" (C3); adds prediction-validity surrogate criterion (H6); adds N=1 pre-flight smoke (M-08); adds hard cost-abort gate (M-07); documents M-04 workflow violation in §4.3 and §5 callout; adds scenario-substitution flag (M-19). 1 file, doc-only, 0 code touched. PR 2 of 6 in Fork B.
-- [x] **Verification** — `git diff --cached` scanned: no secrets, no API keys, no PII; documentation rewrite only. `/check-agent` N/A: doc-only, no Python touched. `/check-viewer` N/A: doc-only, no TS touched.
-- [x] **Review** — N/A: doc-only per REVIEW.md taxonomy (`docs/**/*.md` row). Per `feedback_subagent_dispatch_selectivity` the 4 manual-Layer-1 cases don't apply to spec rewrites. Layer 1.5 pre-push hook + PR-time `claude-code-action` (Layer 2) provide backstop coverage.
-- [x] **Documentation** — the spec IS the artifact. §5 rewrite addresses C3 (borderline-PASS incoherence), H6 (missing prediction-validity surrogate), M-07 (no cost-abort gate), M-08 (no pre-flight smoke), M-19 (scenario-substitution framing). M-04 workflow violation documented in §4.3 + §5 callout.
-- [x] **Commit message** — `docs(specs): C3/H6 §5 rewrite — strike borderline-PASS, add smoke + gate + surrogate` (72 chars); body cites synthesis attacks; co-author tag present.
+- [x] **Branch + scope** — on `claude/adr-0007-power-analysis`. Carrying forward `.gitattributes merge=ours` fix for pre-commit-checklist.md — same commit as on adr-0009 branch, ensures PR #14 also has the fix before merging.
+- [x] **Verification** — `git diff --cached`: only `.gitattributes` (7 lines added). No secrets. No code touched.
+- [x] **Review** — N/A: `.gitattributes` is CI-config/tooling-only per REVIEW.md taxonomy.
+- [x] **Documentation** — comment in `.gitattributes` explains the invariant.
+- [x] **Commit message** — `chore(git): merge=ours for pre-commit-checklist — eliminate parallel-branch conflicts` (≤72 chars); co-author tag present.
