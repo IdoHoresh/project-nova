@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import os
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -741,8 +742,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _check_tier() -> str | None:
     """Validate NOVA_TIER env var. Returns the tier string if OK, else None."""
-    import os
-
     tier = os.environ.get("NOVA_TIER", "").strip()
     if tier not in _ALLOWED_TIERS:
         return None
@@ -846,8 +845,6 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
 
 
 def main() -> None:
-    import os
-
     from nova_agent.budget import BudgetExceeded, SessionBudget
     from nova_agent.llm.protocol import BudgetedLLM
 

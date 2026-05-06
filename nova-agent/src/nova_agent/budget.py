@@ -76,8 +76,9 @@ class SessionBudget:
     def true_up(self, estimate_usd: float, actual_usd: float) -> None:
         """Post-call: replace the pre-charged estimate with the actual cost.
 
-        Actual is always ≤ estimate (conservative estimate), so ``spent``
-        can only decrease or stay the same. Clamp to 0 for float precision.
+        The estimate is output-only (max_tokens × out_rate); input tokens are
+        not counted, so actual cost may exceed the estimate for input-heavy
+        calls. The ``max(0.0, ...)`` clamp prevents ``spent`` going negative.
         """
         self.spent = max(0.0, self.spent - estimate_usd) + actual_usd
 

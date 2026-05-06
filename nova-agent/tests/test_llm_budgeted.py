@@ -16,8 +16,7 @@ class _FixedLLM:
 
     model = "claude-sonnet-4-6"
 
-    def __init__(self, cost_usd: float = 0.001) -> None:
-        self._cost = cost_usd
+    def __init__(self) -> None:
         self.call_count = 0
 
     def complete(
@@ -43,7 +42,7 @@ class _ExplodingLLM:
 
 
 def test_budgeted_llm_passes_through_on_success() -> None:
-    inner = _FixedLLM(cost_usd=0.001)
+    inner = _FixedLLM()
     budget = SessionBudget(cap_usd=1.0)
     llm = BudgetedLLM(inner, budget)
     text, usage = llm.complete(system="s", messages=[], max_tokens=100)

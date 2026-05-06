@@ -378,3 +378,40 @@ async def test_baseline_runs_full_trial_against_game2048sim_with_mock_llm(monkey
     # both pass vacuously.
     assert moves_taken > 0, "decider returned TrialAborted on the first move"
     assert sim.board.score > 0, "no merges occurred — sim never advanced despite moves"
+
+
+# ---------------------------------------------------------------------------
+# M-07 — BudgetExceeded must propagate through the retry loop
+# ---------------------------------------------------------------------------
+
+
+def test_baseline_budget_exceeded_propagates() -> None:
+    """BudgetExceeded must not be caught by the API retry loop.
+
+    If the cap is so tight that even the pre-call estimate triggers it,
+    decide() must raise BudgetExceeded rather than returning TrialAborted.
+    """
+    import asyncio
+
+    import pytest
+
+    from nova_agent.budget import BudgetExceeded, SessionBudget
+    from nova_agent.decision.baseline import BaselineDecider
+    from nova_agent.llm.protocol import BudgetedLLM
+    from nova_agent.perception.types import BoardState
+
+    # _RecordingMockLLM already defined above; has model attr required by BudgetedLLM.
+    inner = _RecordingMockLLM(responses=[])
+    budget = SessionBudget(cap_usd=0.000001)  # effectively zero cap
+    budgeted = BudgetedLLM(inner, budget)
+    decider = BaselineDecider(llm=budgeted)
+    board = BoardState(grid=[[2, 0, 0, 0]] + [[0] * 4] * 3, score=0)
+
+    with pytest.raises(BudgetExceeded):
+        asyncio.run(
+            decider.decide(
+                board=board,
+                trial_index=0,
+                move_index=0,
+            )
+        )
