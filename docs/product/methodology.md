@@ -25,6 +25,29 @@ transitions across consecutive moves that, when matched, predicts a specific
 player outcome. Matching is operationalized so the same input produces the
 same signature classification on every run.
 
+### 1.0 Affect dimensions and signature anchors
+
+Nova's affect vector has six dimensions: valence, arousal, anxiety,
+frustration, confidence, dopamine. Two of those (*valence*, *arousal*)
+take qualitative inspiration from Russell's circumplex model (1980).
+The remaining four (*anxiety*, *frustration*, *confidence*, *dopamine*)
+are **Nova-engineered operational primitives**, not literature-derived.
+Their update rules and threshold values are calibrated against in-game
+outcomes, not against psychometric data, and they fire at the per-move
+timescale (~1–3s per update) rather than the minutes-to-hours timescale
+at which Russell's instrument was validated. The Russell appropriation
+on the two anchored dimensions is qualitative, not validated at our
+timescale — see §7 caveat.
+
+The four State-Transition Signatures defined in §1.1–1.4 below are
+correspondingly **engineered conjunction predicates** over those six
+dimensions. Each "Inspiration" line cited per signature names the work
+that *inspired the qualitative shape* of the conjunction (e.g., that
+confidence-decay after a stress event predicts disengagement). It is
+not a claim that the specific thresholds, durations, or co-firing rules
+are derived from that work. The thresholds are products of in-house
+calibration; the literature framed the question, not the answer.
+
 ### 1.1 Signature Alpha (Churn)
 
 **Pattern:** `Confidence ↓` across 3+ consecutive moves following an `Anxiety
@@ -45,8 +68,13 @@ player completes the level cleanly in > 50% of them, the signature is
 mis-tuned (probably the confidence-decay window is too short). Tune,
 re-validate.
 
-**Literature anchor:** Reflects findings on flow disruption (Csikszentmihalyi,
-1990) and reward-prediction-error decay (Schultz, Dayan, Montague, 1997).
+**Inspiration:** Conjunction shape inspired by flow-disruption research
+(Csikszentmihalyi, 1990) and model-based RPE updates at agentic
+timescales (Daw, Niv, & Dayan, 2005; Niv, 2009). Phasic-dopamine RPE
+(Schultz et al., 1997) is foundational *concept*, not the operational
+anchor — Nova's per-move RPE update is model-based, not phasic. The
+3-move confidence window, 0.5 frustration threshold, and 5-move plateau
+duration are calibrated, not literature-derived.
 
 ### 1.2 Signature Beta (Spend Conversion)
 
@@ -68,8 +96,11 @@ test population and the real-world spend rate at that game position does
 not differ from baseline, the signature is mis-tuned (probably the
 dopamine-starvation threshold is too aggressive).
 
-**Literature anchor:** F2P monetization psychology research; refer to
-Quantic Foundry's empirical motivation work.
+**Inspiration:** F2P monetization psychology research and Quantic
+Foundry's empirical motivation work informed the
+frustration + dopamine-starvation conjunction shape. The 0.5 frustration
+crossing, 0.2 dopamine threshold, and 3-move duration are calibrated,
+not literature-derived.
 
 ### 1.3 Signature Gamma (Engagement)
 
@@ -89,8 +120,10 @@ match between challenge and skill that produces sustained engagement.
 Time-on-Task at that position is shorter than baseline (i.e., players leave
 even though Nova says they're engaged), the signature is mis-tuned.
 
-**Literature anchor:** Csikszentmihalyi (1990), *Flow: The Psychology of
-Optimal Experience*.
+**Inspiration:** Csikszentmihalyi (1990), *Flow: The Psychology of
+Optimal Experience* — the qualitative shape (rising confidence + reward
+without anxiety) reflects flow-channel theory. The 0.4 anxiety ceiling
+and 3-move co-rise duration are calibrated, not literature-derived.
 
 ### 1.4 Signature Delta (FTUE Bounce)
 
@@ -112,9 +145,13 @@ sessions and the studio's actual D1 retention at that point does not
 differ from baseline, the FTUE is fine and the signature is firing on a
 non-issue.
 
-**Literature anchor:** GameAnalytics 2025 mobile retention research
-(top-quartile D1 = 26.5%, worsening trend); Nielsen Norman Group user-onboarding
-research.
+**Inspiration:** Tutorial-bounce as the dominant D1-retention killer is
+documented in GameAnalytics 2025 mobile retention research (top-quartile
+D1 = 26.5%, worsening trend) and Nielsen Norman Group user-onboarding
+research — those works frame the *qualitative phenomenon* the signature
+detects. GameAnalytics is also the KPI baseline source for Delta's
+predicted-D1-delta mapping (§2). The 0.5 anxiety threshold and 60-second
+window are calibrated, not literature-derived.
 
 ### 1.5 Why four (not 12, not 2)
 
@@ -146,11 +183,11 @@ persistence. Real human memory does not. For multi-day simulation, we
 apply differentiated decay matched to the three established memory
 channels (Tulving, 1972):
 
-| Channel | What it stores | Half-life (simulated time) | Literature anchor |
+| Channel | What it stores | Half-life (simulated time) | Inspiration |
 |---------|----------------|------------------------------|---------------------|
-| **Episodic** | Specific past events (per-move board states, individual decisions) | ~24 hours | Ebbinghaus (1885); modernized by Murre & Dros (2015) |
-| **Semantic** | Generalized lessons from reflection (post-game extracted rules) | ~7 days | Bahrick (1984) on long-term retention with sparse retrieval |
-| **Affective baseline** ("the scar") | Persistent shifts in mood/anxiety from significant negative events | ~30 days, asymptotic floor (never returns to zero) | Yehuda et al. on stress endocrinology; trauma persistence research |
+| **Episodic** | Specific past events (per-move board states, individual decisions) | ~24 hours | Forgetting-curve research (Ebbinghaus, 1885; Murre & Dros, 2015) — qualitative shape only; half-life value is engineered |
+| **Semantic** | Generalized lessons from reflection (post-game extracted rules) | ~7 days | Long-term semantic retention research (Bahrick, 1984) — qualitative shape only; half-life value is engineered |
+| **Affective baseline** ("the scar") | Persistent shifts in mood/anxiety from significant negative events | ~30 days, asymptotic floor (never returns to zero) | Nova-engineered (no specific literature anchor); the qualitative shape (slow exponential decay with non-zero floor) is inspired by general trauma-persistence research, but the half-life value, the floor parameter, and the exponential-decay rule are Nova design choices, not parameters extracted from any cited paper |
 
 This is what makes the "Day-3 frustration → Day-17 churn" prediction
 mechanism work. Affective scars persist long after episodic details fade,
@@ -158,8 +195,14 @@ so accumulated negative-experience weight raises baseline anxiety enough
 to shorten the cognitive buffer for normal challenges later in the
 simulated month.
 
-The half-life values above are literature-anchored defaults. They will
-be calibrated against real per-cohort retention data from paid pilots
+The half-life values above are **engineered defaults**. The episodic
+and semantic channels take qualitative inspiration from the named
+forgetting-curve research (Ebbinghaus 1885, Murre & Dros 2015, Bahrick
+1984), but the specific half-life values, the asymptotic-floor
+parameter on the affective channel, and the channel-specific update
+rules are Nova design choices calibrated against in-game outcomes —
+not parameters lifted from the cited papers. They will be calibrated
+further against real per-cohort retention data from paid pilots
 (Phase 6 onwards). The calibrated values become part of the validation
 corpus moat — every studio's pilot data refines our decay coefficients
 against their actual user base.
@@ -228,9 +271,9 @@ Three reasons we ship this as future work, not as a current capability:
    gates on those two passes.
 
 2. **Decay parameters need calibration data.** Half-lives are
-   literature-anchored defaults; per-game and per-genre calibration
-   requires real-user retention curves to fit against. We get that data
-   from paid pilots, not from internal validation.
+   engineered defaults (see §1.6.1 reframing); per-game and per-genre
+   calibration requires real-user retention curves to fit against. We
+   get that data from paid pilots, not from internal validation.
 
 3. **Compounding error needs validation too.** The cohort-distribution
    reporting principle is sound in theory; whether the actual confidence
@@ -512,12 +555,32 @@ establishes Nova as the industry benchmark for cognitive playtesting math.
 The full 41-citation list is in `scientific-foundations.md`. The most
 load-bearing for this methodology:
 
-- **Schultz, W., Dayan, P., & Montague, P.R. (1997).** "A neural substrate
-  of prediction and reward." *Science*, 275(5306), 1593-1599. — RPE /
-  dopamine framing.
-- **Russell, J.A. (1980).** "A circumplex model of affect." *J. Personality
-  and Social Psychology*, 39(6), 1161-1178. — Valence × Arousal model
-  (rendered literally in the brain panel mood gauge).
+- **Schultz, W., Dayan, P., & Montague, P.R. (1997).** "A neural
+  substrate of prediction and reward." *Science*, 275(5306), 1593-1599.
+  — Foundational phasic-RPE concept; cited for **conceptual lineage
+  only**. Nova's per-move RPE update operates at agentic timescales
+  (~1–3s per move), not the ~100ms phasic-dopamine timescale Schultz
+  et al. measured. See Daw + Niv below for Nova's operational anchor.
+- **Daw, N.D., Niv, Y., & Dayan, P. (2005).** "Uncertainty-based
+  competition between prefrontal and dorsolateral striatal systems
+  for behavioral control." *Nature Neuroscience*, 8(12), 1704-1711. —
+  Model-based vs model-free RL framing; Nova's per-move RPE update is
+  model-based, operating at agentic timescales rather than at phasic-
+  dopamine timescales.
+- **Niv, Y. (2009).** "Reinforcement learning in the brain." *J.
+  Mathematical Psychology*, 53(3), 139-154. — RL learning rules at
+  agentic timescales; companion citation to Daw et al. (2005) as
+  Nova's operational RPE anchor.
+- **Russell, J.A. (1980).** "A circumplex model of affect." *J.
+  Personality and Social Psychology*, 39(6), 1161-1178. —
+  Inspiration for **only two of Nova's six affect dimensions**
+  (*valence* and *arousal*; rendered literally in the brain panel
+  mood gauge). The other four dimensions (anxiety, frustration,
+  confidence, dopamine) are Nova-engineered operational primitives,
+  not Russell-derived. Russell's circumplex is also validated at
+  minutes-to-hours self-reported timescales, not at the ~1–3s
+  per-move timescale Nova fires; the appropriation on the two
+  anchored dimensions is qualitative, not validated at our timescale.
 - **Csikszentmihalyi, M. (1990).** *Flow: The Psychology of Optimal
   Experience.* Harper & Row. — Engagement signature foundation.
 - **Kahneman, D. (2011).** *Thinking, Fast and Slow.* Farrar, Straus and
@@ -537,18 +600,19 @@ load-bearing for this methodology:
 - **Tulving, E. (1972).** "Episodic and semantic memory." In *Organization
   of Memory*, 381-403. Academic Press. — Foundation for Nova's
   three-channel memory model (§1.6).
-- **Ebbinghaus, H. (1885).** *Über das Gedächtnis* (On Memory). — Original
-  forgetting curve; episodic-channel decay model.
+- **Ebbinghaus, H. (1885).** *Über das Gedächtnis* (On Memory). —
+  Original forgetting curve; inspires the *qualitative shape* of
+  Nova's episodic-channel decay (exponential with rapid early drop).
+  The specific 24-hour half-life is a Nova-engineered default, not
+  an Ebbinghaus-derived value.
 - **Murre, J.M.J., & Dros, J. (2015).** "Replication and analysis of
   Ebbinghaus' forgetting curve." *PLoS ONE*, 10(7), e0120644. — Modern
-  replication of Ebbinghaus' decay rates.
-- **Bahrick, H.P. (1984).** "Semantic memory content in permastore: Fifty
-  years of memory for Spanish learned in school." *J. Experimental
-  Psychology: General*, 113(1), 1-29. — Semantic-channel long-term
-  retention; basis for ~7-day half-life default.
-- **Yehuda, R., Halligan, S.L., & Grossman, R. (2001).** "Childhood trauma
-  and risk for PTSD: relationship to intergenerational effects of
-  trauma, parental PTSD, and cortisol excretion." *Development &
-  Psychopathology*, 13(3), 733-753. — Affective-baseline persistence
-  research; basis for Nova's slow-decay-with-floor model on the affective
-  channel.
+  replication confirming Ebbinghaus' qualitative shape; same caveat
+  applies to Nova's half-life value.
+- **Bahrick, H.P. (1984).** "Semantic memory content in permastore:
+  Fifty years of memory for Spanish learned in school." *J.
+  Experimental Psychology: General*, 113(1), 1-29. — Long-term
+  semantic-retention research; inspires the *qualitative shape* of
+  Nova's semantic-channel decay (much slower than episodic). The
+  specific ~7-day half-life is a Nova-engineered default, not
+  Bahrick-derived.
