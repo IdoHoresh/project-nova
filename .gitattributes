@@ -49,3 +49,10 @@ uv.lock binary
 *.apk binary
 *.aab binary
 *.so binary
+
+# ─── per-branch meta files — always keep the branch's own version ──────────
+# The pre-commit checklist is rewritten on every commit (post-commit reset
+# hook). Parallel branches always diverge on it; the other branch's version
+# is never the right merge input. merge=ours picks the branch being
+# merged/rebased-onto — correct for all rebase + merge scenarios.
+.claude/pre-commit-checklist.md merge=ours
