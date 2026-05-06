@@ -141,6 +141,14 @@
             "statusMessage": "Fast pre-push gate (secret grep + stat)..."
           },
           {
+            "type": "agent",
+            "if": "Bash(git push:*)",
+            "model": "claude-haiku-4-5-20251001",
+            "prompt": "Pre-push architectural gate for Project Nova. Run fast — most pushes will be clean and exit early.\n\n1. Check upstream exists: `git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null`. Empty → output {\"continue\":true,\"systemMessage\":\"no upstream — Haiku gate skipped\"} and stop.\n2. Count changed lines: `git diff @{u}..HEAD --numstat 2>/dev/null | awk '{s+=$1+$2} END {print s+0}'`. Store as LINES.\n3. Check cognitive paths: `git diff @{u}..HEAD --name-only 2>/dev/null | grep -cE 'nova_agent/(llm|perception|memory|bus)|AgentEvent|MemoryCoordinator'`. Store as COG.\n4. If LINES < 80 AND COG is 0 → output {\"continue\":true,\"systemMessage\":\"diff <80 lines, no cognitive paths — Haiku gate skipped\"} and stop.\n5. Run `git diff @{u}..HEAD` and scan for: (a) secrets gitleaks may miss — base64-dense 20+ char strings, key/token/secret assigned non-env-var values; (b) game logic leaking into cognitive layer — tile values/board arrays/score math in nova_agent/ outside game adapter; (c) MemoryCoordinator bypass — direct lancedb/sqlite write outside coordinator; (d) bus contract gap — new event type without matching TypeScript discriminated-union entry; (e) load-bearing seam (new Protocol/subsystem) without ADR reference in commit.\n6. CRITICAL = real secret committed or cognitive-layer crash bug. WARN = architectural drift, bus gap, missing ADR.\n7. Output JSON only, no prose:\n   - CRITICAL: {\"continue\":false,\"stopReason\":\"<one line>\",\"systemMessage\":\"<file:line + brief>\"}\n   - Otherwise: {\"continue\":true,\"systemMessage\":\"Haiku gate: <N> lines, <M> cognitive paths. <WARN findings or clean>\"}",
+            "timeout": 60,
+            "statusMessage": "Haiku architectural gate (large/cognitive diffs)..."
+          },
+          {
             "type": "command",
             "if": "Bash(git push:*)",
             "command": "{ ahead=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0); if [ \"${ahead:-0}\" -gt 30 ]; then branch=$(git branch --show-current 2>/dev/null); if [ -n \"$branch\" ] && [ \"$branch\" != \"main\" ]; then pr_open=$(gh pr list --head \"$branch\" --state open --json number 2>/dev/null | grep -c number || echo 0); if [ \"${pr_open:-0}\" = \"0\" ]; then printf '{\"systemMessage\":\"PR overdue: %s commits ahead of origin/main on %s without an open PR. Open one before the merge cost spirals — see ADR-0007-style cadence. (gh pr create --base main)\"}' \"$ahead\" \"$branch\"; fi; fi; fi; } 2>/dev/null",
