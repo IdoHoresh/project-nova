@@ -135,6 +135,33 @@ git config merge.ours.driver true
 
 ---
 
+## Model escalation — when Sonnet must offer swap to Opus
+
+Sonnet 4.6 is the default. Before starting a task, Claude must check
+the triggers below. If ANY trigger fires, surface a swap recommendation
+and WAIT for the user to run `/model claude-opus-4-7[1m]` before
+continuing. Triggers are binary path-or-keyword signals, NOT judgment.
+
+| Signal                                                          | Path |
+|-----------------------------------------------------------------|------|
+| Invoking `superpowers:brainstorming` skill                      | A — manual `/model` swap |
+| Invoking `superpowers:writing-plans` skill                      | A — manual `/model` swap |
+| Touching `nova_agent/{llm,perception,memory,bus}/**`            | A — manual `/model` swap |
+| Drafting or rewriting `docs/decisions/NNNN-*.md`                | B — subagent dispatch `model="opus"` |
+| Cross-cutting refactor: 3+ files in 2+ subsystems               | A — manual `/model` swap |
+| Debugging stuck >2 attempts (no root cause found)               | B — subagent dispatch `model="opus"` |
+| Methodology change in `docs/product/methodology.md`             | B — subagent dispatch `model="opus"` |
+| Security review on auth / IO / LLM-content surface              | B — subagent dispatch `model="opus"` |
+| User says "this is gnarly" / "I'm stuck" / "weird bug"          | A — manual `/model` swap |
+
+If unsure → Sonnet asks the user before starting. After a Path A task
+completes, Sonnet reminds: `/model claude-sonnet-4-6` to swap back.
+
+Source of truth for path-vs-skill mapping detail:
+`feedback_session_model_selection.md` memory.
+
+---
+
 ## Context hygiene — MANDATORY
 
 **Session length is the #1 token cost driver.** 700+ lines auto-loaded × every turn × long sessions = daily quota burn.
