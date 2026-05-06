@@ -446,53 +446,124 @@ scientific validity gain.
 
 ### 4.2 The Trauma Ablation (mechanism validity)
 
-**Hypothesis:** Trauma-tagging reduces the **variance** of failure (not
-just the mean), demonstrating avoidance learning rather than mean-shifting.
+**Hypothesis (dual).**
 
-**Method:** Run N=1000 games with trauma-tagging enabled (`Y_on`) and N=1000
-with trauma-tagging disabled (`Y_off`), against the same seeded board
-sequence in `Game2048Sim`. Apply Levene's Test for equality of variances
-on the score distributions.
+- *Primary (behavioral):* Trauma-tagging reduces within-game re-engagement
+  with trap-similar board configurations after a first trap encounter.
+  An agent whose trauma mechanism is doing its job adapts within the same
+  session — the same way a human player who hits a brutal trap mid-game
+  plays more cautiously for the remaining moves.
+- *Secondary (affective):* Trauma-tagging adds a measurable negative-state
+  lift at trap-similar board states, over and above the no-trauma baseline.
+  This validates that the mechanism's intended pathway (aversive memory →
+  affect lift) is the one the architecture actually expresses.
 
-**The Levene's W statistic:**
+The primary is the on-thesis behavioral signature of avoidance learning, which
+is what trauma is engineered to implement. The secondary is the mechanism-
+pathway validation: it tests *how* trauma works, not only *whether* it works.
 
-```
-        (N - k)     Σᵢ nᵢ (Z̄ᵢ· - Z̄··)²
-W = ─────────── × ─────────────────────────
-        (k - 1)     ΣᵢΣⱼ (Zᵢⱼ - Z̄ᵢ·)²
+**Method.** Run N=1000 games with trauma-tagging enabled (`Y_on`) and N=1000
+with trauma-tagging disabled (`Y_off`) against the same seeded board sequence
+in `Game2048Sim`. Both arms use the deployed cognitive architecture; trauma-
+tagging is the only varied component. From every run record (a) the per-move
+proximity of the current board to the closest documented trap pattern (the
+Phase 0.7 scenario patterns: corner-abandonment, snake-collapse, high-tile-
+wall) and (b) the per-move Anxiety value.
 
-where:
-  k  = number of groups (2: trauma-on, trauma-off)
-  N  = total observations (2000)
-  nᵢ = observations in group i
-  Zᵢⱼ = |Yᵢⱼ - Ỹᵢ·|   (absolute deviation from group median)
-  Z̄ᵢ· = mean of Zᵢⱼ within group i
-  Z̄·· = grand mean of all Z values
-```
+**Independent variable.** Trauma-tagging on vs. off. Same seeds across arms
+to fix the spawn schedule, so the IV is the only difference between paired
+games.
 
-**Pass criterion:** W is significant at p < 0.05 AND Var(Y_on) <
-Var(Y_off). Variance reduction with statistical significance demonstrates
-that trauma-tagging produces more *consistent* play (avoids repeating
-catastrophic failure modes), which is the mechanism's claim.
+**Primary DV (gating) — within-game trap-recurrence rate.** For each game,
+identify the first move whose board configuration matches a trap pattern
+within proximity threshold T. After that move, count the fraction of
+remaining moves that *also* enter trap-similar states (proximity ≥ T to any
+documented pattern). This per-game rate is the within-game re-engagement
+metric; trauma-on should produce systematically lower rates than trauma-off.
 
-**Failure mode:** If trauma-tagging does not significantly reduce variance,
-we **demote it** from a core architectural feature to a UI flavor. The
-mechanism is preserved (it's already implemented and the brain-panel
-visualization is compelling), but we stop marketing it as a competitive
-differentiator.
+**Secondary DV (descriptive) — affective lift at trap-similar states.** For
+each move whose board satisfies proximity ≥ T to any documented pattern,
+record the Anxiety value. Compare the trauma-on and trauma-off distributions
+at trap-similar states.
 
-### 4.3 Why variance, not mean
+**Pre-registered pass criterion (gating, primary only).** Cohen's `d ≥ 0.3`
+on the primary DV with 95% CI excluding 0, and trauma-on rate < trauma-off
+rate. **Primary nulls = fail, regardless of secondary result.** This locks
+the gate before pilot data exists, so we cannot drift to the DV that happened
+to pass.
 
-Trauma in the cognitive architecture is *avoidance learning* — the agent
-remembers what killed it and avoids similar situations. The expected
-empirical signature of avoidance learning is **reduced variance under
-similar stimuli**, not higher mean performance. An agent that learned to
-avoid a specific failure mode shouldn't necessarily score higher on
-average; it should score *more consistently*, with fewer catastrophic
-outliers in the lower tail of the distribution.
+**Pre-registered descriptive criterion (secondary, non-gating).** Cohen's `d`
+and 95% CI on the secondary DV are computed and reported alongside the
+primary result. The secondary does not change the pass/fail outcome.
 
-Testing on mean performance is the wrong test. Levene's variance test is
-the on-thesis test for the mechanism Nova actually implements.
+**Operational details deferred.** The trap-similarity metric, the proximity
+threshold `T`, and the trap-pattern dictionary will be specified in the
+Phase 0.8 implementation spec, not here. The methodology fixes the test
+shape (primary behavioral, secondary affective, both pre-registered, primary
+gates); the spec writes the operational definitions when Phase 0.8 begins.
+
+**Failure modes (three branches).**
+
+- *Primary nulls:* trauma is **demoted** from a core architectural feature
+  to a UI flavor. The mechanism is preserved (already implemented, brain-
+  panel visualization is compelling) but we stop marketing it as a
+  competitive differentiator.
+- *Primary passes, secondary nulls:* trauma works behaviorally but does
+  *not* express through the affect pathway — i.e., the mechanism reaches
+  the decision via planning / ToT / memory-conditioned routing rather than
+  through Anxiety lift. This is an ADR-worthy architectural finding; document
+  in a follow-up ADR amendment and reframe the affect-pathway claim
+  accordingly. Does not invalidate trauma as a feature.
+- *Both pass:* trauma is validated as a behavioral feature with affect-
+  pathway expression. Pitch line: "Carla feels the cliff (affect lift) and
+  adapts around it (trap re-engagement drops within session)."
+
+**Why behavioral primary in a cognitive-architecture test.** Behavior is the
+on-thesis test for *avoidance learning*, which is the mechanism trauma
+implements. Affect is the proposed *pathway* by which the mechanism reaches
+behavior. A cognitive-architecture validation that gated on the pathway
+rather than the function would conflate "the mechanism works" with "the
+mechanism works *via the specific channel we expected*." The architecture
+is allowed to route trauma's effect through any of its decision pathways
+(memory consultation, ToT branch evaluation, arbiter thresholding); the
+primary DV tests the function, the secondary DV tests one specific pathway.
+
+### 4.3 Why within-game adaptation, not cross-game optimization
+
+Trauma in the cognitive architecture is *avoidance learning within a session*
+— the agent remembers what killed it during the current playthrough and
+shifts behavior for the remaining moves. The empirical signature is **reduced
+within-game re-engagement with trap-similar configurations after a first
+trap encounter**, not optimal play across separate games.
+
+This distinction matters because Nova is a synthetic playtesting tool, not
+an RL optimizer. The product value comes from faithfully simulating how a
+human player experiences a level — including the realistic failure mode of
+"player hits trap, adapts cautiously, runs out of options, quits." A cross-
+game optimizer that learned to skip the trap entirely would be the wrong
+tool for the job: studios pay for the failure signal, not for an agent that
+no longer hits the failure. Within-session adaptation is faithful simulation;
+cross-session optimization is not.
+
+The expected behavioral signature is therefore: trauma-on agents engage with
+trap-similar states *less* in the moves following a trap encounter *within
+the same game* than trauma-off agents do, on the same seeded board. They
+still hit the original trap (same seed, same first encounter). What changes
+is what happens after — the within-session adaptation. That is the
+playtester signal, and it is the on-thesis test for trauma as Nova
+implements it.
+
+Mean-performance tests (does trauma-on score higher?) are the wrong shape
+for this hypothesis. Variance-on-score tests (does trauma-on play more
+consistently?) were the originally proposed shape but failed three
+independent ways: paired observations break under trauma-on retrieving
+different memories per move, 2048 score is bounded above making
+asymptotic-distribution assumptions invalid, and variance reduction can
+arise from over-conservative play that is not avoidance learning. The
+behavioral primary DV in §4.2 is the on-thesis replacement: it tests
+within-game adaptation directly, controls for the spawn schedule via paired
+seeds, and is robust to the observation that the affect pathway is not the
+only channel through which trauma reaches behavior.
 
 ---
 
@@ -587,10 +658,6 @@ load-bearing for this methodology:
   Giroux. — System 1 / System 2 routing framework.
 - **Sumers, T.R., et al. (2024).** "Cognitive Architectures for Language
   Agents." TMLR. — Architectural lineage; CoALA-shaped agent.
-- **Levene, H. (1960).** "Robust tests for equality of variances." In
-  *Contributions to Probability and Statistics: Essays in Honor of Harold
-  Hotelling*, 278-292. Stanford University Press. — Statistical test for
-  trauma-ablation variance reduction.
 - **Bergdahl, J., et al. (EA SEED, 2020).** "Augmenting Automated Game
   Testing with Deep Reinforcement Learning." IEEE CoG 2020. — Adjacent
   industry precedent (deep-RL playtesting; distinct from Nova's LLM-

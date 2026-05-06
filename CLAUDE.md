@@ -205,6 +205,7 @@ artifact, not a vibes-based discipline.
 pre-commit install                      # installs the standard hooks
 pre-commit install --hook-type commit-msg
 pre-commit install --hook-type post-commit  # required for the auto-reset
+git config merge.ours.driver true       # activates merge=ours in .gitattributes (auto-resolves checklist conflicts on rebase)
 ```
 
 If a checklist item legitimately doesn't apply, check the box and add a
