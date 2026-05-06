@@ -330,6 +330,26 @@ Each rate is citable; the model is scientifically defensible; Day-3 frustration 
 
 ## Workflow / process learnings
 
+### Concurrent independent workflow changes need explicit per-change rollback ordering
+
+**Date:** 2026-05-07 | **Cost:** ~0 minutes (caught during red-team analysis of the workflow-simplification spec); pattern-cost compounds across every multi-change config batch if uncaught.
+
+**What happened:** The workflow-simplification batch (`docs/superpowers/specs/2026-05-07-workflow-simplification-design.md`) bundled Step 6 (Haiku as default subagent implementer model) and Step 7 (Sonnet 200k as default main-session model) into a single 10-commit batch. Initial success criterion was "zero increase in Layer 2 BLOCK findings on the next 5 PRs after the batch" — one coarse number. Red team flagged the attribution problem: if BLOCK rate rises, you cannot tell from the count alone whether Haiku-implementer wrote brittle code or Sonnet-200k missed cross-file context. Counter-proposal was to defer Step 6 by one week (sequential introduction = clean signal). Counter-proposal had real cost: ~7 days of deferred Haiku savings on the line the user was already pained by, plus a second PR cycle. Resolved by keeping the batch but adding an ordered-rollback procedure to the spec doc — atomic commits already enable cheap per-step revert; the missing piece was the *ordering rule* (revert higher-variance change first, run 3 PRs, then revert next), written down before the regression hits rather than re-derived under pressure.
+
+A separate refinement issue surfaced in the same review: a `1.5× pre-batch baseline` rollback trigger has a zero-baseline pathology (1.5 × 0 = 0, so any single BLOCK triggers). Replaced with "2+ BLOCKs in 5 PRs OR any single BLOCK diagnosed as model-quality." The diagnostic-cause clause is the real signal; counts alone are noisy on small windows.
+
+**Lesson:** Bundling multiple independent changes in one batch is fine when (a) failure surfaces are non-overlapping and (b) per-change rollback is cheap. Both conditions almost always hold for atomic-commit config batches. The thing that does NOT come for free is *which one to revert first if the success criterion fails*. Without an explicit rollback ordering written into the spec, future-you faces the regression under pressure and either reverts both (losing the signal that motivated the batch) or paralyzes between options. Atomic commits give you the *capability* to per-step revert; the rollback ordering rule gives you the *discipline* to do it usefully.
+
+Separately: coarse-grained success criteria ("BLOCK rate within 1.5× baseline") often have edge-case pathologies (zero baseline, small windows). The cheap fix is a categorical signal alongside the count — "diagnostic cause matches X" is robust where multiplicative thresholds are not.
+
+**How to apply:**
+
+- For any multi-change config batch where two or more changes affect distinct surfaces (e.g., subagent vs main-session, frontend vs backend, hook vs skill), draft an *ordered rollback procedure* as part of the spec doc Implementation Discipline section. Identify which change is the higher-variance bet and revert it first.
+- The rollback procedure goes in the spec, not the plan. Specs survive longer than plans and are read under regression pressure; plans are consumed and archived.
+- Refine success criteria with a categorical-cause clause whenever the baseline is near zero or the window is small. "X+ findings of type Y, OR any single finding of cause Z" is harder to game and more diagnostic than "rate within K× baseline."
+- After resolving any concurrent-change-batch debate, capture the rollback ordering and the regression diagnostic in the spec text itself before invoking writing-plans. Do not rely on memory or oral tradition — the next session reading the spec will not have the conversation context.
+- Adjacent gotcha: Claude Code memory paths (`~/.claude/projects/<mangled>/memory/*.md`) are path-mangled per project location; absolute paths in slash commands break on project relocation. Slash commands that touch memory should resolve the path dynamically (e.g., via `git rev-parse --show-toplevel` + the path-mangling rule, or by writing a portable artifact under `docs/` alongside the memory write). This bit during Step 4 (`/handoff`) design and is a follow-up implementation note, not a spec change.
+
 ### Test-runner spec drift — collector creeping into analyzer
 
 **Date:** 2026-05-05 | **Cost:** ~0 minutes (caught in Q6 of Test Runner spec brainstorm), but pattern compounds across spec evolution if uncaught.
