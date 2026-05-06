@@ -1,434 +1,219 @@
 # CLAUDE.md — Project Nova
 
-> **Read this first, every session.** This file is auto-loaded by Claude Code
-> on session start. It tells you what Nova is, where things live, how to
-> build/test, and what gotchas have already cost time.
->
-> **For strategic / product context** (positioning, roadmap, methodology,
-> personas, competitive landscape), read [`docs/product/README.md`](./docs/product/README.md)
-> first, then [`docs/product/methodology.md`](./docs/product/methodology.md).
->
-> **For architecture context**, read [`ARCHITECTURE.md`](./ARCHITECTURE.md).
->
-> **Before starting work in any area**, skim [`LESSONS.md`](./LESSONS.md)
-> for hard-won knowledge — gotchas, design decisions, failure modes that
-> have already cost time. Add a lesson when you've learned something that
-> cost time. Better to over-capture than under-capture.
+> Auto-loaded every session. Quick-reference card.
+> Deep context: `ARCHITECTURE.md` · `docs/product/README.md` · `LESSONS.md`
 
 ---
 
 ## What this project is
 
-Project Nova: **The Cognitive Audit & Prediction Platform** — a
-product-decision tool to test game design and economy hypotheses with
-simulated player personas. Currently a working cognitive architecture
-demo on 2048 in an Android emulator; evolving into a synthetic
-playtesting service for game studios.
-
-The cognitive architecture (memory + affect + Tree-of-Thoughts
-deliberation + post-game reflection + brain-panel viewer) is shipped
-and functional on `claude/practical-swanson-4b6468`. The product layer
-(multi-game, persona-based, KPI reporting) is on the roadmap, not the
-current state.
+Project Nova: cognitive audit platform — simulated player personas test game design hypotheses. Working demo: memory + affect + ToT deliberation + reflection + brain-panel viewer on 2048/Android emulator. Product layer (multi-game, persona KPIs) is roadmap, not current state.
 
 ---
 
 ## Repository layout
 
 ```
-.
-├── CLAUDE.md                # this file
-├── LESSONS.md               # engineering retrospective (gotchas + decisions)
-├── ARCHITECTURE.md          # system architecture overview
-├── README.md                # public repo README
-├── SECURITY.md              # security disclosure policy
-├── CONTRIBUTING.md          # contribution conventions (even for solo)
-├── LICENSE                  # MIT
-├── .editorconfig            # consistent indentation across editors
-├── .pre-commit-config.yaml  # gitleaks + ruff + mypy + eslint hooks
-├── .github/
-│   ├── workflows/ci.yml     # GitHub Actions: tests, lint, types, security
-│   └── pull_request_template.md
-├── .claude/
-│   ├── settings.json        # team-wide Claude Code settings (committed)
-│   ├── settings.local.json  # personal settings (gitignored)
-│   └── commands/            # slash commands
-├── docs/
-│   ├── product/             # strategic dossier (v2.2; six MD files)
-│   │   ├── README.md
-│   │   ├── methodology.md   # 4 Signatures, KPI translations, Levene's test
-│   │   ├── product-roadmap.md
-│   │   ├── competitive-landscape.md
-│   │   ├── personas-and-use-cases.md
-│   │   ├── scientific-foundations.md
-│   │   └── external-review-brief.md
-│   ├── decisions/           # ADRs (Architecture Decision Records)
-│   ├── internal/            # work-in-progress specs not yet promoted
-│   │   └── v2.2-epsilon-spec.txt
-│   └── specs/               # original implementation plans
-├── nova-agent/              # Python cognitive architecture
-│   ├── src/nova_agent/
-│   ├── tests/               # 140+ pytest, mypy strict, ruff
-│   ├── pyproject.toml
-│   └── README.md
-├── nova-viewer/             # Next.js 16 + React 19 brain panel
-│   ├── app/
-│   ├── lib/
-│   ├── package.json         # pnpm-managed
-│   ├── AGENTS.md            # nova-viewer-specific Claude rules
-│   └── CLAUDE.md            # symlink/include of AGENTS.md
-└── nova-game/               # build artifacts for the Unity 2048 fork
+nova-agent/      # Python cognitive architecture (pytest + mypy strict + ruff)
+nova-viewer/     # Next.js 16 + React 19 brain panel (vitest + tsc + eslint)
+nova-game/       # Unity 2048 APK build artifacts
+docs/product/    # strategic dossier: methodology, roadmap, personas, science
+docs/decisions/  # ADRs
+.claude/         # settings, agents, rules, plans, skills
 ```
 
-The Unity 2048 fork itself lives at `~/Desktop/2048_Unity/` (not in this
-repo); APK is at `~/Desktop/2048_Unity/build/nova2048.apk`.
+Unity fork: `~/Desktop/2048_Unity/`. APK: `~/Desktop/2048_Unity/build/nova2048.apk`.
 
 ---
 
-## Build + test commands (per subproject)
+## Build + test
 
 ### nova-agent (Python)
 
-**Important — set this env var EVERY session before any `uv` command.**
-The repo lives under `~/Desktop/`, where macOS Sequoia auto-flags files
-with `UF_HIDDEN`, which Python 3.14 then ignores. Without this, `uv run
-nova` fails with `ModuleNotFoundError: nova_agent`. See
-`nova-agent/README.md` for the full backstory.
-
+**Set this env var every session — required before any `uv` command:**
 ```bash
 export UV_PROJECT_ENVIRONMENT="$HOME/.cache/uv-envs/nova-agent"
 ```
-
-Then from `nova-agent/`:
-
-```bash
-uv sync --extra dev          # install / refresh
-uv run pytest                # ~140 tests, ~5s
-uv run mypy                  # strict mode
-uv run ruff check            # lint
-uv run nova                  # run the live agent (needs adb device)
-```
-
-The full check trio (use the `/check-agent` slash command):
+macOS Sequoia UF_HIDDEN hides editable `.pth` files → `uv run nova` fails without this.
 
 ```bash
-uv run pytest --tb=short -p no:warnings && uv run mypy && uv run ruff check
+# from nova-agent/
+uv sync --extra dev
+uv run pytest --tb=short -p no:warnings   # ~140 tests, ~5s
+uv run mypy                                # strict
+uv run ruff check
 ```
+Gate trio shortcut: `/check-agent`
 
 ### nova-viewer (Next.js)
 
-**Important — use `pnpm`, not `npm`.** The viewer ships a `pnpm-lock.yaml`
-+ `pnpm-workspace.yaml`. `npm install` will crash on the existing
-pnpm-shaped `node_modules`. From `nova-viewer/`:
+**Use `pnpm` — `npm install` crashes on pnpm-shaped `node_modules`.**
 
 ```bash
+# from nova-viewer/
 pnpm install
-pnpm test                    # vitest, ~47 tests
-pnpm run dev                 # localhost:3000
-pnpm run build               # production build
-pnpm run lint                # eslint
-npx tsc --noEmit             # type-check (no separate script)
+pnpm test           # vitest ~47 tests
+npx tsc --noEmit    # type-check
+pnpm run lint       # eslint
+pnpm run dev        # localhost:3000
 ```
+Gate trio shortcut: `/check-viewer`
 
-The full check trio (use the `/check-viewer` slash command):
-
-```bash
-pnpm test && npx tsc --noEmit && pnpm run lint
-```
-
-### Unity 2048 fork
-
-The agent talks to it via ADB on a Pixel 6 API 34 AVD (named
-`Pixel_6` in Android Studio). To boot from terminal:
+### Unity 2048 emulator
 
 ```bash
 ~/Library/Android/sdk/emulator/emulator @Pixel_6 -no-snapshot &
 adb wait-for-device
-adb shell pm clear com.idohoresh.nova2048    # reset save state
+adb shell pm clear com.idohoresh.nova2048
 adb shell am start -n com.idohoresh.nova2048/com.unity3d.player.UnityPlayerActivity
+scrcpy --serial emulator-5554
 ```
-
-scrcpy mirrors the device window: `scrcpy --serial emulator-5554`.
+`pm clear` does NOT reset save state — cold-boot the AVD to fully reset.
 
 ---
 
 ## Branch + commit conventions
 
-- **Active branch:** `claude/practical-swanson-4b6468`. All work happens
-  here. No direct commits to `main`.
-- **Push immediately after every commit.** This is established cadence;
-  do not wait to batch.
-- **Conventional Commits format.** `feat(scope): ...`, `fix(scope): ...`,
-  `docs(scope): ...`, `test(scope): ...`, `chore(scope): ...`. Scope is
-  the affected area (e.g., `viewer`, `nova-agent`, `product`, `methodology`).
-  Subject ≤72 chars; body explains the *why* not the *what*.
-- **Co-author tag** on Claude-generated commits:
-  `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
-- **Atomic commits.** One logical change per commit. If you find yourself
-  writing "and" in the subject, split it.
-
-### Gitleaks pre-commit
-
-The repo has a gitleaks pre-commit hook (now formalized in
-`.pre-commit-config.yaml`). Don't disable it. If it screams about a
-"secret," treat it as serious until you've inspected the line.
+- **Branch:** `claude/practical-swanson-4b6468`. Never commit to `main`.
+- **Push immediately** after every commit.
+- **Conventional Commits:** `type(scope): subject ≤72 chars`. Body = why, not what.
+- **Co-author tag:** `Co-Authored-By: Claude Sonnet 4.6 (1M context) <noreply@anthropic.com>`
+- **Atomic:** one logical change per commit. "and" in subject = split it.
 
 ---
 
 ## Quality gates (must pass before commit)
 
-For Python changes: `pytest + mypy strict + ruff check + gitleaks`. For
-TypeScript changes: `vitest + tsc --noEmit + eslint + gitleaks`.
+Python: `pytest + mypy strict + ruff check + gitleaks`
+TypeScript: `vitest + tsc --noEmit + eslint + gitleaks`
 
-**Never green-skip.** If a test breaks, fix it or update it deliberately
-with a commit message explaining why. The `--no-verify` flag is forbidden
-without explicit user permission.
+Never `--no-verify`. Pre-commit hooks auto-run on staged files; CI re-runs on every push + PR.
 
-The pre-commit framework (`.pre-commit-config.yaml`) auto-runs these on
-staged files. CI (`.github/workflows/ci.yml`) re-runs the full suite on
-every push and PR.
+**Pre-commit checklist** (`.claude/pre-commit-checklist.md`): unchecked box blocks commit; post-commit hook auto-resets. Silent skip forbidden.
 
-### Pre-commit checklist (Claude pair)
-
-`.claude/pre-commit-checklist.md` is a per-commit checklist that the
-pre-commit framework enforces: any `- [ ]` (unchecked) item **blocks the
-commit**. After a successful commit, the post-commit hook auto-resets
-every box back to `- [ ]` so the next commit starts fresh.
-
-Pattern adopted from the Gibor app workflow. Catches the failure mode of
-"Claude commits without verifying" by making verification a physical
-artifact, not a vibes-based discipline.
-
-**First-time setup per clone** (one-shot):
-
+First-time setup (one-shot per clone):
 ```bash
-pre-commit install                      # installs the standard hooks
+pre-commit install
 pre-commit install --hook-type commit-msg
-pre-commit install --hook-type post-commit  # required for the auto-reset
-git config merge.ours.driver true       # activates merge=ours in .gitattributes (auto-resolves checklist conflicts on rebase)
+pre-commit install --hook-type post-commit
+git config merge.ours.driver true
 ```
 
-If a checklist item legitimately doesn't apply, check the box and add a
-one-sentence reason inline (e.g. `- [x] /review — skipped, doc-only
-change`). Silent skipping is forbidden.
+---
+
+## Common gotchas
+
+See `LESSONS.md` "Engineering / debugging gotchas" section. Two-strikes rule for
+additions: only add a gotcha the second time the same mistake costs time.
 
 ---
 
-## Common gotchas (have already cost time)
+## When to use which skill
 
-1. **UF_HIDDEN venv issue.** Repo on `~/Desktop` → macOS hides editable
-   `.pth` files → Python 3.14 skips them → `uv run nova` fails. Fix:
-   `export UV_PROJECT_ENVIRONMENT="$HOME/.cache/uv-envs/nova-agent"`.
-   Documented in `nova-agent/README.md`.
-2. **Gemini Pro 1000 RPD limit.** Pro daily quota exhausts after ~250
-   ToT calls (4 branches per call). Active workaround in `.env`:
-   `NOVA_DELIBERATION_MODEL=gemini-2.5-flash` (overrides Pro for ToT).
-3. **Empty shell env vars shadow `.env`.** Pydantic-settings reads
-   process env first, `.env` second. If a shell exports
-   `ANTHROPIC_API_KEY=""` (empty), it shadows the populated `.env`.
-   Fixed via `env_ignore_empty=True` in `Settings` config; if you see
-   confusing "no API key" errors, check `printenv | grep ANTHROPIC`.
-4. **Anthropic API requires actual paid credits, not just grants.**
-   "Credit grant" rows on console.anthropic.com don't unlock the API.
-   Need a real Stripe purchase ("Credit purchase" row, status "Paid").
-5. **Unity 2048 fork ignores `adb shell input swipe`.** Only DPAD
-   keyevents (19/20/21/22) work. `ADB.swipe()` in nova-agent already
-   uses keyevents internally.
-6. **OCR palette must match the Unity fork colors.** Empirically
-   sampled. If new tile values appear that aren't in `_PALETTE` (in
-   `nova_agent/perception/ocr.py`), nearest-neighbor classifier maps
-   them to wrong values and the agent's perception goes silently wrong.
-   Currently sampled: 0/2/4/8/16/32/128. 64 and 256 unsampled.
-7. **`pm clear` doesn't reset Unity 2048 save state.** Unity stores
-   game state outside app data. Cold-boot the AVD to fully reset.
-8. **The viewer uses `pnpm`, not `npm`.** `npm install` crashes on the
-   existing pnpm node_modules. Don't run npm here.
-9. **AgentEvent type catch-all defeats discriminated narrowing.** The
-   `{event: string; data: unknown}` arm in the union means TypeScript
-   narrowing doesn't work; we use `as data as` casts in `deriveStream.ts`.
-   This is being fixed in Week 0 Day 1; until then, be aware.
+| Signal | Invoke |
+|--------|--------|
+| New surface area / unclear scope | `superpowers:brainstorming` **(Path A — switch to Opus first)** |
+| Multi-step work, 3+ files | `superpowers:writing-plans` **(Path A — switch to Opus first)** |
+| Plan with independent atomic tasks | `superpowers:subagent-driven-development` |
+| 2+ independent parallel questions | `superpowers:dispatching-parallel-agents` |
+| Cognitive-layer / bus / decision code | `superpowers:test-driven-development` |
+| "I think this is done" | `superpowers:verification-before-completion` |
+| Non-obvious failure | `superpowers:systematic-debugging` |
+| Pre-commit review (default entry) | `/review` — REVIEW.md path-matched dispatch |
+| Receiving review feedback | `superpowers:receiving-code-review` |
+| Wrapping up branch / opening PR | `superpowers:finishing-a-development-branch` |
+| Gate trio | `/check-agent` or `/check-viewer` |
+
+**Model rule:** see `## Model escalation` below for the full trigger table.
 
 ---
 
-## MCP servers
+## Model escalation — when Sonnet must offer swap to Opus
 
-No project-scoped MCPs are committed to this repo (no `.mcp.json` /
-`.claude/.mcp.json`). The dev session inherits user-scope MCPs, the
-relevant ones for Nova being:
+Sonnet 4.6 is the default. Before starting a task, Claude must check
+the triggers below. If ANY trigger fires, surface a swap recommendation
+and WAIT for the user to run `/model claude-opus-4-7[1m]` before
+continuing. Triggers are binary path-or-keyword signals, NOT judgment.
 
-- `computer-use` — for emulator screenshots / desktop control during
-  the v1.0.0 demo recording
-- `claude-in-chrome` — for browser-side brain-panel inspection
-- `ccd_session_mgmt`, `ccd_session`, `ccd_directory` — session continuity
+| Signal                                                          | Path |
+|-----------------------------------------------------------------|------|
+| Invoking `superpowers:brainstorming` skill                      | A — manual `/model` swap |
+| Invoking `superpowers:writing-plans` skill                      | A — manual `/model` swap |
+| Touching `nova_agent/{llm,perception,memory,bus}/**`            | A — manual `/model` swap |
+| Drafting or rewriting `docs/decisions/NNNN-*.md`                | B — subagent dispatch `model="opus"` |
+| Cross-cutting refactor: 3+ files in 2+ subsystems               | A — manual `/model` swap |
+| Debugging stuck >2 attempts (no root cause found)               | B — subagent dispatch `model="opus"` |
+| Methodology change in `docs/product/methodology.md`             | B — subagent dispatch `model="opus"` |
+| Security review on auth / IO / LLM-content surface              | B — subagent dispatch `model="opus"` |
+| User says "this is gnarly" / "I'm stuck" / "weird bug"          | A — manual `/model` swap |
 
-If you need a project-scoped MCP later (e.g., Playwright for end-to-end
-viewer tests, GitHub MCP for PR automation, a SQLite MCP for memory
-introspection), add it to `.mcp.json` at the repo root and document it
-here.
+If unsure → Sonnet asks the user before starting. After a Path A task
+completes, Sonnet reminds: `/model claude-sonnet-4-6` to swap back.
 
----
-
-## Plan Mode + thinking budget
-
-For non-trivial design work, prepend the prompt with a thinking trigger
-that buys deeper deliberation BEFORE the first action:
-
-- **`think hard`** — modest deliberation budget (default tier)
-- **`think harder`** — bigger budget; use for cross-file refactors
-- **`ultrathink`** — maximum budget; reserve for architectural choices
-  (new ADR territory, new game adapter, new cognitive subsystem)
-
-Combine with **Plan Mode** (`Shift+Tab` in interactive sessions) for
-designs that would benefit from a written plan you can critique before
-execution begins.
-
-Don't reflexively use these for trivial work — they cost cycles for no
-gain on mechanical changes.
+Detail: `feedback_session_model_selection.md` memory.
 
 ---
 
-## When to use which workflow skill
+## Context hygiene — MANDATORY
 
-Project Nova layers two complementary workflow systems:
+**Session length is the #1 token cost driver.** 700+ lines auto-loaded × every turn × long sessions = daily quota burn.
 
-- **Project contract** (this file + `.claude/`): what *this* repo is
-- **Methodology library** (`superpowers:*` skills): how to *think
-  about* a task
+**Claude MUST offer `/clear` after every commit + push.** Do not wait for the user to ask. Pattern:
+> "`/clear` recommended — [trigger reason]. Handoff: `Last shipped: <sha + 1-line>. Next: <task from resume-point memory>. Read: CLAUDE.md, resume-point memory, git log --oneline -10`"
 
-The project contract is auto-loaded. The methodology skills must be
-invoked. Here's the canonical signal-to-skill mapping. **As Claude pair
-working on Nova, you should proactively flag the user when one of these
-signals fires** — don't silently default to "just start coding."
+**All `/clear` triggers (non-negotiable):**
+- After every commit + push — check every single time
+- After PR merges to `main`
+- Switching to a different concern
+- Context >150k tokens (check `/usage`)
+- ~2h continuous work
+- After any artifact commit (spec, plan, implementation)
 
-| Signal — "I'm about to..." | Invoke |
-|----------------------------|--------|
-| ...build a new surface area / feature with unclear scope | `superpowers:brainstorming` |
-| ...write code that touches 3+ files or has multiple steps | `superpowers:writing-plans` |
-| ...execute a plan with mostly-independent atomic tasks | `superpowers:subagent-driven-development` |
-| ...investigate two or more independent questions in parallel | `superpowers:dispatching-parallel-agents` |
-| ...write or change cognitive-layer code, decision logic, bus protocol | `superpowers:test-driven-development` |
-| ...declare something "done" before commit | `superpowers:verification-before-completion` |
-| ...debug a non-obvious failure | `superpowers:systematic-debugging` |
-| ...review code before commit (default entry point) | `/review` orchestrator — applies REVIEW.md path-matched trigger taxonomy and dispatches the right reviewer(s) |
-| ...review code-quality only (skip security) | `/code-review` — direct dispatch of `.claude/agents/code-reviewer.md` |
-| ...review security only (skip code-quality) | `/security-review` — direct dispatch of `.claude/agents/security-reviewer.md` |
-| ...respond to review feedback from `/review` or a subagent | `superpowers:receiving-code-review` |
-| ...wrap up a feature branch / open the PR | `superpowers:finishing-a-development-branch` |
-| ...write a new skill (rare) | `superpowers:writing-skills` |
-| ...run the per-subproject quality gate before commit | `/check-agent` or `/check-viewer` |
+**Before artifact-cliff `/clear`:** write a Context Checkpoint to `project_nova_resume_point.md` first (architectural intent + edge-case warnings + rejected alternatives). Format in `feedback_session_hygiene.md` memory.
 
-The deprecated superpowers commands (`/brainstorm`, `/write-plan`,
-`/execute-plan`) just print a deprecation notice. Invoke the named
-skills directly instead.
+`/compact` = mid-feature continuity when context heavy (>200k) but work still ongoing.
 
 ---
 
-## Context hygiene — `/clear` after major work
+## Pre-task checklist
 
-Long sessions degrade performance. After any of the following, the
-Claude pair should **proactively suggest `/clear`** with a short
-hand-off prompt for the next session:
-
-- Feature shipped (PR merged or commit pushed that closes a roadmap
-  item)
-- Major refactor finished
-- Phase milestone hit (Phase 0.7 cliff test passes, etc.)
-- Long debugging session resolved
-- ~2+ hours of continuous work in one session
-- Switching to an unrelated task
-
-The hand-off prompt should include: what just shipped (commit / PR),
-what the next task is (from the roadmap), and which workflow skill to
-start with (`superpowers:brainstorming`, `superpowers:writing-plans`,
-or direct implementation).
-
-`/compact` is also available but considered opaque by the field — prefer
-explicit `/clear` + a curated next-session prompt.
+- [ ] On correct branch (`git branch --show-current`)
+- [ ] `docs/product/methodology.md` read if cognitive-arch change
+- [ ] Planning artifact exists (spec, ADR, or roadmap entry)
+- [ ] Relevant ADRs checked in `docs/decisions/`
+- [ ] Tests exist or will be written (TDD)
+- [ ] Clear acceptance criterion
 
 ---
 
-## Pre-task checklist (use for any non-trivial change)
+## Things NOT to do
 
-Before starting work on a non-trivial change:
-
-- [ ] Read [`docs/product/methodology.md`](./docs/product/methodology.md)
-      if the change touches the cognitive architecture
-- [ ] Read [`docs/product/product-roadmap.md`](./docs/product/product-roadmap.md)
-      to confirm which phase this work belongs to
-- [ ] Confirm there's a planning artifact (spec, ADR, or roadmap entry).
-      If none exists, write one before coding.
-- [ ] Check [`docs/decisions/`](./docs/decisions/) for relevant ADRs
-- [ ] Confirm tests exist or will be written (TDD discipline)
-- [ ] Confirm the change has a clear acceptance criterion
-- [ ] Branch state check: `git status` — no uncommitted work from prior session
-
-For larger changes, use the workflow:
-
-1. **Brainstorm** — `superpowers:brainstorming` skill if creating new
-   surface area
-2. **Plan** — `superpowers:writing-plans` skill for multi-step work
-3. **Implement** — `superpowers:subagent-driven-development` skill for
-   dispatching fresh subagents per task with formal review cycles
-4. **Verify before "done"** — `superpowers:verification-before-completion`
-   at mid-task "I'm done" moments (don't wait for the pre-commit gate)
-5. **Run gate trio** — `/check-agent` or `/check-viewer` before commit
-6. **Commit** — atomic, conventional, with co-author tag, push
-   immediately
-7. **Clear context** — when a feature ships or a phase milestone hits,
-   suggest `/clear` with a curated next-session prompt
-
----
-
-## Things to NOT do
-
-- **Don't pivot to RL.** RL produces optimizers; Nova produces
-  simulators. The cognitive architecture is the moat. See
-  `docs/product/methodology.md` §3.3 for full rationale.
-- **Don't issue Jira-style bug reports.** Bug-handling stays in
-  `docs/internal/v2.2-epsilon-spec.txt` until promoted (Week 4+,
-  gated on Phase 0.7 + 0.8 passes).
-- **Don't promise real-time games or 3D.** Out of scope for the
-  current architecture.
-- **Don't pivot mid-Phase.** Each phase has a defined exit criterion.
-  Mid-phase pivots compound complexity.
-- **Don't sell before Phase 0.7 passes.** No pitch conversations until
-  the cliff test demonstrates affect predicts (or doesn't).
-- **Don't invent dollar figures in reports.** No "fix this bug or
-  lose $10K UA spend" claims. Hand the studio observable cohort data
-  and let them compute UA-spend impact themselves.
-- **Don't direct-commit to `main`.** All work via PRs from feature
-  branches. (Currently `claude/practical-swanson-4b6468` IS the
-  feature branch; eventual cleanup will retarget at `main`.)
-- **Don't `--no-verify` skip pre-commit hooks.** Treat hook failures
-  as real failures; fix the issue, then commit.
-- **Don't skip the `Read` tool before `Edit`.** Edit will fail if you
-  haven't read the file in this session, and the discipline catches
-  stale-write bugs.
+- No RL pivot — Nova is a simulator, not an optimizer. See `methodology.md §3.3`.
+- No Jira-style bug reports — use `docs/internal/v2.2-epsilon-spec.txt`.
+- No real-time or 3D promises — out of scope.
+- No mid-Phase pivots — each phase has an exit criterion.
+- No pitch before Phase 0.7 passes.
+- No invented dollar figures in reports — hand cohort data, let studio compute UA impact.
+- No direct commits to `main`.
+- No `--no-verify` without explicit user permission in same session.
+- No `Edit` without `Read` first.
 
 ---
 
 ## Active phase + next task
 
-Current phase, recent ships, next task, and one-time setup notes live in
-the auto-loaded resume-point memory file:
-`~/.claude/projects/-Users-idohoresh-Desktop-a/memory/project_nova_resume_point.md`.
+Lives in: `~/.claude/projects/-Users-idohoresh-Desktop-a/memory/project_nova_resume_point.md`
 
-Read it first each session. CLAUDE.md intentionally does NOT duplicate
-that state — resume-point updates per-session, CLAUDE.md does not, and
-duplication produces stale CLAUDE.md (which is loaded every turn).
+Read it first each session. CLAUDE.md does NOT duplicate it (resume-point changes per-session; CLAUDE.md doesn't).
 
 ---
 
 ## When in doubt
 
-- Architecture questions → [`ARCHITECTURE.md`](./ARCHITECTURE.md) +
-  [`docs/product/methodology.md`](./docs/product/methodology.md)
-- Strategic / business questions → [`docs/product/README.md`](./docs/product/README.md)
-- Roadmap / phase questions → [`docs/product/product-roadmap.md`](./docs/product/product-roadmap.md)
-- Decision history → [`docs/decisions/`](./docs/decisions/)
-- Build/test commands → this file (above)
-- Common gotchas → this file (above)
-- Memory across sessions → `~/.claude/projects/-Users-idohoresh-Desktop-a/memory/`
+Architecture → `ARCHITECTURE.md` + `docs/product/methodology.md`
+Strategy → `docs/product/README.md`
+Roadmap → `docs/product/product-roadmap.md`
+Decisions → `docs/decisions/`
+Memory → `~/.claude/projects/-Users-idohoresh-Desktop-a/memory/`
 
-When still unclear, ask the user explicitly. Don't guess on
-load-bearing decisions.
+Unclear? Ask explicitly. Don't guess on load-bearing decisions.
