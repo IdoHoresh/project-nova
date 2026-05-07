@@ -284,6 +284,7 @@ RECENT_LIMIT: Final[int] = 5
 STAGE_BUDGET_USD: Final[dict[str, float]] = {
     "smoke": 6.0,
     "pilot": 35.0,
+    "golden": 3.0,
     "surrogate": 40.0,
     "main": 100.0,
 }
@@ -873,6 +874,7 @@ GOLDEN_BOARD: Final[list[list[int]]] = [
 ]
 GOLDEN_GAME_MAX_MOVES: Final[int] = 20
 GOLDEN_CAP_REACHED_LIMIT: Final[int] = 2  # >2 cap-reached → exit code 3
+EXIT_GOLDEN_FAIL: Final[int] = 2  # rationality gate fail → paranoia detected
 EXIT_PILOT_GOLDEN_BASELINE_FAILURE: Final[int] = 3
 
 
@@ -1135,3 +1137,219 @@ async def run_pilot(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2))
     return payload, 0
+
+
+# --------- Rationality gate runner (spec §3.2b) ---------
+
+
+def _golden_seed(seed_idx: int) -> int:
+    """Separate seed namespace for golden-gate sessions."""
+    return hash("golden") ^ seed_idx
+
+
+def _read_golden_calibration(path: Path) -> dict[str, Any]:
+    """Read golden_calibration.json and return thresholds. Raises if missing."""
+    if not path.exists():
+        raise FileNotFoundError(f"golden_calibration.json not found: {path}")
+    data: dict[str, Any] = json.loads(path.read_text())
+    return data
+
+
+def _check_golden_gate_passed(run_dir: Path) -> None:
+    """Raise if golden/result.json missing or status != 'pass'.
+
+    Called by run_surrogate before starting (spec §3.2b: surrogate refuses
+    to start if golden gate not passed).
+    """
+    result_path = run_dir / "golden" / "result.json"
+    if not result_path.exists():
+        raise FileNotFoundError(
+            f"Golden gate result not found: {result_path}. Run --stage=golden before surrogate."
+        )
+    data = json.loads(result_path.read_text())
+    if data.get("status") != "pass":
+        raise RuntimeError(
+            f"Golden gate did not pass (status={data.get('status')!r}). "
+            "Surrogate cannot start until golden gate passes."
+        )
+
+
+async def _run_golden_arm(
+    *,
+    arm: str,
+    seed: int,
+    run_dir: Path,
+    decision_llm: Any,  # LLM
+    deliberation_llm: Any,  # LLM
+    reflection_llm: Any,  # LLM
+    trauma_enabled: bool,
+    force_trauma_on_game_over: bool,
+) -> dict[str, Any]:
+    """Game-1 warmup (fresh-start) + game-2 (golden board, 20-move cap) for one arm."""
+    # Lazy imports to avoid circular deps
+    from nova_agent.affect.state import AffectState
+    from nova_agent.bus.recorder import RecordingEventBus
+    from nova_agent.lab.io import SimGameIO
+    from nova_agent.lab.scenarios import load as load_scenario
+    from nova_agent.lab.sim import Game2048Sim, Scenario
+    from nova_agent.memory.coordinator import MemoryCoordinator
+    from nova_agent.memory.semantic import SemanticStore
+
+    arm_dir = run_dir / "golden" / str(seed) / arm
+    arm_dir.mkdir(parents=True, exist_ok=True)
+
+    sqlite_path = arm_dir / "episodic.db"
+    lance_path = arm_dir / "vector.lance"
+    memory = MemoryCoordinator(sqlite_path=sqlite_path, lancedb_path=lance_path)
+    semantic = SemanticStore(arm_dir / "semantic.db")
+    affect = AffectState()
+
+    scenario = load_scenario("fresh-start")
+    record_path = arm_dir / "events.jsonl"
+    bus = RecordingEventBus(path=record_path)
+
+    try:
+        # Game-1: fresh-start warmup
+        sim1 = Game2048Sim(seed=seed, scenario=scenario)
+        io1 = SimGameIO(sim=sim1)
+        await _run_game(
+            sim_io=io1,
+            sim=sim1,
+            memory=memory,
+            semantic=semantic,
+            affect=affect,
+            decision_llm=decision_llm,
+            deliberation_llm=deliberation_llm,
+            reflection_llm=reflection_llm,
+            bus=bus,
+            trauma_enabled=trauma_enabled,
+            force_trauma_on_game_over=force_trauma_on_game_over,
+            max_moves=MAX_MOVES_PHASE_08,
+        )
+        affect.reset_for_new_game()
+
+        # Game-2: golden board, 20-move cap
+        # Create scenario with golden board override
+        golden_scenario = Scenario(
+            id="golden-easy-win-1024",
+            initial_grid=GOLDEN_BOARD,
+            initial_score=2048,  # 1024+1024 implied
+            seed_base=20260507001,
+            pattern_name="golden-gate",
+            high_tile_magnitude=1024,
+            expected_cliff_window=(1, GOLDEN_GAME_MAX_MOVES),
+            source_citation="Phase 0.8 §3.2b golden-gate rationality check",
+        )
+        sim2 = Game2048Sim(seed=golden_scenario.seed_base + seed, scenario=golden_scenario)
+        io2 = SimGameIO(sim=sim2)
+        game2 = await _run_game(
+            sim_io=io2,
+            sim=sim2,
+            memory=memory,
+            semantic=semantic,
+            affect=affect,
+            decision_llm=decision_llm,
+            deliberation_llm=deliberation_llm,
+            reflection_llm=reflection_llm,
+            bus=bus,
+            trauma_enabled=trauma_enabled,
+            force_trauma_on_game_over=force_trauma_on_game_over,
+            max_moves=GOLDEN_GAME_MAX_MOVES,
+        )
+    finally:
+        await bus.stop()
+
+    # Detect moves_to_merge: first move where max_tile >= 2048
+    moves_to_merge: int | None = None
+    for i, board in enumerate(game2.per_move_boards):
+        if board.max_tile >= 2048:
+            moves_to_merge = i + 1  # 1-indexed
+            break
+
+    # Compute mean anxiety over game-2 moves
+    mean_anxiety = statistics.mean(game2.per_move_anxieties) if game2.per_move_anxieties else 0.0
+
+    # Clean up arm directory to avoid bloating golden/ folder
+    shutil.rmtree(arm_dir, ignore_errors=True)
+
+    return {"moves_to_merge": moves_to_merge, "mean_anxiety": mean_anxiety}
+
+
+async def run_golden_gate(
+    *,
+    run_dir: Path,
+    seed_idx: int = 0,
+    decision_llm: Any,  # LLM
+    deliberation_llm: Any,  # LLM
+    reflection_llm: Any,  # LLM
+) -> int:
+    """Run §3.2b rationality gate. Returns 0=pass, EXIT_GOLDEN_FAIL=fail.
+
+    Verifies trauma-tagging produces *specific* avoidance rather than
+    *generalized* paranoia. Runs 1 K=2 paired session on easy-win-1024 board.
+    Y_on must meet both move_threshold and anxiety_threshold from
+    golden_calibration.json or gate fails (exit 2).
+    """
+    calib_path = run_dir / "pilot" / "golden_calibration.json"
+    calib = _read_golden_calibration(calib_path)
+    move_threshold: int = calib["move_threshold"]
+    anxiety_threshold: float = calib["anxiety_threshold"]
+
+    seed = _golden_seed(seed_idx)
+
+    # Run Y_on and Y_off arms
+    y_on = await _run_golden_arm(
+        arm="y_on",
+        seed=seed,
+        run_dir=run_dir,
+        decision_llm=decision_llm,
+        deliberation_llm=deliberation_llm,
+        reflection_llm=reflection_llm,
+        trauma_enabled=True,
+        force_trauma_on_game_over=True,
+    )
+    y_off = await _run_golden_arm(
+        arm="y_off",
+        seed=seed,
+        run_dir=run_dir,
+        decision_llm=decision_llm,
+        deliberation_llm=deliberation_llm,
+        reflection_llm=reflection_llm,
+        trauma_enabled=False,
+        force_trauma_on_game_over=False,
+    )
+
+    golden_dir = run_dir / "golden"
+    golden_dir.mkdir(parents=True, exist_ok=True)
+
+    mtm_on = y_on["moves_to_merge"]
+    anx_on = y_on["mean_anxiety"]
+
+    # Adjudicate pass/fail
+    move_pass = mtm_on is not None and mtm_on <= move_threshold
+    anxiety_pass = anx_on <= anxiety_threshold
+
+    if not move_pass or not anxiety_pass:
+        halt = {
+            "criterion_move_count": "pass" if move_pass else "fail",
+            "criterion_anxiety": "pass" if anxiety_pass else "fail",
+            "moves_to_merge_Y_on": mtm_on,
+            "mean_anxiety_Y_on": anx_on,
+            "move_threshold": move_threshold,
+            "anxiety_threshold": anxiety_threshold,
+        }
+        (golden_dir / "halt_reason.json").write_text(json.dumps(halt, indent=2))
+        return EXIT_GOLDEN_FAIL
+
+    # Pass: write result.json
+    result = {
+        "status": "pass",
+        "moves_to_merge_Y_on": mtm_on,
+        "mean_anxiety_Y_on": anx_on,
+        "moves_to_merge_Y_off": y_off["moves_to_merge"],
+        "mean_anxiety_Y_off": y_off["mean_anxiety"],
+        "move_threshold": move_threshold,
+        "anxiety_threshold": anxiety_threshold,
+    }
+    (golden_dir / "result.json").write_text(json.dumps(result, indent=2))
+    return 0
