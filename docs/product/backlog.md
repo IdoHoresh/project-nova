@@ -242,6 +242,42 @@ Bot/Carla paired arm is sufficient adversarial coverage.
 
 ---
 
+### Instruction Alignment Score + Tutorial Friction Measurement `[partial]`
+
+Nova acting as a first-time human player is **already planned** in Phase 2
+(2.1 visual perception → 2.2 action discovery → 2.3 tutorial-watching →
+2.4 skill induction → 2.5 unseen-game validation). The architecture is
+covered. Two concrete measurement additions are missing from Phase 2's
+work units:
+
+**Gap 1 — Instruction Alignment Score (IAS):** Track how quickly and
+accurately the agent follows a new UI-driven command during the
+onboarding phase. Operationalisation: ratio of tutorial steps completed
+correctly on first attempt vs total tutorial steps, per-session.
+Complements the Phase 2.3 cause-effect log but makes the compliance rate
+a named, exportable metric rather than a post-hoc derivation.
+
+**Gap 2 — Tutorial Friction via Anxiety + ToT stacks:** Use the existing
+Anxiety and ToT deliberation signals to surface "confusing" tutorial
+steps — defined as moves where the agent required multiple VLM passes,
+showed elevated Anxiety, or entered ToT mode on a step that should be
+trivial. This is an interpretation layer on top of Phase 2.3 logs, not
+a new architecture. Candidate game: Gossip Harbor (merge-2 genre).
+Acceptance criterion stub: agent completes a 5-step Gossip Harbor
+tutorial cold, IAS ≥ 0.8, and flags ≥1 friction point where Anxiety
+> threshold or ToT fired.
+
+**Already covered:** Phase 2.1 (OCR generalisation), 2.2 (action
+discovery), 2.3 (tutorial pipeline), 2.4 (semantic rule induction),
+2.5 (unseen-game validation). Do **not** re-spec those.
+
+**Action:** At Phase 2.3 spec-authorship time, add IAS as a named DV
+and Tutorial Friction as a logged secondary metric. No architecture
+changes needed — both are measurement additions on top of the planned
+pipeline. Link spec here when written.
+
+---
+
 ## Maintenance
 
 - This file is updated when new backlog items surface. Keep entries
