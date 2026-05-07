@@ -13,8 +13,10 @@ from __future__ import annotations
 import hashlib
 import math
 import random
+import shutil
 import statistics
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
 from nova_agent.perception.types import BoardState
@@ -471,3 +473,242 @@ async def _run_game(
         final_board=final_board,
         would_predicate_have_fired=would_predicate_have_fired,
     )
+
+
+# ---------------------------------------------------------------------
+# K=2 paired session (Task 6)
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SessionResult:
+    """Result of paired-session run (K=2, both arms, both games)."""
+
+    seed_base: int
+    r_post_y_on: float | None
+    r_post_y_off: float | None
+    n_post_moves_y_on: int
+    n_post_moves_y_off: int
+    censored_cap_y_on: bool
+    censored_cap_y_off: bool
+    censored_zero_encounter_y_on: bool
+    censored_zero_encounter_y_off: bool
+    delta_i: float | None  # r_off - r_on, None if either arm censored
+    anxiety_lift_y_on: float | None
+    anxiety_lift_y_off: float | None
+    aversive_tag_count_y_on: int
+    aversive_tag_count_y_off: int
+    would_predicate_have_fired_y_on: bool
+    reached_game_over_y_on: bool
+    reached_game_over_y_off: bool
+
+
+def _per_arm_db_paths(
+    run_dir: Path,
+    *,
+    stage: str,
+    seed: int,
+    arm: str,
+) -> tuple[Path, Path]:
+    """Return (sqlite_path, lancedb_path) under <run_dir>/<stage>/<seed>/<arm>/."""
+    base = run_dir / stage / str(seed) / arm
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "episodic.db", base / "vector.lance"
+
+
+async def _run_arm(
+    *,
+    arm: str,
+    seed_base: int,
+    run_dir: Path,
+    stage: str,
+    decision_llm: Any,  # LLM
+    deliberation_llm: Any,  # LLM
+    reflection_llm: Any,  # LLM
+    T: int,
+    max_moves: int,
+    trauma_enabled: bool,
+    force_trauma_on_game_over: bool,
+) -> tuple[GameResult, GameResult]:
+    """Run game-1 + game-2 on a single arm with persistent memory."""
+    # Lazy import to avoid circular deps
+    from nova_agent.bus.recorder import RecordingEventBus
+    from nova_agent.lab.io import SimGameIO
+    from nova_agent.lab.scenarios import load as load_scenario
+    from nova_agent.lab.sim import Game2048Sim
+    from nova_agent.affect.state import AffectState
+    from nova_agent.memory.coordinator import MemoryCoordinator
+    from nova_agent.memory.semantic import SemanticStore
+
+    sqlite_path, lance_path = _per_arm_db_paths(run_dir, stage=stage, seed=seed_base, arm=arm)
+    memory = MemoryCoordinator(sqlite_path=sqlite_path, lancedb_path=lance_path)
+    semantic = SemanticStore(path=sqlite_path.parent / "semantic.db")
+    affect = AffectState()
+
+    scenario = load_scenario("fresh-start")
+    record_path = sqlite_path.parent / "events.jsonl"
+    bus = RecordingEventBus(path=record_path)
+
+    try:
+        # Game 1
+        sim1 = Game2048Sim(seed=scenario.seed(0) + seed_base, scenario=scenario)
+        io1 = SimGameIO(sim=sim1)
+        game1 = await _run_game(
+            sim_io=io1,
+            sim=sim1,
+            memory=memory,
+            semantic=semantic,
+            affect=affect,
+            decision_llm=decision_llm,
+            deliberation_llm=deliberation_llm,
+            reflection_llm=reflection_llm,
+            bus=bus,
+            trauma_enabled=trauma_enabled,
+            force_trauma_on_game_over=force_trauma_on_game_over,
+            max_moves=max_moves,
+        )
+        # Reset affect for game 2
+        affect.reset_for_new_game()
+
+        # Game 2
+        sim2 = Game2048Sim(seed=scenario.seed(0) + seed_base + 999_999, scenario=scenario)
+        io2 = SimGameIO(sim=sim2)
+        game2 = await _run_game(
+            sim_io=io2,
+            sim=sim2,
+            memory=memory,
+            semantic=semantic,
+            affect=affect,
+            decision_llm=decision_llm,
+            deliberation_llm=deliberation_llm,
+            reflection_llm=reflection_llm,
+            bus=bus,
+            trauma_enabled=trauma_enabled,
+            force_trauma_on_game_over=force_trauma_on_game_over,
+            max_moves=max_moves,
+        )
+    finally:
+        await bus.stop()
+
+    return game1, game2
+
+
+async def _run_paired_session(
+    *,
+    seed_base: int,
+    run_dir: Path,
+    stage: str,
+    decision_llm: Any,  # LLM
+    deliberation_llm: Any,  # LLM
+    reflection_llm: Any,  # LLM
+    T: int,
+    max_moves: int = MAX_MOVES_PHASE_08,
+) -> SessionResult:
+    """Run Y_on + Y_off arms sequentially with per-arm fresh memory stores."""
+    g1_on, g2_on = await _run_arm(
+        arm="y_on",
+        seed_base=seed_base,
+        run_dir=run_dir,
+        stage=stage,
+        decision_llm=decision_llm,
+        deliberation_llm=deliberation_llm,
+        reflection_llm=reflection_llm,
+        T=T,
+        max_moves=max_moves,
+        trauma_enabled=True,
+        force_trauma_on_game_over=True,
+    )
+    g1_off, g2_off = await _run_arm(
+        arm="y_off",
+        seed_base=seed_base,
+        run_dir=run_dir,
+        stage=stage,
+        decision_llm=decision_llm,
+        deliberation_llm=deliberation_llm,
+        reflection_llm=reflection_llm,
+        T=T,
+        max_moves=max_moves,
+        trauma_enabled=False,
+        force_trauma_on_game_over=False,
+    )
+
+    censored_cap_on = not g1_on.reached_game_over
+    censored_cap_off = not g1_off.reached_game_over
+
+    dv_on = compute_session_dv(g2_on.per_move_boards, T=T)
+    dv_off = compute_session_dv(g2_off.per_move_boards, T=T)
+
+    delta_i: float | None = None
+    if (
+        not censored_cap_on
+        and not censored_cap_off
+        and dv_on.r_post is not None
+        and dv_off.r_post is not None
+    ):
+        delta_i = dv_off.r_post - dv_on.r_post
+
+    def _mean_anxiety_at_trap(boards: list[Any], anxieties: list[float]) -> float | None:
+        pairs = [a for b, a in zip(boards, anxieties) if is_trap_proximate(b, T=T)]
+        return sum(pairs) / len(pairs) if pairs else None
+
+    # Lazy import for aversive tag constant
+    from nova_agent.memory.aversive import AVERSIVE_TAG
+
+    aversive_count_on = sum(
+        1
+        for r in (await _get_episodic_records(run_dir, stage, seed_base, "y_on"))
+        if AVERSIVE_TAG in r.get("tags", [])
+    )
+    aversive_count_off = sum(
+        1
+        for r in (await _get_episodic_records(run_dir, stage, seed_base, "y_off"))
+        if AVERSIVE_TAG in r.get("tags", [])
+    )
+
+    # Bound disk after aggregating (spec §3.4).
+    shutil.rmtree(run_dir / stage / str(seed_base), ignore_errors=True)
+
+    return SessionResult(
+        seed_base=seed_base,
+        r_post_y_on=dv_on.r_post,
+        r_post_y_off=dv_off.r_post,
+        n_post_moves_y_on=dv_on.n_post_moves,
+        n_post_moves_y_off=dv_off.n_post_moves,
+        censored_cap_y_on=censored_cap_on,
+        censored_cap_y_off=censored_cap_off,
+        censored_zero_encounter_y_on=dv_on.censored_zero_encounter,
+        censored_zero_encounter_y_off=dv_off.censored_zero_encounter,
+        delta_i=delta_i,
+        anxiety_lift_y_on=_mean_anxiety_at_trap(g2_on.per_move_boards, g2_on.per_move_anxieties),
+        anxiety_lift_y_off=_mean_anxiety_at_trap(g2_off.per_move_boards, g2_off.per_move_anxieties),
+        aversive_tag_count_y_on=aversive_count_on,
+        aversive_tag_count_y_off=aversive_count_off,
+        would_predicate_have_fired_y_on=g1_on.would_predicate_have_fired,
+        reached_game_over_y_on=g1_on.reached_game_over,
+        reached_game_over_y_off=g1_off.reached_game_over,
+    )
+
+
+async def _get_episodic_records(
+    run_dir: Path,
+    stage: str,
+    seed: int,
+    arm: str,
+) -> list[dict[str, Any]]:
+    """Retrieve episodic records from per-arm memory store."""
+    sqlite_path, _ = _per_arm_db_paths(run_dir, stage=stage, seed=seed, arm=arm)
+    # Lazy import
+    from nova_agent.memory.coordinator import MemoryCoordinator
+
+    mem = MemoryCoordinator(
+        sqlite_path=sqlite_path, lancedb_path=run_dir / stage / str(seed) / arm / "vector.lance"
+    )
+    records = mem.episodic.list_recent(limit=100)
+    # Convert records to dicts for serialization
+    return [
+        {
+            "tags": list(r.tags),
+            "board_hash": getattr(r, "board_hash", None),
+        }
+        for r in records
+    ]

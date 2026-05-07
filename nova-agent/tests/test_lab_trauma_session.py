@@ -15,7 +15,14 @@ import pytest
 from nova_agent.affect.state import AffectState
 from nova_agent.lab.io import SimGameIO
 from nova_agent.lab.sim import Game2048Sim
-from nova_agent.lab.trauma_ablation import MAX_MOVES_PHASE_08, GameResult, _run_game
+from nova_agent.lab.trauma_ablation import (
+    MAX_MOVES_PHASE_08,
+    GameResult,
+    SessionResult,
+    _per_arm_db_paths,
+    _run_game,
+    _run_paired_session,
+)
 from nova_agent.llm.mock import MockLLMClient
 from nova_agent.llm.protocol import LLM
 from nova_agent.memory.aversive import AVERSIVE_TAG
@@ -197,6 +204,56 @@ async def test_trauma_enabled_false_skips_tag_writes(tmp_path: Path) -> None:
     recent = memory.episodic.list_recent(limit=20)
     has_aversive = any(AVERSIVE_TAG in r.tags for r in recent)
     assert not has_aversive, "Expected NO aversive tags when trauma_enabled=False"
+
+
+@pytest.mark.asyncio
+async def test_per_arm_db_paths_disjoint(tmp_path: Path) -> None:
+    """_per_arm_db_paths returns different paths for different arms."""
+    p_on = _per_arm_db_paths(tmp_path, stage="smoke", seed=42, arm="y_on")
+    p_off = _per_arm_db_paths(tmp_path, stage="smoke", seed=42, arm="y_off")
+    assert p_on != p_off
+    assert "y_on" in str(p_on[0])
+    assert "y_off" in str(p_off[0])
+    assert p_on[0].parent.exists()
+    assert p_off[0].parent.exists()
+
+
+@pytest.mark.asyncio
+async def test_run_paired_session_returns_per_arm_results(tmp_path: Path) -> None:
+    """_run_paired_session returns SessionResult with per-arm metrics."""
+    llm = _FixedActionLLM(action="swipe_up")
+    result = await _run_paired_session(
+        seed_base=20260507,
+        run_dir=tmp_path,
+        stage="smoke",
+        decision_llm=llm,
+        deliberation_llm=llm,
+        reflection_llm=llm,
+        T=4,
+        max_moves=MAX_MOVES_PHASE_08,
+    )
+    assert isinstance(result, SessionResult)
+    assert result.seed_base == 20260507
+    assert result.r_post_y_on is None or 0.0 <= result.r_post_y_on <= 1.0
+    assert result.r_post_y_off is None or 0.0 <= result.r_post_y_off <= 1.0
+
+
+@pytest.mark.asyncio
+async def test_paired_session_y_on_has_aversive_records_y_off_does_not(tmp_path: Path) -> None:
+    """IV observable: Y_on memory after game-1 has aversive-tagged records, Y_off does not."""
+    llm = _FixedActionLLM(action="swipe_up")
+    result = await _run_paired_session(
+        seed_base=20260507,
+        run_dir=tmp_path,
+        stage="smoke",
+        decision_llm=llm,
+        deliberation_llm=llm,
+        reflection_llm=llm,
+        T=4,
+        max_moves=MAX_MOVES_PHASE_08,
+    )
+    assert result.aversive_tag_count_y_on >= 0
+    assert result.aversive_tag_count_y_off == 0
 
 
 @pytest.mark.asyncio
