@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from dataclasses import dataclass
 from typing import Final
 
 from nova_agent.perception.types import BoardState
@@ -137,3 +138,57 @@ def min_orbit_distance(board: BoardState) -> int:
 def is_trap_proximate(board: BoardState, *, T: int) -> bool:
     """True iff min_orbit_distance(board) <= T."""
     return min_orbit_distance(board) <= T
+
+
+# ---------------------------------------------------------------------
+# Within-game-2 DV calculator (spec §2.4)
+# ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SessionDVResult:
+    r_post: float | None
+    n_post_moves: int
+    first_encounter_idx: int | None
+    censored_zero_encounter: bool
+
+
+def compute_session_dv(boards: list[BoardState], *, T: int) -> SessionDVResult:
+    """Compute the within-game-2 trap-recurrence rate.
+
+    `boards` is the per-move sequence of post-move BoardStates from game-2.
+    First-encounter: first move where min_orbit_distance <= T. After
+    first-encounter, count fraction of remaining moves that are also
+    trap-proximate. Returns r_post=None when censored (no encounter, or
+    encounter on last move with zero remaining moves).
+
+    Spec §2.4 steps 4-6.
+    """
+    first_idx: int | None = None
+    for i, b in enumerate(boards):
+        if is_trap_proximate(b, T=T):
+            first_idx = i
+            break
+    if first_idx is None:
+        return SessionDVResult(
+            r_post=None,
+            n_post_moves=0,
+            first_encounter_idx=None,
+            censored_zero_encounter=True,
+        )
+    after = boards[first_idx + 1 :]
+    if not after:
+        # First-encounter on last move: rate undefined, treat as missing.
+        return SessionDVResult(
+            r_post=None,
+            n_post_moves=0,
+            first_encounter_idx=first_idx,
+            censored_zero_encounter=False,
+        )
+    n_post_trap = sum(1 for b in after if is_trap_proximate(b, T=T))
+    return SessionDVResult(
+        r_post=n_post_trap / len(after),
+        n_post_moves=len(after),
+        first_encounter_idx=first_idx,
+        censored_zero_encounter=False,
+    )
