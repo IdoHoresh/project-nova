@@ -34,6 +34,7 @@ dev = [
 [project.scripts]
 nova = "nova_agent.main:cli"
 cliff-test = "nova_agent.lab.cliff_test:main"
+trauma-ablation = "nova_agent.lab.trauma_ablation:main"
 
 [build-system]
 requires = ["hatchling"]
