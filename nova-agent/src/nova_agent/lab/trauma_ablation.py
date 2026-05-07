@@ -466,10 +466,12 @@ async def _run_game(
         should_tag = force_trauma_on_game_over or would_predicate_have_fired
 
         if should_tag:
-            # Tag aversive records
+            # Tag aversive records. Pass was_catastrophic=True because we've
+            # already gated on should_tag (force flag or predicate); tag_aversive
+            # returns early untagged when was_catastrophic=False.
             tagged = tag_aversive(
                 precondition_records=recent_records,
-                was_catastrophic=would_predicate_have_fired,
+                was_catastrophic=True,
             )
             # Upsert each tagged record back into memory
             for rec in tagged:
@@ -569,13 +571,14 @@ async def _run_arm(
     semantic = SemanticStore(path=sqlite_path.parent / "semantic.db")
     affect = AffectState()
 
-    scenario = load_scenario("fresh-start")
+    scenario_g1 = load_scenario("near-dead")  # game-1: triggers game_over in ~5-30 moves
+    scenario_g2 = load_scenario("fresh-start")  # game-2: standard fresh-start (measured)
     record_path = sqlite_path.parent / "events.jsonl"
     bus = RecordingEventBus(path=record_path)
 
     try:
         # Game 1
-        sim1 = Game2048Sim(seed=scenario.seed(0) + seed_base, scenario=scenario)
+        sim1 = Game2048Sim(seed=scenario_g1.seed(0) + seed_base, scenario=scenario_g1)
         io1 = SimGameIO(sim=sim1)
         game1 = await _run_game(
             sim_io=io1,
@@ -595,7 +598,7 @@ async def _run_arm(
         affect.reset_for_new_game()
 
         # Game 2
-        sim2 = Game2048Sim(seed=scenario.seed(0) + seed_base + 999_999, scenario=scenario)
+        sim2 = Game2048Sim(seed=scenario_g2.seed(0) + seed_base + 999_999, scenario=scenario_g2)
         io2 = SimGameIO(sim=sim2)
         game2 = await _run_game(
             sim_io=io2,
@@ -776,10 +779,12 @@ def _check_halt_criteria(
             for v in (r.r_post_y_on, r.r_post_y_off):
                 if v is not None and (v != v or v in (float("inf"), float("-inf"))):
                     return f"smoke_nan_or_inf_dv: seed={r.seed_base}"
-        # Check for all-zero rates (suggests broken computation)
+        # Check for all-zero rates (suggests broken computation).
+        # Require >= 2 sessions before firing: a single-session zero at the
+        # T=16 placeholder is low-rate noise, not broken DV machinery.
         on_zero = all((r.r_post_y_on or 0.0) == 0.0 for r in results)
         off_zero = all((r.r_post_y_off or 0.0) == 0.0 for r in results)
-        if on_zero or off_zero:
+        if len(results) >= 2 and (on_zero or off_zero):
             return "smoke_all_zero_rates"
         return None
 
@@ -1390,7 +1395,7 @@ async def run_smoke(
     decision_llm: Any,
     deliberation_llm: Any,
     reflection_llm: Any,
-    T_placeholder: int = 16,
+    T_placeholder: int = 30,
     max_moves: int = MAX_MOVES_PHASE_08,
 ) -> int:
     """Smoke gate: N=3 paired sessions at placeholder T. See spec §3.1."""
@@ -1651,41 +1656,63 @@ async def run_main(
     return EXIT_OK
 
 
+def _flash_thinking_budget(model: str) -> int | None:
+    """Return thinking_budget=0 for Flash models (disables hidden reasoning).
+
+    Flash burns its max_output_tokens budget on internal thinking when
+    thinking_budget is None (SDK default), leaving too little for the visible
+    JSON payload and causing truncation. Pro rejects thinking_budget=0;
+    Anthropic ignores the kwarg.
+    """
+    if "flash" in model and "pro" not in model:
+        return 0
+    return None
+
+
 def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
     """Build decision/deliberation/reflection LLM stack for the given tier + budget."""
+    import os
+
     from nova_agent.budget import SessionBudget
     from nova_agent.config import get_settings
     from nova_agent.llm.factory import build_llm
     from nova_agent.llm import tiers as model_tiers
     from nova_agent.llm.protocol import BudgetedLLM
 
+    os.environ["NOVA_TIER"] = tier  # wire --tier CLI arg to model_tiers.current_tier()
     s = get_settings()
     budget = SessionBudget(cap_usd=budget_usd)
 
+    decision_model = str(model_tiers.model_for("decision"))
     decision_llm = BudgetedLLM(
         build_llm(
-            model=str(model_tiers.model_for("decision")),
+            model=decision_model,
             google_api_key=s.google_api_key,
             anthropic_api_key=s.anthropic_api_key,
             daily_cap_usd=s.daily_budget_usd,
+            thinking_budget=_flash_thinking_budget(decision_model),
         ),
         budget,
     )
+    deliberation_model = str(model_tiers.model_for("tot"))
     deliberation_llm = BudgetedLLM(
         build_llm(
-            model=str(model_tiers.model_for("tot")),
+            model=deliberation_model,
             google_api_key=s.google_api_key,
             anthropic_api_key=s.anthropic_api_key,
             daily_cap_usd=s.daily_budget_usd,
+            thinking_budget=_flash_thinking_budget(deliberation_model),
         ),
         budget,
     )
+    reflection_model = str(model_tiers.model_for("reflection"))
     reflection_llm = BudgetedLLM(
         build_llm(
-            model=str(model_tiers.model_for("reflection")),
+            model=reflection_model,
             google_api_key=s.google_api_key,
             anthropic_api_key=s.anthropic_api_key,
             daily_cap_usd=s.daily_budget_usd,
+            thinking_budget=_flash_thinking_budget(reflection_model),
         ),
         budget,
     )

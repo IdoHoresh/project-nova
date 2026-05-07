@@ -13,7 +13,7 @@ from nova_agent.lab.sim import Game2048Sim
 
 # Scenarios that are NOT cliff-test scenarios and skip cliff-specific
 # invariants (the illusion-of-hope lower bound + max-moves upper bound).
-_NON_CLIFF_SCENARIOS: frozenset[str] = frozenset({"fresh-start"})
+_NON_CLIFF_SCENARIOS: frozenset[str] = frozenset({"fresh-start", "near-dead"})
 
 _CLIFF_SCENARIO_IDS: tuple[str, ...] = (
     "snake-collapse-128",
