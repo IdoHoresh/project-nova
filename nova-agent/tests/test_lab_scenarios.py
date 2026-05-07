@@ -100,7 +100,7 @@ def test_non_cliff_scenarios_documented() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_corner_abandonment_recalibrated_2026_05_06() -> None:
+def test_corner_abandonment_recalibrated_2026_05_07() -> None:
     s = SCENARIOS["corner-abandonment-256"]
     assert s.initial_grid == [
         [0, 4, 0, 0],
@@ -109,7 +109,7 @@ def test_corner_abandonment_recalibrated_2026_05_06() -> None:
         [64, 256, 128, 32],
     ]
     assert s.initial_score == 3868
-    assert s.expected_cliff_window == (12, 17)
+    assert s.expected_cliff_window == (18, 44)
     assert s.high_tile_magnitude == 256
     assert s.pattern_name == "corner-abandonment"
 
