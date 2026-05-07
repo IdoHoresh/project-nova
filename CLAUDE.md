@@ -78,6 +78,35 @@ Sonnet 4.6 default. If ANY trigger fires → surface swap, wait for `/model clau
 | Security review on auth / IO / LLM-content surface              | B — subagent dispatch `model="opus"` |
 | User says "this is gnarly" / "I'm stuck" / "weird bug"          | A — manual `/model` swap |
 
+### Path A hard gate — MANDATORY, no exceptions
+
+When ANY Path A trigger fires, display this message VERBATIM and stop:
+
+```
+PATH A TRIGGER — Opus required before I proceed.
+
+Current model: Sonnet 4.6
+This task needs Opus for full reasoning quality (brainstorm / plan / cognitive-layer work).
+
+Switch now:
+  /model claude-opus-4-7[1m]
+
+Say "continue" after switching — I will not start until you confirm.
+```
+
+Do NOT begin the skill, ask clarifying questions, or take any action until the user has run `/model claude-opus-4-7[1m]` and said "continue" (or equivalent confirmation).
+
+When Path A work completes, display this message VERBATIM:
+
+```
+Path A complete.
+
+Switch back to Sonnet default:
+  /model claude-sonnet-4-6
+
+This returns you to the quota-efficient default for everyday work.
+```
+
 After Path A → remind `/model claude-sonnet-4-6`. Detail: `feedback_session_model_selection.md`.
 
 ---
