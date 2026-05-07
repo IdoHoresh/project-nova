@@ -21,7 +21,33 @@
 
 ## Engineering / debugging gotchas
 
-### [migrated from CLAUDE.md] nova-viewer requires pnpm, not npm
+### Production-code predicate names are labels, not contracts — enumerate every conjunctive gate before depending on the predicate firing
+
+**Date:** 2026-05-07 | **Cost:** would have been a complete power-calc collapse on Phase 0.8 if we'd locked the wrong game-1 starting condition; caught mid-spec via /redteam verification before any code shipped. Three independent strikes during the Phase 0.8 brainstorm:
+
+**What happened:**
+
+1. **`tag_aversive` timing.** Reading methodology §4.3's "trauma is avoidance learning within a session — the agent remembers what killed it during the current playthrough and shifts behavior for the remaining moves" naturally implies per-move trauma updates. The implementation fires `tag_aversive` *only* at the game-over hook (`nova-agent/src/nova_agent/main.py:96`). Methodology prose using "remaining moves" implies per-move triggers; code reality is per-game triggers. Spec drove K=2 multi-game session structure to bridge the gap.
+
+2. **`cliff_test.py:434` hardcoded `trauma_triggered=False`.** The Phase 0.7 cliff-test runner explicitly disables memory retrieval (and consequently hardcodes `trauma_triggered=False` in its inner loop) "to remove network/DB latency as a confound." Reading the cliff-test runner's surface API as "general lab harness for paired arms" misses this load-bearing invariant. Extending it for Phase 0.8 (where trauma retrieval *is* the IV) would silently neuter the test. Spec drove a separate runner `lab/trauma_ablation.py`.
+
+3. **`is_catastrophic_loss` predicate score-gate.** The predicate (`nova-agent/src/nova_agent/memory/aversive.py:21–25`) requires three conjunctive gates: `last_empty_cells ≤ 2 AND max_tile_reached ≥ 64 AND final_score < max_tile_reached × 4`. The score-gate is the load-bearing one. An early /redteam round proposed using Phase 0.7 cliff scenarios (`corner-abandonment-256`, `snake-collapse-128`, `512-wall`) as Phase 0.8 game-1 starting conditions to maximize P(catastrophic). Verification: those scenarios' *initial* scores already exceed the score-gate's threshold by 2–8× (3868 ≫ 1024 for corner-abandonment, 1396 ≫ 512 for snake, 7368 ≫ 2048 for 512-wall). Score is monotone-non-decreasing across game-1, so `final_score ≫ max_tile × 4` for the entire game — predicate never fires. The proposed fix had `P(catastrophic) ≈ 0` on its own grids and would have collapsed the power calc completely. Caught by enumerating the predicate's gates before locking the spec.
+
+**Lesson:** The name of a production-code predicate is a label, not a contract. "Catastrophic loss" *sounds* like "agent died badly" but the actual implementation is "agent died with a specific score-vs-max-tile relationship that doesn't fire when starting score is pre-loaded." Spec proposals that depend on production-code predicates firing must:
+
+1. **Read the predicate's source, not its name.** Open `aversive.py:21`. Read every line of the conjunction.
+2. **Enumerate ALL conjunctive gates explicitly.** A 3-gate predicate has 3 places where the proposed conditions might fail to trigger. Check each.
+3. **Verify each gate fires under the proposed conditions** before proposing the fix. Don't trust intuition or the predicate's surface semantics.
+4. **The same applies to predicates' temporal callsite, not just their internal logic.** `tag_aversive` only fires at game-over (one callsite, one timing). `cliff_test.py:434` only assigns `trauma_triggered=False` (one callsite, hardcoded). Both are "gates" in the same sense as conjunctive predicates — they constrain when/whether the mechanism fires.
+
+**How to apply:**
+
+- When a brainstorm or red-team proposes "let's use mechanism X under condition Y," and X is a production predicate or callsite, the next move is `grep -A 10 "<predicate-name>"` and `grep -rn "<predicate-name>" src/` (find every callsite). Don't proceed until you've read every gate and every callsite.
+- Spec writers: when citing a production predicate as a load-bearing gate ("trauma fires when X happens"), include the predicate's exact conjunctive form in the spec body — not just its name. The disambiguation prevents future contributors (and future-you) from re-making the same proposal.
+- Red-team protocol: when proposing a fix that depends on a production predicate firing, **state the proposed P(predicate fires under proposed conditions)** with arithmetic justification before locking the recommendation. The /redteam protocol's "verify math" step explicitly covers this.
+- LESSONS audit reflex: this is the *third* strike of the same pattern in one brainstorm session. Patterns that recur three times in one session warrant immediate codification rather than waiting for the workflow.md two-strikes review window.
+
+
 
 **Date:** ~2026-01-01 (pre-existing, exact date unknown) | **Cost:** ~5-10 min of "why does the install fail?"
 
