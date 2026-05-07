@@ -225,3 +225,33 @@ def test_surrogate_blocks_without_golden_gate(tmp_path: Path) -> None:
 
     with pytest.raises((FileNotFoundError, RuntimeError)):
         _check_golden_gate_passed(tmp_path)
+
+
+# --- Task 12: Output writers (CSV + JSONL) ---
+
+
+def test_summary_csv_has_expected_columns(tmp_path: Path) -> None:
+    from nova_agent.lab.trauma_ablation import _write_summary_csv
+
+    results = [_ok_result(0), _ok_result(1)]
+    out = tmp_path / "summary.csv"
+    _write_summary_csv(out, results)
+    text = out.read_text().splitlines()
+    header = text[0].split(",")
+    assert "seed_base" in header
+    assert "delta_i" in header
+    assert "r_post_y_on" in header
+    assert "r_post_y_off" in header
+    assert len(text) == 3  # header + 2 rows
+
+
+def test_append_session_jsonl_accumulates(tmp_path: Path) -> None:
+    from nova_agent.lab.trauma_ablation import _append_session_jsonl
+
+    path = tmp_path / "sessions.jsonl"
+    _append_session_jsonl(path, _ok_result(0))
+    _append_session_jsonl(path, _ok_result(1))
+    lines = path.read_text().strip().splitlines()
+    assert len(lines) == 2
+    row = json.loads(lines[0])
+    assert row["seed_base"] == 0

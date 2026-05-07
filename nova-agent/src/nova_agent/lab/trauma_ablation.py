@@ -10,6 +10,8 @@ retrieval boost, extinction, inert cap) collapse naturally.
 
 from __future__ import annotations
 
+import csv as _csv
+import dataclasses as _dataclasses
 import hashlib
 import json
 import math
@@ -852,6 +854,7 @@ async def _run_n_paired(
             max_moves=max_moves,
         )
         out.append(result)
+        _append_session_jsonl(run_dir / stage / "sessions.jsonl", result)
         # Check halt criteria after each session (smoke/surrogate stages only)
         if stage in ("smoke", "surrogate"):
             halt = _check_halt_criteria(stage, out, pilot_censoring_rate=pilot_censoring_rate)
@@ -1361,9 +1364,22 @@ async def run_golden_gate(
 
 
 def _write_summary_csv(path: Path, results: list[SessionResult]) -> None:
-    """Stub: writes session count. Task 12 upgrades to full CSV."""
+    """Write cumulative sessions to CSV with dataclass-field headers."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"n_sessions={len(results)}\n")
+    fields = [f.name for f in _dataclasses.fields(SessionResult)]
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        w = _csv.writer(fh)
+        w.writerow(fields)
+        for r in results:
+            w.writerow(["" if getattr(r, name) is None else getattr(r, name) for name in fields])
+
+
+def _append_session_jsonl(path: Path, result: SessionResult) -> None:
+    """Append single session result as JSON line (crash-safe incremental write)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {f.name: getattr(result, f.name) for f in _dataclasses.fields(SessionResult)}
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload) + "\n")
 
 
 async def run_smoke(
