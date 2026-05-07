@@ -301,13 +301,15 @@ def test_cli_help_runs() -> None:
     import subprocess
     import os
 
+    # Derive cwd from test file location so this works in CI and local worktrees.
+    nova_agent_root = Path(__file__).parent.parent
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(Path.home() / ".cache/uv-envs/nova-agent")}
     result = subprocess.run(
         ["python", "-m", "nova_agent.lab.trauma_ablation", "--help"],
         capture_output=True,
         text=True,
         env=env,
-        cwd=str(Path("/Users/idohoresh/Desktop/a/.claude/worktrees/phase-08-impl/nova-agent")),
+        cwd=str(nova_agent_root),
     )
     assert result.returncode == 0
     assert "--stage" in result.stdout
