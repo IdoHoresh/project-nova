@@ -131,12 +131,12 @@ def test_snake_collapse_recalibrated_2026_05_07() -> None:
 def test_512_wall_recalibrated_2026_05_07() -> None:
     s = SCENARIOS["512-wall"]
     assert s.initial_grid == [
-        [0, 4, 8, 0],
-        [4, 8, 16, 0],
-        [8, 16, 32, 128],
-        [256, 64, 128, 512],
+        [0, 4, 0, 0],
+        [4, 8, 16, 32],
+        [8, 16, 32, 64],
+        [256, 128, 512, 0],
     ]
-    assert s.initial_score == 8024
-    assert s.expected_cliff_window == (12, 17)
+    assert s.initial_score == 7368
+    assert s.expected_cliff_window == (11, 25)
     assert s.high_tile_magnitude == 512
     assert s.pattern_name == "high-tile-wall"
