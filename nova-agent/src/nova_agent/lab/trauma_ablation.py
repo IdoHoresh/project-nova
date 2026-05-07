@@ -279,6 +279,26 @@ def primary_pass(
 MAX_MOVES_PHASE_08: Final[int] = 200
 RECENT_LIMIT: Final[int] = 5
 
+# Stage budgets and defaults (Task 7)
+STAGE_BUDGET_USD: Final[dict[str, float]] = {
+    "smoke": 6.0,
+    "pilot": 30.0,
+    "surrogate": 40.0,
+    "main": 100.0,
+}
+STAGE_DEFAULT_N: Final[dict[str, int]] = {
+    "smoke": 3,
+    "pilot": 20,
+    "surrogate": 20,
+    "main": 50,
+}
+SMOKE_REACH_GAMEOVER_FLOOR: Final[float] = 0.80
+SURROGATE_CENSORING_FLOOR: Final[float] = 0.10
+SOFT_WARNING_D_FLOOR: Final[float] = 0.10
+T_CALIBRATION_BAND: Final[tuple[float, float]] = (0.25, 0.35)
+T_CANDIDATES_INITIAL: Final[tuple[int, ...]] = tuple(range(2, 31, 2))  # 2,4,...,30
+T_CANDIDATES_EXPANDED: Final[tuple[int, ...]] = tuple(range(1, 61))  # 1..60
+
 
 @dataclass(frozen=True)
 class GameResult:
@@ -712,3 +732,129 @@ async def _get_episodic_records(
         }
         for r in records
     ]
+
+
+# ---------------------------------------------------------------------
+# Aggregator + halt criteria (Task 7)
+# ---------------------------------------------------------------------
+
+
+def _check_halt_criteria(
+    stage: str,
+    results: list[SessionResult],
+    *,
+    pilot_censoring_rate: float | None,
+) -> str | None:
+    """Return halt reason string, or None to continue (spec §3.1, §3.3).
+
+    Args:
+        stage: One of "smoke", "pilot", "surrogate", "main".
+        results: List of SessionResult from paired runs so far.
+        pilot_censoring_rate: Censoring rate from pilot stage (if applicable).
+
+    Returns:
+        Halt reason string (non-empty) or None (continue).
+    """
+    if not results:
+        return None
+
+    if stage == "smoke":
+        # Smoke gate: require >=80% of arm-games reached_game_over
+        reach_count = sum(
+            (1 if r.reached_game_over_y_on else 0) + (1 if r.reached_game_over_y_off else 0)
+            for r in results
+        )
+        total = 2 * len(results)
+        if reach_count / total < SMOKE_REACH_GAMEOVER_FLOOR:
+            return f"smoke_low_reach_game_over: {reach_count}/{total} < {SMOKE_REACH_GAMEOVER_FLOOR:.0%}"
+        # Check for NaN or Inf in r_post DVs
+        for r in results:
+            for v in (r.r_post_y_on, r.r_post_y_off):
+                if v is not None and (v != v or v in (float("inf"), float("-inf"))):
+                    return f"smoke_nan_or_inf_dv: seed={r.seed_base}"
+        # Check for all-zero rates (suggests broken computation)
+        on_zero = all((r.r_post_y_on or 0.0) == 0.0 for r in results)
+        off_zero = all((r.r_post_y_off or 0.0) == 0.0 for r in results)
+        if on_zero or off_zero:
+            return "smoke_all_zero_rates"
+        return None
+
+    if stage == "surrogate":
+        # Surrogate gates: direction flip, zero variance, high censoring
+        deltas = [r.delta_i for r in results if r.delta_i is not None]
+        if not deltas:
+            return "surrogate_all_censored"
+        mean_delta = sum(deltas) / len(deltas)
+        if mean_delta <= 0:
+            return f"surrogate_direction_flip: mean_delta={mean_delta:.3f}"
+        # Check variance on each arm separately
+        on_vals = [r.r_post_y_on for r in results if r.r_post_y_on is not None]
+        off_vals = [r.r_post_y_off for r in results if r.r_post_y_off is not None]
+        if len(on_vals) >= 2 and statistics.pstdev(on_vals) == 0:
+            return "surrogate_zero_variance_y_on"
+        if len(off_vals) >= 2 and statistics.pstdev(off_vals) == 0:
+            return "surrogate_zero_variance_y_off"
+        # Check censoring rate
+        n_censored = sum(1 for r in results if r.delta_i is None)
+        rate = n_censored / len(results)
+        threshold = max(2 * (pilot_censoring_rate or 0.0), SURROGATE_CENSORING_FLOOR)
+        if rate > threshold:
+            return f"surrogate_high_censor: rate={rate:.2f} > {threshold:.2f}"
+        return None
+
+    # "pilot" and "main" stages: no automatic halt criteria
+    return None
+
+
+async def _run_n_paired(
+    *,
+    n: int,
+    seed_base_start: int,
+    run_dir: Path,
+    stage: str,
+    decision_llm: Any,  # LLM
+    deliberation_llm: Any,  # LLM
+    reflection_llm: Any,  # LLM
+    T: int,
+    max_moves: int,
+    pilot_censoring_rate: float | None,
+) -> tuple[list[SessionResult], str | None]:
+    """Run N paired sessions sequentially, halting on stage-specific criteria.
+
+    Args:
+        n: Target number of sessions to run (may halt early).
+        seed_base_start: First seed (incremented per session).
+        run_dir: Root directory for stage outputs.
+        stage: One of "smoke", "pilot", "surrogate", "main".
+        decision_llm: LLM for ReactDecider.
+        deliberation_llm: LLM for ToTDecider.
+        reflection_llm: LLM for post-game reflection.
+        T: Deliberation horizon (ToT depth).
+        max_moves: Max moves per game.
+        pilot_censoring_rate: From pilot stage (passed to halt check).
+
+    Returns:
+        (results, halt_reason) where halt_reason is None iff all N completed.
+    """
+    out: list[SessionResult] = []
+    for offset in range(n):
+        seed = seed_base_start + offset
+        result = await _run_paired_session(
+            seed_base=seed,
+            run_dir=run_dir,
+            stage=stage,
+            decision_llm=decision_llm,
+            deliberation_llm=deliberation_llm,
+            reflection_llm=reflection_llm,
+            T=T,
+            max_moves=max_moves,
+        )
+        out.append(result)
+        # Check halt criteria after each session (smoke/surrogate stages only)
+        if stage in ("smoke", "surrogate"):
+            halt = _check_halt_criteria(stage, out, pilot_censoring_rate=pilot_censoring_rate)
+            if halt is not None:
+                return out, halt
+    # If we completed all N sessions, do a final check (typically None)
+    final_halt = _check_halt_criteria(stage, out, pilot_censoring_rate=pilot_censoring_rate)
+    return out, final_halt
