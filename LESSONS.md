@@ -482,6 +482,47 @@ The hook is the safety net for "I forgot Layer 1," and Layer 2 is the safety net
 
 **How to apply:** Before accepting an "anti-product" critique on a behavioral test: (1) Identify whether the behavior is within-game or cross-game. (2) Ask "would a real human player show this behavior in the same session?" — if yes, it IS the playtester signal. (3) Keep the behavioral DV as primary when it tests the mechanism's function; demote only if it tests optimization-across-sessions. Also: the existing LESSONS entry "Variance reduction is the on-thesis test for trauma-tagging" (2026-05-02, Architecture / design decisions) is superseded by the §4.2 rewrite — the on-thesis test is now within-game trap-recurrence rate (behavioral primary) + Anxiety lift (affective secondary, descriptive).
 
+### External reviewers conflate Phase 0.7 scope with full product scope — have a one-liner defence ready
+
+**Date:** 2026-05-07 | **Cost:** ~0 minutes (caught in /redteam round), but pattern is high-frequency in sales/investor contexts.
+
+**What happened:** An external red-team reviewed Project Nova and raised four critiques: (1) Δ assumes homogeneous players — need persona modeling, (2) Carla is unvalidated as a human proxy, (3) N=5 is anecdotal, (4) 2048 is too simple for meta-economy games. All four are real concerns at the product scope. All four are already scheduled in the roadmap (persona calibration Phase 2, human-cohort anchor Phase 4, N=20 power-adjusted test in ADR-0007, Gossip Harbor Phase 2+). The critiques were accurate about what Phase 0.7 doesn't prove — but misread Phase 0.7 as a claim that it does prove those things. Additionally, the red team confused "N=5 pilot gate" (calibration smoke) with the formal test (N=20 minimum, power-adjusted). These two conflations together produced a "Science-Adjacent" framing that was more alarming than warranted.
+
+**Lesson:** External reviewers rarely have context on phase sequencing. They see the current work and evaluate it against the full product's required evidence base. The right defense is not "our methodology is complete" but "this phase answers question X; questions Y and Z are answered in phases N+1 and N+2." Each gate needs a one-liner that names its specific question and explicitly defers the others. Without this, reviewers will always find gaps — because Phase 0.7 IS incomplete, by design.
+
+Separately: always distinguish the pilot N from the formal test N in any communication. N=5 is a calibration gate; the formal test is N=20 minimum. These are different things and presenting them ambiguously gives reviewers a numerically correct but practically misleading attack surface.
+
+**How to apply:**
+- For any external presentation of Phase 0.7 results, lead with: "Phase 0.7 answers: is the cognitive architecture internally consistent on 2048? It does NOT yet claim: will it correlate with real churn data, generalise to meta-games, or work across persona archetypes. Those are Phases 2, 3, and 6 respectively."
+- When reporting trial counts externally, always name the type: "N=5 pilot calibration gate / N=20 formal test (power-adjusted per ADR-0007 Amendment 2)." Never let "N=5" stand alone.
+- Preempt critique #1 (persona) by noting that methodology §1 already defines 4 named Signatures per persona cohort — Phase 0.7 tests one persona as a proof-of-architecture; multi-persona calibration is Phase 2.
+
+### Phase 4 VLM-human validation needs a human-cohort anchor — plan for it now
+
+**Date:** 2026-05-07 | **Cost:** ~0 minutes (identified in /redteam), design cost if deferred to Phase 4 without planning.
+
+**What happened:** External red-team correctly identified that Nova's Cliff Test validates "does Carla's Anxiety signal precede her own failure" — but NOT "does Carla's Anxiety signal match a human's signal on the same board." The methodology acknowledges Phase 0.7 is synthetic validation only; human-correlation is Phase 4+. The red team's critique was framed as "VLM/Carla as Human Proxy: 3/10" — which is harsh but correct for Phase 0.7 as a standalone claim. Phase 4 long-horizon validation is where human ground truth anchors the model.
+
+**Lesson:** Phase 4 (long-horizon cohort distributions) is the natural insertion point for human-cohort anchoring. If the design for Phase 4 doesn't explicitly include a human-cohort arm (e.g., think-aloud protocol, eye-tracking on a matched cohort, or self-report during 2048 play), then Phase 4 will validate Nova's internal consistency across time but still not answer "does Carla match a human." The review process for Phase 4 will ask this question; better to answer it in the Phase 4 spec than to re-derive it under pressure.
+
+**How to apply:**
+- When writing the Phase 4 spec (long-horizon retention curves), include an explicit human-anchor arm: at minimum a self-report measure from real 2048 players on matched scenarios, aligned by board state. Even n=30 human trials is enough to test directional correlation.
+- Frame the anchor as "face validity" for the proxy, not "proof of equivalence" — VLM emotional architecture is not identical to human emotion, but Carla's predictive signal should correlate with human self-reported frustration at the same board states. That correlation is what Phase 4 can test.
+- In any pitch or methodology document, explicitly name Phase 4 as the human-anchor gate. Don't leave it as implicit future work.
+
+### Economic-frustration layer for meta-economy games should be designed in Phase 2, not retrofitted in Phase 3
+
+**Date:** 2026-05-07 | **Cost:** ~0 minutes (identified in /redteam), potential 6-8 week retrofit cost if deferred.
+
+**What happened:** External red-team correctly noted that Gossip Harbor (merge-2 meta-economy) churn is driven by energy/reward ratios and live-ops FOMO, not just board-state geometry. Nova's current reasoning layer (VLM sees board state → ToT branches evaluate moves) has no mechanism for "I paid $5 and didn't get the item." The red team scored this 4/10 for generalization to meta-games. The methodology defers meta-economy support to Phase 2+ (Tetris → Gossip Harbor pipeline), which is correct. But the economic-layer design work (what new reasoning pathways, what game-state schema extensions, what new Signature) should start in Phase 2 spec design, not Phase 3 implementation.
+
+**Lesson:** Adding an economy layer to an existing reasoning engine late is expensive: new game-state schema + new System 1/2 reasoning prompts + new Signature with its own falsification criterion + potential affect-module changes if economic frustration feeds Anxiety differently than board-geometry frustration. Designing these in Phase 2 spec (when the Gossip Harbor decision is first made) avoids a Phase 3 retrofit that has to thread through an already-validated architecture.
+
+**How to apply:**
+- Phase 2 spec for Gossip Harbor should include a dedicated §: "Economic-frustration layer" — what game-state fields beyond board state (resource counts, energy timers, item prices), what reasoning pathway modification (does the ToT evaluator need access to resource state?), and what new Signature captures economic churn vs board-geometry churn.
+- The economic-layer design doesn't need to be implemented in Phase 2 (2048 proof-of-concept is still board-state only) — it just needs to be designed so Phase 3 has a spec to implement against.
+- When writing the Phase 2 roadmap entry for Gossip Harbor, explicitly call out this dependency: "Gossip Harbor integration requires economic-layer spec before implementation sprint."
+
 ### Category positioning matters more than feature parity
 
 **Date:** 2026-05-02 | **Context:** dossier writing decision on Nova's positioning
