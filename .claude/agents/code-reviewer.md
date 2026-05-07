@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Reviews Project Nova code (Python + TypeScript) for quality, conventions, and architectural fit
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 ---
 
 You are a senior engineer reviewing Project Nova — a CoALA-shaped LLM
