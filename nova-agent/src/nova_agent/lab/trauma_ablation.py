@@ -1649,3 +1649,142 @@ async def run_main(
     adj = _adjudicate(all_results)
     _write_adjudication_md(run_dir / "main" / "adjudication.md", adj)
     return EXIT_OK
+
+
+def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
+    """Build decision/deliberation/reflection LLM stack for the given tier + budget."""
+    from nova_agent.budget import SessionBudget
+    from nova_agent.config import get_settings
+    from nova_agent.llm.factory import build_llm
+    from nova_agent.llm import tiers as model_tiers
+    from nova_agent.llm.protocol import BudgetedLLM
+
+    s = get_settings()
+    budget = SessionBudget(cap_usd=budget_usd)
+
+    decision_llm = BudgetedLLM(
+        build_llm(
+            model=str(model_tiers.model_for("decision")),
+            google_api_key=s.google_api_key,
+            anthropic_api_key=s.anthropic_api_key,
+            daily_cap_usd=s.daily_budget_usd,
+        ),
+        budget,
+    )
+    deliberation_llm = BudgetedLLM(
+        build_llm(
+            model=str(model_tiers.model_for("tot")),
+            google_api_key=s.google_api_key,
+            anthropic_api_key=s.anthropic_api_key,
+            daily_cap_usd=s.daily_budget_usd,
+        ),
+        budget,
+    )
+    reflection_llm = BudgetedLLM(
+        build_llm(
+            model=str(model_tiers.model_for("reflection")),
+            google_api_key=s.google_api_key,
+            anthropic_api_key=s.anthropic_api_key,
+            daily_cap_usd=s.daily_budget_usd,
+        ),
+        budget,
+    )
+    return decision_llm, deliberation_llm, reflection_llm
+
+
+def main() -> None:
+    import argparse
+    import asyncio
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Phase 0.8 trauma-ablation runner",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--stage",
+        choices=("smoke", "pilot", "golden", "surrogate", "main"),
+        required=True,
+        help="Which gate stage to run",
+    )
+    parser.add_argument(
+        "--n", type=int, default=None, help="Number of sessions (overrides stage default)"
+    )
+    parser.add_argument("--seed-base", type=int, default=20260507, dest="seed_base")
+    parser.add_argument("--budget-usd", type=float, default=None, dest="budget_usd")
+    parser.add_argument("--out", type=Path, default=None, help="Run output directory")
+    parser.add_argument("--tier", default="production", help="Model tier (production | demo)")
+    args = parser.parse_args()
+
+    # Resolve defaults
+    stage_n_defaults = {**STAGE_DEFAULT_N, "golden": 1}
+    stage_budget_defaults = {**STAGE_BUDGET_USD}
+    n = args.n if args.n is not None else stage_n_defaults.get(args.stage, 3)
+    budget_usd = (
+        args.budget_usd
+        if args.budget_usd is not None
+        else stage_budget_defaults.get(args.stage, 6.0)
+    )
+    run_dir = args.out if args.out is not None else Path(f"runs/{args.seed_base}-trauma-ablation")
+
+    decision_llm, deliberation_llm, reflection_llm = _build_stack(args.tier, budget_usd)
+
+    if args.stage == "smoke":
+        rc = asyncio.run(
+            run_smoke(
+                run_dir=run_dir,
+                n=n,
+                seed_base_start=args.seed_base,
+                decision_llm=decision_llm,
+                deliberation_llm=deliberation_llm,
+                reflection_llm=reflection_llm,
+            )
+        )
+    elif args.stage == "pilot":
+        _payload, rc = asyncio.run(
+            run_pilot(
+                run_dir=run_dir,
+                n=n,
+                seed_base_start=args.seed_base,
+                decision_llm=decision_llm,
+                deliberation_llm=deliberation_llm,
+                reflection_llm=reflection_llm,
+            )
+        )
+    elif args.stage == "golden":
+        rc = asyncio.run(
+            run_golden_gate(
+                run_dir=run_dir,
+                seed_idx=0,
+                decision_llm=decision_llm,
+                deliberation_llm=deliberation_llm,
+                reflection_llm=reflection_llm,
+            )
+        )
+    elif args.stage == "surrogate":
+        rc = asyncio.run(
+            run_surrogate(
+                run_dir=run_dir,
+                n=n,
+                seed_base_start=args.seed_base,
+                decision_llm=decision_llm,
+                deliberation_llm=deliberation_llm,
+                reflection_llm=reflection_llm,
+            )
+        )
+    else:  # main
+        rc = asyncio.run(
+            run_main(
+                run_dir=run_dir,
+                n_additional=n,
+                seed_base_start=args.seed_base + 100_000,
+                decision_llm=decision_llm,
+                deliberation_llm=deliberation_llm,
+                reflection_llm=reflection_llm,
+            )
+        )
+    sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main()

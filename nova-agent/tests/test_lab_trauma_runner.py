@@ -292,3 +292,22 @@ def test_adjudication_md_contains_required_sections(tmp_path: Path) -> None:
     assert "Sensitivity" in text
     assert "0.32" in text
     assert "Three-branch" in text
+
+
+# --- Task 13: CLI entry point ---
+
+
+def test_cli_help_runs() -> None:
+    import subprocess
+    import os
+
+    env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(Path.home() / ".cache/uv-envs/nova-agent")}
+    result = subprocess.run(
+        ["python", "-m", "nova_agent.lab.trauma_ablation", "--help"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(Path("/Users/idohoresh/Desktop/a/.claude/worktrees/phase-08-impl/nova-agent")),
+    )
+    assert result.returncode == 0
+    assert "--stage" in result.stdout
