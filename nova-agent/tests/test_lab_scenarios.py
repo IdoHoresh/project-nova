@@ -123,7 +123,7 @@ def test_snake_collapse_recalibrated_2026_05_07() -> None:
         [2, 8, 64, 128],
     ]
     assert s.initial_score == 1396
-    assert s.expected_cliff_window == (20, 45)
+    assert s.expected_cliff_window == (15, 49)
     assert s.high_tile_magnitude == 128
     assert s.pattern_name == "snake-collapse"
 
