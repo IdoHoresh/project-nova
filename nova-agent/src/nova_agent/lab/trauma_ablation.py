@@ -11,6 +11,7 @@ retrieval boost, extinction, inert cap) collapse naturally.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import random
 import shutil
@@ -282,7 +283,7 @@ RECENT_LIMIT: Final[int] = 5
 # Stage budgets and defaults (Task 7)
 STAGE_BUDGET_USD: Final[dict[str, float]] = {
     "smoke": 6.0,
-    "pilot": 30.0,
+    "pilot": 35.0,
     "surrogate": 40.0,
     "main": 100.0,
 }
@@ -858,3 +859,279 @@ async def _run_n_paired(
     # If we completed all N sessions, do a final check (typically None)
     final_halt = _check_halt_criteria(stage, out, pilot_censoring_rate=pilot_censoring_rate)
     return out, final_halt
+
+
+# -----------------------------------------------------------------------
+# T-calibration pilot helpers + golden-scenario calibration (Task 8)
+# -----------------------------------------------------------------------
+
+GOLDEN_BOARD: Final[list[list[int]]] = [
+    [1024, 1024, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+]
+GOLDEN_GAME_MAX_MOVES: Final[int] = 20
+GOLDEN_CAP_REACHED_LIMIT: Final[int] = 2  # >2 cap-reached → exit code 3
+EXIT_PILOT_GOLDEN_BASELINE_FAILURE: Final[int] = 3
+
+
+def _sweep_conditional_rate(
+    pilot_game2_boards: list[list[BoardState]],
+    *,
+    candidates: tuple[int, ...],
+) -> dict[int, float]:
+    """For each candidate T, compute the conditional post-encounter rate
+    aggregated across pilot sessions. Censored sessions excluded per T.
+    """
+    table: dict[int, float] = {}
+    for T in candidates:
+        n_post = 0
+        n_trap = 0
+        for boards in pilot_game2_boards:
+            dv = compute_session_dv(boards, T=T)
+            if dv.r_post is None:
+                continue
+            n_post += dv.n_post_moves
+            n_trap += int(round(dv.r_post * dv.n_post_moves))
+        table[T] = 0.0 if n_post == 0 else n_trap / n_post
+    return table
+
+
+def _select_T_from_sweep(
+    rates: dict[int, float],
+    *,
+    band: tuple[float, float],
+) -> int | None:
+    """Lock T per spec §3.2 selection rule: smallest qualifying, or median.
+
+    Qualifiers are T values where lo <= rate <= hi. If multiple qualify,
+    return the lower-of-two-medians for even counts, strict median for odd.
+    """
+    lo, hi = band
+    qualifying = sorted([T for T, r in rates.items() if lo <= r <= hi])
+    if not qualifying:
+        return None
+    if len(qualifying) == 1:
+        return qualifying[0]
+    mid = (len(qualifying) - 1) // 2  # lower-of-two-medians for even count
+    return qualifying[mid]
+
+
+def _lock_golden_thresholds(
+    sessions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Compute move_threshold and anxiety_threshold from golden calibration sessions.
+
+    move_threshold = ceil(μ_moves + σ_moves) over merge-successful sessions only.
+    anxiety_threshold = μ_anxiety + 2σ_anxiety over ALL sessions.
+    """
+    merge_moves = [s["moves_to_merge"] for s in sessions if s["moves_to_merge"] is not None]
+    all_anxieties = [s["mean_anxiety"] for s in sessions]
+
+    if len(merge_moves) >= 2:
+        mu_m = statistics.mean(merge_moves)
+        sigma_m = statistics.stdev(merge_moves)
+    elif len(merge_moves) == 1:
+        mu_m = float(merge_moves[0])
+        sigma_m = 0.0
+    else:
+        mu_m = float(GOLDEN_GAME_MAX_MOVES)
+        sigma_m = 0.0
+
+    move_threshold = math.ceil(mu_m + sigma_m)
+
+    if len(all_anxieties) >= 2:
+        mu_a = statistics.mean(all_anxieties)
+        sigma_a = statistics.stdev(all_anxieties)
+    else:
+        mu_a = all_anxieties[0] if all_anxieties else 1.0
+        sigma_a = 0.0
+
+    anxiety_threshold = mu_a + 2 * sigma_a
+
+    return {
+        "move_threshold": move_threshold,
+        "anxiety_threshold": anxiety_threshold,
+    }
+
+
+async def _run_golden_calibration_session(
+    *,
+    seed: int,
+    run_dir: Path,
+    decision_llm: Any,  # LLM
+    deliberation_llm: Any,  # LLM
+    reflection_llm: Any,  # LLM
+) -> dict[str, Any]:
+    """One Y_off single-game session on the golden board. No game-1 warmup."""
+    # Lazy imports to avoid circular deps
+    from nova_agent.affect.state import AffectState
+    from nova_agent.bus.recorder import RecordingEventBus
+    from nova_agent.lab.io import SimGameIO
+    from nova_agent.lab.sim import Game2048Sim, Scenario
+    from nova_agent.memory.coordinator import MemoryCoordinator
+    from nova_agent.memory.semantic import SemanticStore
+
+    # Build golden-board scenario
+    golden_scenario = Scenario(
+        id="golden-easy-win-1024",
+        initial_grid=GOLDEN_BOARD,
+        initial_score=2048,  # 1024+1024 = 2048 min-implied-score
+        seed_base=20260507001,
+        pattern_name="golden-calibration",
+        high_tile_magnitude=1024,
+        expected_cliff_window=(1, GOLDEN_GAME_MAX_MOVES),
+        source_citation="Phase 0.8 §3.2 golden-scenario calibration",
+    )
+
+    sim = Game2048Sim(seed=golden_scenario.seed_base + seed, scenario=golden_scenario)
+    io = SimGameIO(sim=sim)
+
+    memory_dir = run_dir / "pilot" / "golden_calibration" / str(seed)
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    memory = MemoryCoordinator(
+        sqlite_path=memory_dir / "episodic.db",
+        lancedb_path=memory_dir / "vector.lance",
+    )
+    semantic = SemanticStore(memory_dir / "semantic.db")
+    affect = AffectState()
+    bus = RecordingEventBus(
+        host="127.0.0.1",
+        port=0,
+        path=memory_dir / "events.jsonl",
+    )
+
+    try:
+        result = await _run_game(
+            sim_io=io,
+            sim=sim,
+            memory=memory,
+            semantic=semantic,
+            affect=affect,
+            decision_llm=decision_llm,
+            deliberation_llm=deliberation_llm,
+            reflection_llm=reflection_llm,
+            bus=bus,
+            trauma_enabled=False,
+            force_trauma_on_game_over=False,
+            max_moves=GOLDEN_GAME_MAX_MOVES,
+        )
+    finally:
+        await bus.stop()
+
+    # Detect moves_to_merge: first move where max_tile >= 2048
+    moves_to_merge: int | None = None
+    for i, board in enumerate(result.per_move_boards):
+        if board.max_tile >= 2048:
+            moves_to_merge = i + 1  # 1-indexed
+            break
+
+    mean_anxiety = statistics.mean(result.per_move_anxieties) if result.per_move_anxieties else 0.0
+
+    shutil.rmtree(memory_dir, ignore_errors=True)
+    return {"moves_to_merge": moves_to_merge, "mean_anxiety": mean_anxiety}
+
+
+async def run_pilot(
+    *,
+    run_dir: Path,
+    n: int,
+    seed_base_start: int,
+    n_golden: int = 10,
+    decision_llm: Any,  # LLM
+    deliberation_llm: Any,  # LLM
+    reflection_llm: Any,  # LLM
+    max_moves: int = MAX_MOVES_PHASE_08,
+) -> tuple[dict[str, Any], int]:
+    """T-calibration pilot + golden-scenario calibration.
+
+    Returns (payload_dict, exit_code). exit_code=0=pass, 3=pre-trauma baseline failure.
+    """
+    # -- T-calibration sessions (Y_off K=2 × N) --
+    pilot_game2_boards: list[list[BoardState]] = []
+    for offset in range(n):
+        seed = seed_base_start + offset
+        _g1, g2 = await _run_arm(
+            arm="y_off",
+            seed_base=seed,
+            run_dir=run_dir,
+            stage="pilot",
+            decision_llm=decision_llm,
+            deliberation_llm=deliberation_llm,
+            reflection_llm=reflection_llm,
+            T=0,  # placeholder during data collection
+            max_moves=max_moves,
+            trauma_enabled=False,
+            force_trauma_on_game_over=False,
+        )
+        pilot_game2_boards.append(g2.per_move_boards)
+
+    # -- Golden-scenario calibration (Y_off single-game × n_golden) --
+    golden_sessions: list[dict[str, Any]] = []
+    for idx in range(n_golden):
+        sess = await _run_golden_calibration_session(
+            seed=seed_base_start + 100_000 + idx,  # separate seed namespace
+            run_dir=run_dir,
+            decision_llm=decision_llm,
+            deliberation_llm=deliberation_llm,
+            reflection_llm=reflection_llm,
+        )
+        golden_sessions.append(sess)
+
+    n_cap_reached = sum(1 for s in golden_sessions if s["moves_to_merge"] is None)
+    if n_cap_reached > GOLDEN_CAP_REACHED_LIMIT:
+        payload: dict[str, Any] = {
+            "error": "pre_trauma_baseline_failure",
+            "n_cap_reached": n_cap_reached,
+            "n_golden": n_golden,
+            "sessions": golden_sessions,
+        }
+        out_path = run_dir / "pilot" / "golden_calibration.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(payload, indent=2))
+        return payload, EXIT_PILOT_GOLDEN_BASELINE_FAILURE
+
+    thresholds = _lock_golden_thresholds(golden_sessions)
+    golden_payload: dict[str, Any] = {
+        "sessions": golden_sessions,
+        "n_cap_reached": n_cap_reached,
+        **thresholds,
+    }
+    golden_path = run_dir / "pilot" / "golden_calibration.json"
+    golden_path.parent.mkdir(parents=True, exist_ok=True)
+    golden_path.write_text(json.dumps(golden_payload, indent=2))
+
+    # -- T sweep --
+    rates_initial = _sweep_conditional_rate(pilot_game2_boards, candidates=T_CANDIDATES_INITIAL)
+    locked_T = _select_T_from_sweep(rates_initial, band=T_CALIBRATION_BAND)
+    candidates_used = T_CANDIDATES_INITIAL
+    rates_table = rates_initial
+    if locked_T is None:
+        rates_expanded = _sweep_conditional_rate(
+            pilot_game2_boards, candidates=T_CANDIDATES_EXPANDED
+        )
+        locked_T = _select_T_from_sweep(rates_expanded, band=T_CALIBRATION_BAND)
+        candidates_used = T_CANDIDATES_EXPANDED
+        rates_table = rates_expanded
+
+    censoring_count = sum(
+        1
+        for boards in pilot_game2_boards
+        if compute_session_dv(boards, T=locked_T or 0).censored_zero_encounter
+    )
+    pilot_censoring_rate = censoring_count / n if n > 0 else 0.0
+
+    payload = {
+        "n_pilot_sessions": n,
+        "candidates_used": list(candidates_used),
+        "rates": {str(k): v for k, v in rates_table.items()},
+        "locked_T": locked_T,
+        "pilot_censoring_rate": pilot_censoring_rate,
+        "calibration_failure": locked_T is None,
+        "anchor_hash": ANCHOR_HASH,
+    }
+    out_path = run_dir / "pilot" / "locked_T.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2))
+    return payload, 0

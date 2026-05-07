@@ -1,13 +1,21 @@
 """Tests for multi-session aggregator and halt criteria (Task 7)."""
 
 import dataclasses
+import math
+import statistics
+
+import pytest
 
 from nova_agent.lab.trauma_ablation import (
     SOFT_WARNING_D_FLOOR,
     STAGE_BUDGET_USD,
     STAGE_DEFAULT_N,
+    T_CALIBRATION_BAND,
+    T_CANDIDATES_INITIAL,
     SessionResult,
     _check_halt_criteria,
+    _lock_golden_thresholds,
+    _select_T_from_sweep,
 )
 
 
@@ -92,3 +100,58 @@ def test_constants_exist() -> None:
     assert isinstance(STAGE_BUDGET_USD, dict)
     assert isinstance(STAGE_DEFAULT_N, dict)
     assert isinstance(SOFT_WARNING_D_FLOOR, float)
+
+
+# --- T-selection tests (Part A) ---
+
+
+def test_select_T_smallest_qualifying_when_unique() -> None:
+    rates = {2: 0.10, 4: 0.30, 6: 0.40}
+    assert _select_T_from_sweep(rates, band=T_CALIBRATION_BAND) == 4
+
+
+def test_select_T_lower_median_when_multiple_qualify() -> None:
+    rates = {2: 0.10, 4: 0.27, 6: 0.30, 8: 0.33, 10: 0.50}
+    assert _select_T_from_sweep(rates, band=T_CALIBRATION_BAND) == 6
+
+
+def test_select_T_lower_of_two_medians_when_even() -> None:
+    rates = {2: 0.10, 4: 0.26, 6: 0.27, 8: 0.30, 10: 0.34, 12: 0.50}
+    assert _select_T_from_sweep(rates, band=T_CALIBRATION_BAND) == 6
+
+
+def test_select_T_returns_none_when_no_band_match() -> None:
+    rates = {t: 0.50 for t in T_CANDIDATES_INITIAL}
+    assert _select_T_from_sweep(rates, band=T_CALIBRATION_BAND) is None
+
+
+# --- Golden-scenario calibration threshold tests (Part B) ---
+
+
+def test_lock_golden_thresholds_computes_correctly() -> None:
+    # 5 sessions: moves_to_merge=[2, 4, 6, 8, 10], mean_anxiety=[0.1]*5
+    sessions = [{"moves_to_merge": m, "mean_anxiety": 0.1} for m in [2, 4, 6, 8, 10]]
+    thresholds = _lock_golden_thresholds(sessions)
+    mu = 6.0  # mean of [2,4,6,8,10]
+    sigma = statistics.stdev([2, 4, 6, 8, 10])
+    assert thresholds["move_threshold"] == math.ceil(mu + sigma)
+    assert thresholds["anxiety_threshold"] == pytest.approx(0.1 + 2 * 0.0, abs=1e-9)
+
+
+def test_lock_golden_thresholds_uses_only_merge_successful_for_moves() -> None:
+    # 8 sessions merge-successful (moves=[5]*8), 2 cap-reached (moves_to_merge=None)
+    sessions = [{"moves_to_merge": 5, "mean_anxiety": 0.2}] * 8 + [
+        {"moves_to_merge": None, "mean_anxiety": 0.5}
+    ] * 2
+    thresholds = _lock_golden_thresholds(sessions)
+    # μ_moves = 5.0, σ_moves = 0.0 → move_threshold = ceil(5.0) = 5
+    assert thresholds["move_threshold"] == 5
+    # anxiety from ALL 10: μ=0.26, σ computed from [0.2]*8+[0.5]*2
+    all_anx = [0.2] * 8 + [0.5] * 2
+    mu_a = statistics.mean(all_anx)
+    sigma_a = statistics.stdev(all_anx)
+    assert thresholds["anxiety_threshold"] == pytest.approx(mu_a + 2 * sigma_a)
+
+
+def test_pilot_budget_cap_is_35() -> None:
+    assert STAGE_BUDGET_USD["pilot"] == 35.0
