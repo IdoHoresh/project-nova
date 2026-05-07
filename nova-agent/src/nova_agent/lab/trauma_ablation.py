@@ -15,7 +15,7 @@ import math
 import random
 import statistics
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from nova_agent.perception.types import BoardState
 
@@ -268,3 +268,206 @@ def primary_pass(
     if r_off_mean <= r_on_mean:
         return False
     return True
+
+
+# ---------------------------------------------------------------------
+# Per-game inner loop (Task 5)
+# ---------------------------------------------------------------------
+
+MAX_MOVES_PHASE_08: Final[int] = 200
+RECENT_LIMIT: Final[int] = 5
+
+
+@dataclass(frozen=True)
+class GameResult:
+    """Return type for a single game run under Y_on or Y_off."""
+
+    per_move_boards: list[BoardState]
+    per_move_anxieties: list[float]
+    reached_game_over: bool
+    final_board: BoardState
+    would_predicate_have_fired: bool
+
+
+async def _run_game(
+    *,
+    sim_io: Any,  # SimGameIO
+    sim: Any,  # Game2048Sim (may be unused)
+    memory: Any,  # MemoryCoordinator
+    semantic: Any,  # SemanticStore (may be unused in this version)
+    affect: Any,  # AffectState
+    decision_llm: Any,  # LLM
+    deliberation_llm: Any,  # LLM
+    reflection_llm: Any,  # LLM
+    bus: Any,  # EventBus (may be None for testing)
+    trauma_enabled: bool,
+    force_trauma_on_game_over: bool,
+    max_moves: int,
+) -> GameResult:
+    """Run a single game with configurable trauma flags.
+
+    Args:
+        sim_io: Simulation I/O interface for board reads/writes.
+        sim: Game2048Sim instance (unused in this task).
+        memory: MemoryCoordinator for move recording.
+        semantic: SemanticStore (unused in this task).
+        affect: AffectState instance tracking anxiety/valence.
+        decision_llm: LLM for ReactDecider.
+        deliberation_llm: LLM for ToTDecider.
+        reflection_llm: LLM for post-game reflection.
+        bus: EventBus (can be None for tests).
+        trauma_enabled: If False, skip all aversive tagging.
+        force_trauma_on_game_over: If True, bypass is_catastrophic_loss check.
+        max_moves: Maximum move count before forced termination.
+
+    Returns:
+        GameResult with boards, anxieties, game-over flag, and predicate.
+    """
+    # Lazy imports to avoid circular deps in module-level code
+    from nova_agent.action.adb import SwipeDirection
+    from nova_agent.affect.rpe import rpe as compute_rpe
+    from nova_agent.decision.arbiter import should_use_tot
+    from nova_agent.decision.heuristic import is_game_over
+    from nova_agent.decision.react import ReactDecider
+    from nova_agent.decision.tot import ToTDecider
+    from nova_agent.memory.aversive import AVERSIVE_TAG, is_catastrophic_loss, tag_aversive
+    from nova_agent.reflection import run_reflection
+
+    per_move_boards: list[BoardState] = []
+    per_move_anxieties: list[float] = []
+    reached_game_over = False
+    would_predicate_have_fired = False
+
+    # Deciders
+    react_decider = ReactDecider(llm=decision_llm)
+    tot_decider = ToTDecider(llm=deliberation_llm, bus=bus)
+
+    prev_board: BoardState | None = None
+
+    for move_idx in range(max_moves):
+        # Read current board state
+        board = sim_io.read_board()
+
+        # Check game-over condition
+        if is_game_over(board):
+            reached_game_over = True
+            break
+
+        # Retrieve memories for current board
+        retrieved = memory.retrieve_for_board(board, k=5)
+        trauma_active = any(AVERSIVE_TAG in m.record.tags for m in retrieved)
+
+        # Decide: ToT or React?
+        use_tot = should_use_tot(board=board, affect=affect.vector)
+
+        # Get decision
+        screenshot_b64 = sim_io.screenshot_b64()
+        if use_tot:
+            decision = await tot_decider.decide(
+                board=board,
+                screenshot_b64=screenshot_b64,
+                num_branches=4,
+                game_id=None,
+                move_idx=move_idx,
+            )
+        else:
+            decision = react_decider.decide(board=board, screenshot_b64=screenshot_b64)
+
+        # Apply move
+        direction = SwipeDirection(decision.action)
+        sim_io.apply_move(direction)
+
+        # Read post-move board
+        post_board = sim_io.read_board()
+        per_move_boards.append(post_board)
+
+        # Track anxiety
+        per_move_anxieties.append(affect.vector.anxiety)
+
+        # Compute RPE and update affect (if not first move)
+        score_delta = post_board.score - board.score
+        if prev_board is not None:
+            rpe_val = compute_rpe(actual_score_delta=score_delta, board_before=board)
+            affect.update(
+                rpe=rpe_val,
+                empty_cells=len([c for row in post_board.grid for c in row if c == 0]),
+                terminal=False,
+                trauma_triggered=trauma_active,
+            )
+
+        # Write move to memory
+        importance = 5  # Default; could be scored via LLM
+        tags: list[str] = []
+        if trauma_active:
+            tags.append("trauma-active")
+
+        memory.write_move(
+            board_before=board,
+            board_after=post_board,
+            action=decision.action,
+            score_delta=score_delta,
+            rpe=0.0,  # Simplified; full version would compute actual RPE
+            importance=importance,
+            source_reasoning=decision.reasoning,
+            affect=None,  # Simplified
+            tags=tags,
+        )
+
+        prev_board = post_board
+
+    # Read final board
+    final_board = sim_io.read_board()
+
+    # Compute would_predicate_have_fired (catastrophic loss check)
+    max_tile = (
+        max(max(row) for row in final_board.grid)
+        if any(any(row) for row in final_board.grid)
+        else 0
+    )
+    empty_cells = len([c for row in final_board.grid for c in row if c == 0])
+    would_predicate_have_fired = is_catastrophic_loss(
+        final_score=final_board.score,
+        max_tile_reached=max_tile,
+        last_empty_cells=empty_cells,
+    )
+
+    # Post-game trauma tagging (if reached game-over)
+    if reached_game_over and trauma_enabled:
+        # Get recent precondition records
+        recent_records = memory.episodic.list_recent(limit=RECENT_LIMIT)
+
+        # Decide whether to tag based on force flag or predicate
+        should_tag = force_trauma_on_game_over or would_predicate_have_fired
+
+        if should_tag:
+            # Tag aversive records
+            tagged = tag_aversive(
+                precondition_records=recent_records,
+                was_catastrophic=would_predicate_have_fired,
+            )
+            # Upsert each tagged record back into memory
+            for rec in tagged:
+                memory.upsert_aversive_record(rec)
+                memory.episodic.update(rec)
+
+    # Post-game reflection (unconditional if game-over)
+    if reached_game_over:
+        last_30_summary = "Game-over state reached after move sequence."
+        prior_lessons: list[str] = []
+        try:
+            _reflection_result = run_reflection(
+                llm=reflection_llm,
+                last_30_moves_summary=last_30_summary,
+                prior_lessons=prior_lessons,
+            )
+        except Exception:  # noqa: BLE001
+            # Reflection can fail gracefully; continue
+            pass
+
+    return GameResult(
+        per_move_boards=per_move_boards,
+        per_move_anxieties=per_move_anxieties,
+        reached_game_over=reached_game_over,
+        final_board=final_board,
+        would_predicate_have_fired=would_predicate_have_fired,
+    )
