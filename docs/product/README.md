@@ -148,7 +148,7 @@ QA tool and under-specced for a marketing tool.
 | Document | What it answers |
 |----------|------------------|
 | [`README.md`](./README.md) (this file) | Product positioning. Read first. |
-| [`methodology.md`](./methodology.md) | Technical foundation: 4 Signatures, KPI translations, hybrid inference, Levene's Test. The load-bearing technical doc. |
+| [`methodology.md`](./methodology.md) | Technical foundation: 4 Signatures, KPI translations, hybrid inference, dual-DV trauma ablation. The load-bearing technical doc. |
 | [`product-roadmap.md`](./product-roadmap.md) | Build phases 0-6, timing, gates, dependencies. |
 | [`competitive-landscape.md`](./competitive-landscape.md) | modl.ai, General Intuition, Razer, Square Enix demand signals, white space analysis. |
 | [`scientific-foundations.md`](./scientific-foundations.md) | 41 cited papers across LLM agents, cognitive architectures, affect models, player modeling. |
@@ -182,9 +182,10 @@ The five most consequential:
 1. **Does Nova's predicted churn cliff coincide with documented human
    churn cliffs?** Resolved by Phase 0.7 cliff test (Week 1 of the
    30-day sprint). Falsifiable. If no, we reposition.
-2. **Does trauma-tagging produce statistically significant variance
-   reduction?** Resolved by Phase 0.8 ablation (Week 2). Levene's Test at
-   p < 0.05. If no, demote trauma to UI flavor.
+2. **Does trauma-tagging produce within-game avoidance learning at
+   trap-similar states?** Resolved by Phase 0.8 ablation (Week 2).
+   Primary DV: within-game trap re-engagement rate (Cohen's `d ≥ 0.3`,
+   95% CI excluding 0). If primary nulls, demote trauma to UI flavor.
 3. **Will the local-LLM hybrid inference stack ship reliable JSON via
    `guided_decoding`?** Verified in Phase 1 SDK build (Week 6-7). High
    confidence based on vLLM's documented behavior, but the integration

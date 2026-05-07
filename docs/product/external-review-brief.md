@@ -21,8 +21,8 @@
 > - **Validation approach:** original $600 + 3-week paid-playtester
 >   study replaced with a $0 + 1-week Python-simulator cliff test
 >   against documented hard 2048 scenarios (Phase 0.7), plus a
->   statistical trauma ablation using Levene's Test for variance
->   reduction (Phase 0.8).
+>   dual-DV trauma ablation per methodology §4.2 — primary behavioral
+>   DV (within-game trap re-engagement) gates pass/fail (Phase 0.8).
 > - **Inference architecture:** moved from API-only to a **hybrid
 >   local + API stack** mirroring Kahneman's System 1 / System 2
 >   cognition — 14B-class local model (Qwen 2.5 14B or Phi-4 14B via
@@ -41,8 +41,8 @@
 > 1. [`README.md`](./README.md) — strategic positioning and category
 >    framing
 > 2. [`methodology.md`](./methodology.md) — the four Signatures, KPI
->    translations, hybrid inference architecture, Levene's Test math,
->    full validation methodology
+>    translations, hybrid inference architecture, dual-DV
+>    trauma-ablation design, full validation methodology
 > 3. [`product-roadmap.md`](./product-roadmap.md) — phased build plan
 >    with the 30-day validation sprint detailed week by week
 >

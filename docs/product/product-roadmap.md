@@ -25,7 +25,7 @@
 |-------|------|----------|------------------------|------|
 | **0** | Finish v1.0.0 cognitive architecture demo on 2048 | 1 week | week 1 | ~$50 LLM |
 | **0.7** | Cliff Test (Python `Game2048Sim` + documented hard boards) | 1 week | week 2 | $0 |
-| **0.8** | Trauma Ablation (N=1000, Levene's Test for variance reduction) | 1 week | week 3 | $0 |
+| **0.8** | Trauma Ablation (dual-DV: within-game trap re-engagement + Anxiety lift) | 1 week | week 3 | $0 |
 | **0.9** | KPI Report Mockup v0.1 (4 Signatures defined; CSV export) | 1 week | week 4 | $0 |
 | **1** | **Unity SDK** + GameAdapter abstraction + Tetris port (proof of generality) + hybrid local+API inference | 6–8 weeks | week 12 | ~$100 + $1.5K hardware |
 | **2** | Exploration learning + general perception ("drop in any game") | 8–12 weeks | week 24 | ~$200 |
@@ -145,38 +145,61 @@ judgment work plumbing tier is forbidden for, per ADR-0006.
 
 ### Week 2 — Trauma Ablation
 
-**Milestone:** N=1000 trauma-on / N=1000 trauma-off games run via
-`Game2048Sim`. Levene's Test for variance reduction. Trauma keep/demote
-decision finalized.
+**Milestone:** Paired trauma-on / trauma-off run via `Game2048Sim` per
+methodology §4.2 dual-DV. Trauma keep / demote / amend decision
+finalized. Sample size and cost set by the Phase 0.8 spec
+(`docs/superpowers/specs/2026-05-07-phase-0.8-trauma-ablation-design.md`).
 
 **Why this matters:** trauma-tagging is currently marketed as a
 differentiating cognitive feature. Without empirical evidence that it
-improves performance, the marketing claim is exposed. The Levene's Test
-specifically tests the *on-thesis* claim (avoidance learning produces
-consistency, not higher mean scores).
+produces avoidance learning, the marketing claim is exposed. The
+dual-DV test specifically targets the *on-thesis* claim — within-game
+adaptation to trap-similar states — and validates the affect pathway
+as a secondary, descriptive read.
 
 **Tasks:**
-- Run N=1000 games with trauma-tagging enabled, identical seeded board
-  sequence
-- Run N=1000 games with trauma-tagging disabled, same seeded sequence
-- Compute Levene's W statistic on the score distributions (formula in
-  [`methodology.md`](./methodology.md) §4.2)
-- Run a secondary check: does the lower tail of the score distribution
-  shrink with trauma on? (The on-thesis check for catastrophic-failure
-  avoidance specifically.)
+- Run paired trauma-on / trauma-off games on identical seeded board
+  sequences in `Game2048Sim`. Sample size from the Phase 0.8 spec
+  power calc on Cohen's `d ≥ 0.3`.
+- Compute primary DV: within-game trap-recurrence rate after the first
+  trap encounter, per [`methodology.md`](./methodology.md) §4.2.
+  Trap-similarity metric, proximity threshold `T`, and trap-pattern
+  dictionary defined in the Phase 0.8 spec.
+- Compute secondary DV: Anxiety value distribution at trap-similar
+  states (proximity ≥ `T`). Reported alongside the primary, non-gating.
+- Pre-register both DVs and the gate before pilot data exists.
 
-**Self-judged gate:**
-- Levene's W significant at p < 0.05 AND Var(Y_on) < Var(Y_off)?
+**Self-judged gate (primary, gating):**
+- Cohen's `d ≥ 0.3` on the within-game trap-recurrence rate, with
+  95% CI excluding 0 and trauma-on rate < trauma-off rate.
 
-**Pass:** trauma is a real mechanism. Keep marketing it as a core
-architectural feature. Add the Levene's Test result to
-[`methodology.md`](./methodology.md) §4.2 as the validation citation.
+**Self-judged secondary (descriptive, non-gating):**
+- Cohen's `d` and 95% CI on the Anxiety lift at trap-similar states.
 
-**Fail:** trauma is cosmetic. Demote it from the methodology page's
-"core mechanism" section to "visual artifact in the brain panel." Keep
-the implementation (it's already shipped and the brain-panel render is
-visually compelling), but stop selling it as a competitive differentiator.
-Update marketing copy accordingly.
+**Pass (primary):** trauma is a real avoidance-learning mechanism.
+Keep marketing it as a core architectural feature. Add the Phase 0.8
+result to [`methodology.md`](./methodology.md) §4.2 as the validation
+citation. If primary passes but secondary nulls, write a follow-up
+ADR amendment reframing the affect-pathway claim per §4.2's
+three-branch failure-mode table.
+
+**Fail (primary):** trauma is **demoted** from a core architectural
+feature to UI flavor. The mechanism stays in the code; the brain-panel
+render stays for visual interest; marketing copy drops the
+"competitive differentiator" framing. Update accordingly.
+
+**Why this design and not Levene's-on-score variance:** the original
+2026-05-04 plan applied Levene's Test for equality of variances on
+final-score distributions. External red-team review (round 1, attacks
+C5 / M-02 in `docs/external-review/round-3-synthesis.md`) flagged
+three independent failure modes: (a) same-seed pairing breaks because
+trauma-on retrieves different memories per move, (b) 2048's score
+ceiling invalidates the asymptotic chi-square approximation at finite
+N, and (c) the test cannot distinguish avoidance learning from
+over-conservative play. Methodology §4.2 was rewritten 2026-05-06
+(commit `a6f92dc`) to replace Levene's-on-score with the dual-DV
+design above. The within-game trap-recurrence DV is the on-thesis
+test for avoidance learning that Levene's-on-score was meant to be.
 
 ### Week 3 — KPI Report Mockup v0.1
 
@@ -295,20 +318,32 @@ methodology; production deployment is something else entirely.
 Detailed in the [Week 2 — Trauma Ablation](#week-2--trauma-ablation)
 section above.
 
-**Statistical foundation:** Levene's Test for equality of variances. Full
-formula and rationale in [`methodology.md`](./methodology.md) §4.2.
+**Statistical foundation:** dual-DV per methodology §4.2 — primary
+behavioral DV (within-game trap-recurrence rate, Cohen's `d ≥ 0.3`)
+gates pass/fail; secondary affective DV (Anxiety lift at trap-similar
+states) is descriptive. Operational definitions (trap-similarity
+metric, proximity threshold `T`, trap-pattern dictionary, sample size,
+power calc) live in the Phase 0.8 spec.
 
-**Why variance, not mean:** trauma in the cognitive architecture is
-*avoidance learning* — the agent remembers what killed it and avoids
-similar situations. The expected empirical signature of avoidance
-learning is reduced variance under similar stimuli, not higher mean
-performance. Testing on mean performance would be the wrong test.
+**Why within-game adaptation, not cross-game optimization:** trauma in
+the cognitive architecture is *avoidance learning within a session* —
+the agent remembers what killed it during the current playthrough and
+shifts behavior for the remaining moves. The expected empirical
+signature is reduced within-game re-engagement with trap-similar
+configurations after a first trap encounter, not optimal play across
+separate games. See [`methodology.md`](./methodology.md) §4.3 for the
+full rationale and the three independent failure modes that retired
+the prior variance-on-score design.
 
-**Failure mode handled:** if trauma doesn't reduce variance significantly,
-we **demote** rather than remove. The mechanism stays in the code; the
-brain-panel render stays for visual interest; the marketing claim drops
-to "trauma-tagged memories receive elevated retrieval weight (UI artifact)"
-rather than "trauma improves agent performance."
+**Failure mode handled:** if the primary DV nulls, trauma is
+**demoted** rather than removed. The mechanism stays in the code; the
+brain-panel render stays for visual interest; the marketing claim
+drops to "trauma-tagged memories receive elevated retrieval weight
+(UI artifact)" rather than "trauma improves agent performance." If
+primary passes but secondary nulls, the affect-pathway framing is
+amended in a follow-up ADR — the mechanism still works, but routes
+through planning / ToT / memory-conditioned retrieval rather than
+through Anxiety lift.
 
 ---
 
@@ -592,9 +627,10 @@ over the Day 3-7 difficulty band."
 
 **Gates this phase has to clear:**
 - Phase 0.7 cliff test passed (single-session affect prediction works)
-- Phase 0.8 trauma ablation passed (Levene's variance reduction
-  significant) — confirms the affective-channel persistence mechanism
-  Nova relies on for the "scar" effect in Day-N predictions
+- Phase 0.8 trauma ablation passed (dual-DV primary: within-game trap
+  re-engagement rate is lower with trauma-on, Cohen's `d ≥ 0.3`) —
+  confirms the avoidance-learning mechanism Nova relies on for the
+  "scar" effect in Day-N predictions
 - Empirical CI-width check: at Day 30 in a synthetic-validation run on
   2048 with N=50 Casual personas, the 95% CI for Signature Alpha
   firing rate must stay below ±15 percentage points. If wider, the
