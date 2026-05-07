@@ -31,7 +31,7 @@ escalation — when Sonnet must offer swap to Opus" table.
    subject means split.
 5. **Conventional Commits.** `type(scope): subject ≤72 chars`. Body
    explains *why*, not *what*. Co-author tag on Claude commits:
-   `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
+   `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
 6. **Push after every commit.** Established cadence — never batch.
 7. **No `--no-verify`** without explicit user authorisation in the
    same session.

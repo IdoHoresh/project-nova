@@ -131,7 +131,7 @@
       "Write(**/.env.production)"
     ]
   },
-  "_hooks_explanation": "Pre-commit framework (.pre-commit-config.yaml) handles formatting + linting + gitleaks on commit; CI (.github/workflows/ci.yml) handles full test/lint/type runs on push. The pre-push command hook is a fast deterministic gate: regex secret grep + diff stat + PR-cadence warning + post-merge /clear hint. No LLM agent runs at push time — token cost ~$0/push. Quality judgment (logic bugs, missing tests, design issues) is deferred to Layer 2 (Opus 4.7) at PR open, where it earns its keep on a coherent diff. PostToolUse formatters intentionally NOT added — they create read/write race conditions with Claude's edit cycle. Personal hooks can be added in settings.local.json.",
+  "_hooks_explanation": "Pre-commit framework (.pre-commit-config.yaml) handles formatting + linting + gitleaks on commit; CI (.github/workflows/ci.yml) handles full test/lint/type runs on push. The pre-push command hook is a fast deterministic gate: regex secret grep + diff stat + PR-cadence warning + post-merge /clear hint. No LLM agent runs at push time — token cost ~$0/push. Quality judgment (logic bugs, missing tests, design issues) is handled in-session by /commit-push-pr which auto-dispatches Opus code-reviewer + security-reviewer subagents (Max quota, not API) before every non-doc commit. CI LLM review (claude-review.yml) has been removed — replaced by in-session Opus review. PostToolUse formatters intentionally NOT added — they create read/write race conditions with Claude's edit cycle. Personal hooks can be added in settings.local.json.",
   "hooks": {
     "PreToolUse": [
       {

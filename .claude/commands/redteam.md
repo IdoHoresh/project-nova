@@ -3,6 +3,14 @@ description: Analyze a red-team response (challenge to a prior recommendation, d
 allowed-tools: Read, Bash, Grep, Glob
 ---
 
+## Dispatch rule (MANDATORY)
+
+This analysis MUST run via an Opus subagent — never inline on a Sonnet session. Before doing anything else, dispatch this entire skill (including `$ARGUMENTS`) via `Agent(model="opus")`. The main session passes the red-team text and this skill content to the subagent; the subagent runs the full protocol below and returns findings.
+
+If the current session is already Opus: proceed inline.
+
+---
+
 Analyze the red-team response below. The user pastes the red team's text after the slash command; treat everything in `$ARGUMENTS` as the red-team feedback to evaluate.
 
 Red-team feedback to analyze:

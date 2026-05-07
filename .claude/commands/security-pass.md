@@ -9,7 +9,8 @@ Invoke the `superpowers:security-review` skill to do a focused pass over the cur
 
 1. **Secret leakage check.** Run gitleaks against the branch (it's installed as a pre-commit hook; this re-runs it explicitly):
    ```bash
-   cd /Users/idohoresh/Desktop/a/.claude/worktrees/practical-swanson-4b6468
+   ROOT=$(git rev-parse --show-toplevel)
+   cd "$ROOT"
    gitleaks detect --source . --verbose 2>&1 | tail -30
    ```
    Plus a manual grep for common patterns that gitleaks might miss:
@@ -19,7 +20,8 @@ Invoke the `superpowers:security-review` skill to do a focused pass over the cur
 
 2. **Dependency vulnerability scan:**
    ```bash
-   cd /Users/idohoresh/Desktop/a/.claude/worktrees/practical-swanson-4b6468/nova-viewer && pnpm audit --prod --audit-level=moderate 2>&1 | tail -20
+   ROOT=$(git rev-parse --show-toplevel)
+   cd "$ROOT/nova-viewer" && pnpm audit --prod --audit-level=moderate 2>&1 | tail -20
    ```
    For Python: pip-audit isn't currently configured; flag this as a follow-up if not present.
 
@@ -41,7 +43,7 @@ Invoke the `superpowers:security-review` skill to do a focused pass over the cur
 **Output format:**
 
 ```
-SECURITY PASS — claude/practical-swanson-4b6468
+SECURITY PASS — <current branch>
 ═══════════════════════════════════════════════
 gitleaks: clean / N findings
 deps (pnpm audit): N moderate, N high, N critical

@@ -28,7 +28,14 @@ Run the full ship sequence in one shot. Each step gates on the prior step's outp
    git diff --cached
    ```
 
-5. Apply REVIEW.md path-matched trigger taxonomy. If a "yes" row matches and the diff is non-trivial, recommend the user run `/review` before proceeding (skip if user has already done so this session).
+5. Apply REVIEW.md path-matched trigger taxonomy to the staged diff:
+   - If all changed paths are doc-only (`docs/**`, `*.md`, `.claude/**`, lockfiles): skip review, note reason.
+   - Otherwise: dispatch review subagents via Agent tool (Max quota, not API):
+     - Always dispatch `code-reviewer` subagent with `model="opus"`.
+     - Also dispatch `security-reviewer` subagent with `model="opus"` if diff touches `nova_agent/{llm,bus,memory,perception,config}/**`, `.env*`, `subprocess`, `eval`, `exec`.
+     - Run both in parallel when both fire.
+   - If any reviewer returns a **BLOCK** finding: stop, surface it to the user, do NOT proceed to commit.
+   - WARN/NIT findings: surface them, then proceed to step 6 unless user says stop.
 
 6. Generate a Conventional Commits subject (≤72 chars) and a body that explains *why* not *what*. Format:
    ```
