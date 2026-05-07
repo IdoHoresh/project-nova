@@ -219,9 +219,9 @@ CasterAI, Nova wins by default.)
   comparable; their loop reads as task-execution, not
   player-experience modelling.
 - **Methodology rigour.** Nova's Phase 0.7 cliff test, 4
-  Signatures framework, Levene's-test design, and KPI translations
-  ([`docs/product/methodology.md`](./methodology.md)) are an
-  academic-grade evaluation plan. Nunu.ai's public material is
+  Signatures framework, dual-DV trauma-ablation design, and KPI
+  translations ([`docs/product/methodology.md`](./methodology.md)) are
+  an academic-grade evaluation plan. Nunu.ai's public material is
   positioning copy, not methodology.
 - **Affect → KPI translation.** Nova's product positioning hinges
   on translating simulated player affect into D1/D7/ARPDAU
