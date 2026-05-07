@@ -311,3 +311,27 @@ def test_cli_help_runs() -> None:
     )
     assert result.returncode == 0
     assert "--stage" in result.stdout
+
+
+@pytest.mark.asyncio
+async def test_e2e_smoke_with_mock_stack(tmp_path: Path) -> None:
+    """End-to-end: run_smoke with mock LLM, verify summary.csv written."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_lab_trauma_session import _FixedActionLLM
+    from nova_agent.lab.trauma_ablation import EXIT_OK, EXIT_SMOKE_HALT, run_smoke
+
+    llm = _FixedActionLLM(action="swipe_up")
+    rc = await run_smoke(
+        run_dir=tmp_path,
+        n=1,
+        seed_base_start=20260507,
+        decision_llm=llm,
+        deliberation_llm=llm,
+        reflection_llm=llm,
+        T_placeholder=16,
+        max_moves=200,
+    )
+    assert rc in (EXIT_OK, EXIT_SMOKE_HALT)
+    assert (tmp_path / "smoke" / "summary.csv").exists()
