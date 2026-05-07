@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import hashlib
 import math
+import random
+import statistics
 from dataclasses import dataclass
 from typing import Final
 
@@ -192,3 +194,77 @@ def compute_session_dv(boards: list[BoardState], *, T: int) -> SessionDVResult:
         first_encounter_idx=first_idx,
         censored_zero_encounter=False,
     )
+
+
+# ---------------------------------------------------------------------
+# Constants (adjudication thresholds)
+# ---------------------------------------------------------------------
+
+PRIMARY_PASS_D_FLOOR: Final[float] = 0.30
+
+# ---------------------------------------------------------------------
+# Adjudication (spec §3.5)
+# ---------------------------------------------------------------------
+
+
+def paired_cohens_d(deltas: list[float]) -> float:
+    """Paired Cohen's d = mean(Δ) / sd(Δ, ddof=1).
+
+    Raises ValueError when fewer than 2 observations or zero variance.
+    Zero variance is a signal that the DV computation is broken, not a
+    normal scientific outcome.
+    """
+    if len(deltas) < 2:
+        raise ValueError("paired_cohens_d requires at least 2 observations")
+    sd = statistics.stdev(deltas)  # ddof=1 by default
+    if sd == 0.0:
+        raise ValueError("paired_cohens_d undefined for zero-variance Δ")
+    return statistics.mean(deltas) / sd
+
+
+def paired_d_ci_95(
+    deltas: list[float],
+    *,
+    bootstrap_iters: int = 10_000,
+    rng_seed: int = 0,
+) -> tuple[float, float]:
+    """Bootstrap 95% percentile CI on paired-d.
+
+    Resample Δ with replacement, recompute d, take 2.5th + 97.5th
+    percentiles. Zero-variance resamples are silently skipped (probability
+    vanishes for typical N). Returns (ci_lo, ci_hi).
+    """
+    rng = random.Random(rng_seed)
+    n = len(deltas)
+    samples: list[float] = []
+    for _ in range(bootstrap_iters):
+        resample = [deltas[rng.randrange(n)] for _ in range(n)]
+        try:
+            samples.append(paired_cohens_d(resample))
+        except ValueError:
+            continue
+    samples.sort()
+    lo = samples[int(0.025 * len(samples))]
+    hi = samples[int(0.975 * len(samples))]
+    return lo, hi
+
+
+def primary_pass(
+    deltas: list[float],
+    *,
+    r_off_mean: float,
+    r_on_mean: float,
+) -> bool:
+    """Spec §6 C4: paired d >= 0.30 AND CI excludes 0 AND r_off > r_on."""
+    try:
+        d = paired_cohens_d(deltas)
+    except ValueError:
+        return False
+    if d < PRIMARY_PASS_D_FLOOR:
+        return False
+    lo, _ = paired_d_ci_95(deltas, bootstrap_iters=2000, rng_seed=0)
+    if lo <= 0:
+        return False
+    if r_off_mean <= r_on_mean:
+        return False
+    return True
