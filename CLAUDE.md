@@ -36,7 +36,7 @@ Unity fork: `~/Desktop/2048_Unity/`. APK: `~/Desktop/2048_Unity/build/nova2048.a
 
 - `claude/<name>` only. Never `main`. Push after every commit. Atomic. No "and" in subject.
 - Conventional Commits `type(scope): subject ≤72 chars`. Body = why.
-- Co-author: `Co-Authored-By: Claude Sonnet 4.6 (1M context) <noreply@anthropic.com>`
+- Co-author: `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
 
 Python: `pytest + mypy strict + ruff check + gitleaks` | TS: `vitest + tsc + eslint + gitleaks`
 
