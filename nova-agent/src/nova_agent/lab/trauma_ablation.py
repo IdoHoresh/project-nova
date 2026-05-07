@@ -876,6 +876,11 @@ GOLDEN_GAME_MAX_MOVES: Final[int] = 20
 GOLDEN_CAP_REACHED_LIMIT: Final[int] = 2  # >2 cap-reached → exit code 3
 EXIT_GOLDEN_FAIL: Final[int] = 2  # rationality gate fail → paranoia detected
 EXIT_PILOT_GOLDEN_BASELINE_FAILURE: Final[int] = 3
+EXIT_OK: Final[int] = 0
+EXIT_SMOKE_HALT: Final[int] = 4  # smoke stage halt on low reach_game_over
+EXIT_SURROGATE_HALT: Final[int] = 5  # surrogate stage halt on direction flip
+EXIT_PILOT_FAILURE: Final[int] = 6  # pilot stage runtime failure
+EXIT_LOCKED_T_MISSING: Final[int] = 7  # locked_T.json missing or unreadable
 
 
 def _sweep_conditional_rate(
@@ -1353,3 +1358,107 @@ async def run_golden_gate(
     }
     (golden_dir / "result.json").write_text(json.dumps(result, indent=2))
     return 0
+
+
+def _write_summary_csv(path: Path, results: list[SessionResult]) -> None:
+    """Stub: writes session count. Task 12 upgrades to full CSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"n_sessions={len(results)}\n")
+
+
+async def run_smoke(
+    *,
+    run_dir: Path,
+    n: int,
+    seed_base_start: int,
+    decision_llm: Any,
+    deliberation_llm: Any,
+    reflection_llm: Any,
+    T_placeholder: int = 16,
+    max_moves: int = MAX_MOVES_PHASE_08,
+) -> int:
+    """Smoke gate: N=3 paired sessions at placeholder T. See spec §3.1."""
+    results, halt = await _run_n_paired(
+        n=n,
+        seed_base_start=seed_base_start,
+        run_dir=run_dir,
+        stage="smoke",
+        decision_llm=decision_llm,
+        deliberation_llm=deliberation_llm,
+        reflection_llm=reflection_llm,
+        T=T_placeholder,
+        max_moves=max_moves,
+        pilot_censoring_rate=None,
+    )
+    _write_summary_csv(run_dir / "smoke" / "summary.csv", results)
+    if halt is not None:
+        halt_path = run_dir / "smoke" / "halt.txt"
+        halt_path.parent.mkdir(parents=True, exist_ok=True)
+        halt_path.write_text(halt)
+        return EXIT_SMOKE_HALT
+    return EXIT_OK
+
+
+def _read_locked_t(path: Path) -> tuple[int, float]:
+    """Returns (locked_T, pilot_censoring_rate). Raises on missing or calibration_failure."""
+    if not path.exists():
+        raise FileNotFoundError(f"locked_T.json missing at {path}")
+    payload = json.loads(path.read_text())
+    if payload.get("calibration_failure"):
+        raise RuntimeError("pilot reported calibration_failure; pivot to §5 fallback")
+    locked_T = payload.get("locked_T")
+    if not isinstance(locked_T, int):
+        raise RuntimeError(f"locked_T is not an integer: {locked_T!r}")
+    return locked_T, float(payload.get("pilot_censoring_rate", 0.0))
+
+
+async def run_surrogate(
+    *,
+    run_dir: Path,
+    n: int,
+    seed_base_start: int,
+    decision_llm: Any,
+    deliberation_llm: Any,
+    reflection_llm: Any,
+    max_moves: int = MAX_MOVES_PHASE_08,
+) -> int:
+    """Surrogate gate: N=20 paired sessions at locked T. See spec §3.3."""
+    # Block if golden gate not passed (spec §3.2b).
+    _check_golden_gate_passed(run_dir)
+
+    locked_T, pilot_censoring = _read_locked_t(run_dir / "pilot" / "locked_T.json")
+
+    results, halt = await _run_n_paired(
+        n=n,
+        seed_base_start=seed_base_start,
+        run_dir=run_dir,
+        stage="surrogate",
+        decision_llm=decision_llm,
+        deliberation_llm=deliberation_llm,
+        reflection_llm=reflection_llm,
+        T=locked_T,
+        max_moves=max_moves,
+        pilot_censoring_rate=pilot_censoring,
+    )
+    _write_summary_csv(run_dir / "surrogate" / "summary.csv", results)
+    if halt is not None:
+        halt_path = run_dir / "surrogate" / "halt.txt"
+        halt_path.parent.mkdir(parents=True, exist_ok=True)
+        halt_path.write_text(halt)
+        return EXIT_SURROGATE_HALT
+
+    # Soft warning on low d_paired estimate — log but don't abort (spec §3.3).
+    deltas = [r.delta_i for r in results if r.delta_i is not None]
+    if len(deltas) >= 2:
+        try:
+            d = paired_cohens_d(deltas)
+            if d < SOFT_WARNING_D_FLOOR:
+                warning_path = run_dir / "surrogate" / "soft_warning.txt"
+                warning_path.parent.mkdir(parents=True, exist_ok=True)
+                warning_path.write_text(
+                    f"d_paired_estimate={d:.3f} < {SOFT_WARNING_D_FLOOR}\n"
+                    "see spec §3.3 — false-negative justification\n"
+                )
+        except ValueError:
+            pass
+    return EXIT_OK

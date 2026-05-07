@@ -1,8 +1,10 @@
 """Tests for multi-session aggregator and halt criteria (Task 7)."""
 
 import dataclasses
+import json
 import math
 import statistics
+from pathlib import Path
 
 import pytest
 
@@ -155,3 +157,71 @@ def test_lock_golden_thresholds_uses_only_merge_successful_for_moves() -> None:
 
 def test_pilot_budget_cap_is_35() -> None:
     assert STAGE_BUDGET_USD["pilot"] == 35.0
+
+
+@pytest.mark.asyncio
+async def test_run_smoke_returns_integer_exit_code(tmp_path: Path) -> None:
+    """run_smoke completes without exception and returns an int exit code."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_lab_trauma_session import _FixedActionLLM
+
+    llm = _FixedActionLLM(action="swipe_up")
+    from nova_agent.lab.trauma_ablation import EXIT_OK, EXIT_SMOKE_HALT, run_smoke
+
+    rc = await run_smoke(
+        run_dir=tmp_path,
+        n=1,  # 1 session to keep test fast
+        seed_base_start=20260507,
+        decision_llm=llm,
+        deliberation_llm=llm,
+        reflection_llm=llm,
+        T_placeholder=16,
+        max_moves=200,
+    )
+    assert rc in (EXIT_OK, EXIT_SMOKE_HALT)
+
+
+def test_surrogate_reads_locked_t(tmp_path: Path) -> None:
+    pilot_dir = tmp_path / "pilot"
+    pilot_dir.mkdir(parents=True)
+    (pilot_dir / "locked_T.json").write_text(
+        json.dumps(
+            {
+                "locked_T": 8,
+                "pilot_censoring_rate": 0.05,
+                "calibration_failure": False,
+            }
+        )
+    )
+    from nova_agent.lab.trauma_ablation import _read_locked_t
+
+    T, censoring_rate = _read_locked_t(pilot_dir / "locked_T.json")
+    assert T == 8
+    assert censoring_rate == pytest.approx(0.05)
+
+
+def test_surrogate_aborts_when_pilot_failure(tmp_path: Path) -> None:
+    pilot_dir = tmp_path / "pilot"
+    pilot_dir.mkdir(parents=True)
+    (pilot_dir / "locked_T.json").write_text(
+        json.dumps(
+            {
+                "locked_T": None,
+                "calibration_failure": True,
+            }
+        )
+    )
+    from nova_agent.lab.trauma_ablation import _read_locked_t
+
+    with pytest.raises(RuntimeError, match="calibration_failure"):
+        _read_locked_t(pilot_dir / "locked_T.json")
+
+
+def test_surrogate_blocks_without_golden_gate(tmp_path: Path) -> None:
+    """run_surrogate must raise before running sessions if golden not passed."""
+    from nova_agent.lab.trauma_ablation import _check_golden_gate_passed
+
+    with pytest.raises((FileNotFoundError, RuntimeError)):
+        _check_golden_gate_passed(tmp_path)
