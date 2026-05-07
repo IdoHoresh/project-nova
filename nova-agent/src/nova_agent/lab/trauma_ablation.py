@@ -1478,3 +1478,174 @@ async def run_surrogate(
         except ValueError:
             pass
     return EXIT_OK
+
+
+# -----------------------------------------------------------------------
+# Adjudication + main run (spec §3.4 + §3.5)
+# -----------------------------------------------------------------------
+
+
+@_dataclasses.dataclass(frozen=True)
+class AdjudicationResult:
+    d: float
+    ci_lo: float
+    ci_hi: float
+    p_value_one_sided: float
+    n_used: int
+    n_censored_cap: int
+    n_censored_zero_encounter: int
+    primary_pass: bool
+    secondary_d: float | None
+    r_off_mean: float
+    r_on_mean: float
+    anxiety_lift_off: float | None
+    anxiety_lift_on: float | None
+    sensitivity_predicate_firing_d: float | None
+    sensitivity_cap_exhaustion_count: int
+
+
+def _adjudicate(results: list[SessionResult]) -> AdjudicationResult:
+    deltas = [r.delta_i for r in results if r.delta_i is not None]
+    n_cap = sum(1 for r in results if r.censored_cap_y_on or r.censored_cap_y_off)
+    n_zero = sum(
+        1
+        for r in results
+        if r.delta_i is None and not (r.censored_cap_y_on or r.censored_cap_y_off)
+    )
+    on_vals = [r.r_post_y_on for r in results if r.r_post_y_on is not None]
+    off_vals = [r.r_post_y_off for r in results if r.r_post_y_off is not None]
+    r_on_mean = sum(on_vals) / len(on_vals) if on_vals else 0.0
+    r_off_mean = sum(off_vals) / len(off_vals) if off_vals else 0.0
+
+    if len(deltas) >= 2:
+        try:
+            d = paired_cohens_d(deltas)
+            ci_lo, ci_hi = paired_d_ci_95(deltas)
+            n = len(deltas)
+            t = d * (n**0.5)
+            p_one_sided = 0.5 * (1.0 - math.erf(t / (2.0**0.5)))
+        except ValueError:
+            d, ci_lo, ci_hi, p_one_sided = 0.0, 0.0, 0.0, 1.0
+    else:
+        d, ci_lo, ci_hi, p_one_sided = 0.0, 0.0, 0.0, 1.0
+
+    ppass = (
+        primary_pass(deltas, r_off_mean=r_off_mean, r_on_mean=r_on_mean)
+        if len(deltas) >= 2
+        else False
+    )
+
+    sec_deltas = [
+        (r.anxiety_lift_y_off - r.anxiety_lift_y_on)
+        for r in results
+        if r.anxiety_lift_y_off is not None and r.anxiety_lift_y_on is not None
+    ]
+    secondary_d: float | None
+    try:
+        secondary_d = paired_cohens_d(sec_deltas) if len(sec_deltas) >= 2 else None
+    except ValueError:
+        secondary_d = None
+
+    pred_deltas = [
+        r.delta_i for r in results if r.delta_i is not None and r.would_predicate_have_fired_y_on
+    ]
+    try:
+        sens_pred_d: float | None = paired_cohens_d(pred_deltas) if len(pred_deltas) >= 2 else None
+    except ValueError:
+        sens_pred_d = None
+
+    on_anx = [r.anxiety_lift_y_on for r in results if r.anxiety_lift_y_on is not None]
+    off_anx = [r.anxiety_lift_y_off for r in results if r.anxiety_lift_y_off is not None]
+    anx_on: float | None = sum(on_anx) / len(on_anx) if on_anx else None
+    anx_off: float | None = sum(off_anx) / len(off_anx) if off_anx else None
+
+    return AdjudicationResult(
+        d=d,
+        ci_lo=ci_lo,
+        ci_hi=ci_hi,
+        p_value_one_sided=p_one_sided,
+        n_used=len(deltas),
+        n_censored_cap=n_cap,
+        n_censored_zero_encounter=n_zero,
+        primary_pass=ppass,
+        secondary_d=secondary_d,
+        r_off_mean=r_off_mean,
+        r_on_mean=r_on_mean,
+        anxiety_lift_off=anx_off,
+        anxiety_lift_on=anx_on,
+        sensitivity_predicate_firing_d=sens_pred_d,
+        sensitivity_cap_exhaustion_count=n_cap,
+    )
+
+
+def _interpret(adj: AdjudicationResult) -> str:
+    if not adj.primary_pass:
+        return "Primary nulls → trauma demoted from architectural feature to UI flavor."
+    if adj.secondary_d is None or adj.secondary_d < 0.10:
+        return (
+            "Primary passes, secondary nulls → mechanism works behaviorally but "
+            "routes through planning/ToT/memory rather than affect lift. "
+            "Follow-up ADR amendment recommended."
+        )
+    return "Both pass → trauma validated as behavioral feature with affect-pathway expression."
+
+
+def _write_adjudication_md(path: Path, adj: AdjudicationResult) -> None:
+    lines = [
+        "# Phase 0.8 Trauma Ablation — Adjudication",
+        "",
+        "## Primary DV (gating, behavioral)",
+        f"- Paired Cohen's d: **{adj.d:.3f}**  (95% CI [{adj.ci_lo:.3f}, {adj.ci_hi:.3f}])",
+        f"- One-sided p-value (paired-t): {adj.p_value_one_sided:.4f}",
+        f"- N used: {adj.n_used}  (cap-censored: {adj.n_censored_cap}; "
+        f"zero-encounter-censored: {adj.n_censored_zero_encounter})",
+        f"- Mean rate Y_on:  {adj.r_on_mean:.3f}",
+        f"- Mean rate Y_off: {adj.r_off_mean:.3f}",
+        f"- **Pass/Fail:** {'PASS' if adj.primary_pass else 'FAIL'}",
+        "",
+        "## Secondary DV (descriptive)",
+        f"- Anxiety-lift paired-d: {adj.secondary_d if adj.secondary_d is not None else 'N/A'}",
+        f"- Mean anxiety lift Y_on:  {adj.anxiety_lift_on}",
+        f"- Mean anxiety lift Y_off: {adj.anxiety_lift_off}",
+        "",
+        "## Sensitivity",
+        f"- Predicate-firing subset paired-d: {adj.sensitivity_predicate_firing_d}",
+        f"- Cap-exhaustion sessions: {adj.sensitivity_cap_exhaustion_count}",
+        "",
+        "## Three-branch interpretation (spec §3.5)",
+        _interpret(adj),
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines))
+
+
+async def run_main(
+    *,
+    run_dir: Path,
+    n_additional: int,
+    seed_base_start: int,
+    decision_llm: Any,  # LLM
+    deliberation_llm: Any,  # LLM
+    reflection_llm: Any,  # LLM
+    surrogate_results: list[SessionResult] | None = None,
+    max_moves: int = MAX_MOVES_PHASE_08,
+) -> int:
+    """Main run: +N_additional paired sessions. Adjudicates cumulative results."""
+    locked_T, pilot_censoring = _read_locked_t(run_dir / "pilot" / "locked_T.json")
+    new_results, _halt = await _run_n_paired(
+        n=n_additional,
+        seed_base_start=seed_base_start,
+        run_dir=run_dir,
+        stage="main",
+        decision_llm=decision_llm,
+        deliberation_llm=deliberation_llm,
+        reflection_llm=reflection_llm,
+        T=locked_T,
+        max_moves=max_moves,
+        pilot_censoring_rate=pilot_censoring,
+    )
+    all_results = (surrogate_results or []) + new_results
+    _write_summary_csv(run_dir / "main" / "summary.csv", all_results)
+    adj = _adjudicate(all_results)
+    _write_adjudication_md(run_dir / "main" / "adjudication.md", adj)
+    return EXIT_OK

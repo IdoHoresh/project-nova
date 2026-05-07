@@ -255,3 +255,40 @@ def test_append_session_jsonl_accumulates(tmp_path: Path) -> None:
     assert len(lines) == 2
     row = json.loads(lines[0])
     assert row["seed_base"] == 0
+
+
+# --- Task 11: Main run + adjudication ---
+
+
+def test_adjudication_md_contains_required_sections(tmp_path: Path) -> None:
+    from nova_agent.lab.trauma_ablation import (
+        AdjudicationResult,
+        _write_adjudication_md,
+    )
+
+    adj = AdjudicationResult(
+        d=0.32,
+        ci_lo=0.05,
+        ci_hi=0.6,
+        p_value_one_sided=0.01,
+        n_used=68,
+        n_censored_cap=1,
+        n_censored_zero_encounter=1,
+        primary_pass=True,
+        secondary_d=0.20,
+        r_off_mean=0.30,
+        r_on_mean=0.18,
+        anxiety_lift_off=0.55,
+        anxiety_lift_on=0.40,
+        sensitivity_predicate_firing_d=0.34,
+        sensitivity_cap_exhaustion_count=1,
+    )
+    out_path = tmp_path / "adjudication.md"
+    _write_adjudication_md(out_path, adj)
+    text = out_path.read_text()
+    assert "Primary DV" in text
+    assert "Secondary DV" in text
+    assert "PASS" in text
+    assert "Sensitivity" in text
+    assert "0.32" in text
+    assert "Three-branch" in text
