@@ -11,7 +11,10 @@ retrieval boost, extinction, inert cap) collapse naturally.
 from __future__ import annotations
 
 import hashlib
+import math
 from typing import Final
+
+from nova_agent.perception.types import BoardState
 
 # ---------------------------------------------------------------------
 # Anchor dictionary (spec §3.2 + Appendix A)
@@ -90,3 +93,47 @@ _ALL_ORBITS: Final[tuple[tuple[tuple[int, ...], ...], ...]] = tuple(
 ANCHOR_ORBIT: Final[tuple[tuple[tuple[int, ...], ...], ...]] = _dedupe(_ALL_ORBITS)
 
 ANCHOR_HASH: Final[str] = hashlib.sha256(repr(sorted(ANCHOR_ORBIT)).encode("utf-8")).hexdigest()
+
+# ---------------------------------------------------------------------
+# Distance metric (spec §3.2)
+# ---------------------------------------------------------------------
+
+MAX_RANK: Final[int] = 11  # log2(2048)
+
+
+def rank(tile: int) -> int:
+    """Tile-rank encoding: empty=0, 2=1, 4=2, ..., 2048=11.
+
+    Maps 2048's multiplicative tile values to an additive integer rank so that
+    a 256↔128 mismatch contributes 1 to per-board distance, equivalent to a
+    4↔2 mismatch — reflects the multiplicative structure of 2048 rather than
+    raw arithmetic.
+    """
+    if tile == 0:
+        return 0
+    if tile < 0:
+        raise ValueError(f"tile must be non-negative, got {tile}")
+    rank_value = int(math.log2(tile))
+    if 2**rank_value != tile:
+        raise ValueError(f"tile must be a power of 2, got {tile}")
+    if rank_value > MAX_RANK:
+        raise ValueError(f"tile {tile} exceeds MAX_RANK {MAX_RANK}")
+    return rank_value
+
+
+def _l1_log2(
+    a: list[list[int]] | tuple[tuple[int, ...], ...],
+    b: list[list[int]] | tuple[tuple[int, ...], ...],
+) -> int:
+    """Per-board L1 distance over per-cell ranks. Range: [0, 16 × 11] = [0, 176]."""
+    return sum(abs(rank(a[r][c]) - rank(b[r][c])) for r in range(4) for c in range(4))
+
+
+def min_orbit_distance(board: BoardState) -> int:
+    """Minimum L1-log2 distance from `board` to any anchor in ANCHOR_ORBIT."""
+    return min(_l1_log2(board.grid, anchor) for anchor in ANCHOR_ORBIT)
+
+
+def is_trap_proximate(board: BoardState, *, T: int) -> bool:
+    """True iff min_orbit_distance(board) <= T."""
+    return min_orbit_distance(board) <= T
