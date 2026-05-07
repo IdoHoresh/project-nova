@@ -20,6 +20,28 @@ from nova_agent.lab.sim import Scenario
 MAX_MOVES: Final[int] = 50
 
 SCENARIOS: dict[str, Scenario] = {
+    "near-dead": Scenario(
+        id="near-dead",
+        initial_grid=[
+            [512, 256, 128, 64],
+            [32, 16, 8, 4],
+            [2, 8, 16, 32],
+            [64, 128, 0, 0],
+        ],
+        initial_score=8452,
+        seed_base=20260508,
+        pattern_name="near-dead-staircase",
+        high_tile_magnitude=512,
+        expected_cliff_window=(1, 30),
+        source_citation=(
+            "Phase 0.8 trauma-ablation game-1 trigger. Staircase layout "
+            "(512→2) with no adjacent equal tiles and only 2 empty cells. "
+            "Spawned 2/4 tiles cannot merge with existing ≥8 tiles; board "
+            "fills to game-over within ~5–30 moves. force_trauma_on_game_over "
+            "bypass ensures tag_aversive fires on any game-over regardless "
+            "of is_catastrophic_loss predicate."
+        ),
+    ),
     "fresh-start": Scenario(
         id="fresh-start",
         initial_grid=[[0] * 4 for _ in range(4)],
