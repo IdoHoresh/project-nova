@@ -1,9 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "statusLine": {
-    "type": "command",
-    "command": "bash /Users/idohoresh/Desktop/a/.claude/scripts/flash-status.sh 2>/dev/null || echo '⚡ Flash status unavailable'"
-  },
   "_comment": "Team-wide Claude Code settings for Project Nova. COMMITTED. Personal overrides go in settings.local.json (gitignored). Read CLAUDE.md before adjusting this file.",
   "env": {
     "_comment": "Default subagent model = Haiku 4.5. Detailed plans + Haiku implementer = competent + cheap (Superpowers 4 / Jesse Vincent). Per-dispatch override `model: \"sonnet\"` for cognitive-layer subagent tasks. Falls back to Sonnet automatically if Haiku reports out-of-depth.",
