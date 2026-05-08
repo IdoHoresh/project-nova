@@ -400,7 +400,9 @@ async def _run_carla_trial(
             if is_game_over(board):
                 break
 
-            mode = "tot" if should_use_tot(board=board, affect=affect.vector) else "react"
+            empty_cells_pre = board.empty_cells
+            tot_fired = should_use_tot(board=board, affect=affect.vector)
+            mode = "tot" if tot_fired else "react"
             try:
                 if mode == "tot":
                     decision = await tot_decider.decide(
@@ -427,20 +429,25 @@ async def _run_carla_trial(
             cost_usd += _carla_call_cost_estimate(mode)
 
             io.apply_move(SwipeDirection(decision.action))
+            empty_cells_post = io.read_board().empty_cells
+
+            # Memory retrieval is disabled in cliff-test trials to remove
+            # network/DB latency as a confound; trauma detection requires
+            # retrieval, so trauma_intensity is always 0.0 here. Routed
+            # through a local so the per_move event records the wire value
+            # instead of a hard-coded literal.
+            trauma_intensity_passed = 0.0
 
             # Affect update — only when there is a previous board to compute
             # RPE against (first move has no reference point).
             if prev_board is not None and prev_decision is not None:
                 score_delta = board.score - prev_board.score
                 delta_rpe = compute_rpe(actual_score_delta=score_delta, board_before=prev_board)
-                # Memory retrieval is disabled in cliff-test trials to remove
-                # network/DB latency as a confound; trauma detection requires
-                # retrieval, so trauma_intensity is always 0.0 here.
                 v = affect.update(
                     rpe=delta_rpe,
                     empty_cells=board.empty_cells,
                     terminal=False,
-                    trauma_intensity=0.0,
+                    trauma_intensity=trauma_intensity_passed,
                 )
                 anxiety_trajectory.append(v.anxiety)
 
@@ -462,6 +469,30 @@ async def _run_carla_trial(
                     source_reasoning=prev_decision.reasoning,
                     affect=snapshot,
                 )
+
+            # Phase 0.7a §2.4 — per-move trajectory event. Fires every move
+            # so analyze_results.py can build a paired (empty_cells, anxiety)
+            # Pearson series. On move 0 the affect vector is the initial
+            # baseline (no update yet) and trauma_intensity_passed is 0.0.
+            await bus.publish(
+                "per_move",
+                {
+                    "move_index": move_index,
+                    "empty_cells_pre": empty_cells_pre,
+                    "empty_cells_post": empty_cells_post,
+                    "affect_vector": {
+                        "valence": affect.vector.valence,
+                        "arousal": affect.vector.arousal,
+                        "dopamine": affect.vector.dopamine,
+                        "frustration": affect.vector.frustration,
+                        "anxiety": affect.vector.anxiety,
+                        "confidence": affect.vector.confidence,
+                    },
+                    "trauma_intensity": trauma_intensity_passed,
+                    "tot_fired": tot_fired,
+                    "chosen_action": decision.action,
+                },
+            )
 
             prev_board = board
             prev_decision = decision

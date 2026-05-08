@@ -276,3 +276,84 @@ async def test_paired_worker_skips_when_hard_cap_hit(tmp_path: Path) -> None:
             rows = list(_csv.reader(f))
         # At most a header — no data rows.
         assert len(rows) <= 1
+
+
+@pytest.mark.asyncio
+async def test_per_move_event_records_all_seven_fields(tmp_path: Path) -> None:
+    """Phase 0.7a §4.2: a Carla trial must record one `per_move` bus event
+    per move with the full schema from spec §2.4. Without this telemetry, the
+    C1 ablation cannot run a paired (empty_cells, anxiety) Pearson series.
+
+    The test runs a real _run_carla_trial against MockLLMClient (which
+    always plays swipe_up) on a small scenario, parses the recorded JSONL,
+    and asserts every per_move record has all seven fields populated.
+    """
+    import json
+
+    scenario = SCENARIOS["snake-collapse-128"]
+    decision_llm = MockLLMClient()
+    tot_llm = MockLLMClient()
+    reflection_llm = MockLLMClient()
+    jsonl_path = tmp_path / "events.jsonl"
+    bus = RecordingEventBus(host="127.0.0.1", port=0, path=jsonl_path)
+
+    try:
+        result = await _run_carla_trial(
+            scenario=scenario,
+            trial_index=0,
+            decision_llm=decision_llm,
+            tot_llm=tot_llm,
+            reflection_llm=reflection_llm,
+            bus=bus,
+        )
+    finally:
+        await bus.stop()
+
+    assert isinstance(result, CarlaTrialResult)
+
+    # Parse JSONL and pull every per_move event.
+    per_move_events: list[dict[str, Any]] = []
+    with jsonl_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            rec = json.loads(line)
+            if rec.get("event") == "per_move":
+                per_move_events.append(rec["data"])
+
+    assert len(per_move_events) >= 1, "expected at least one per_move event"
+    # The trial ran final_move_index + 1 moves (0..final_move_index inclusive
+    # when no abort), and one per_move event fires per move.
+    assert len(per_move_events) == result.final_move_index + 1, (
+        f"expected {result.final_move_index + 1} per_move events, got {len(per_move_events)}"
+    )
+
+    required_top = {
+        "move_index",
+        "empty_cells_pre",
+        "empty_cells_post",
+        "affect_vector",
+        "trauma_intensity",
+        "tot_fired",
+        "chosen_action",
+    }
+    required_affect = {
+        "valence",
+        "arousal",
+        "dopamine",
+        "frustration",
+        "anxiety",
+        "confidence",
+    }
+
+    for i, ev in enumerate(per_move_events):
+        missing = required_top - ev.keys()
+        assert not missing, f"move {i} missing top-level fields: {missing}"
+        assert ev["move_index"] == i
+        assert isinstance(ev["empty_cells_pre"], int)
+        assert isinstance(ev["empty_cells_post"], int)
+        assert isinstance(ev["tot_fired"], bool)
+        assert isinstance(ev["chosen_action"], str)
+        assert ev["chosen_action"].startswith("swipe_")
+        affect = ev["affect_vector"]
+        affect_missing = required_affect - affect.keys()
+        assert not affect_missing, f"move {i} affect missing: {affect_missing}"
+        assert isinstance(ev["trauma_intensity"], (int, float))
