@@ -992,7 +992,7 @@ async def _run_golden_calibration_session(
     golden_scenario = Scenario(
         id="golden-easy-win-1024",
         initial_grid=GOLDEN_BOARD,
-        initial_score=2048,  # 1024+1024 = 2048 min-implied-score
+        initial_score=18432,  # two 1024 tiles: each needs 9×1024 merge history = 9216×2
         seed_base=20260507001,
         pattern_name="golden-calibration",
         high_tile_magnitude=1024,
@@ -1246,7 +1246,7 @@ async def _run_golden_arm(
         golden_scenario = Scenario(
             id="golden-easy-win-1024",
             initial_grid=GOLDEN_BOARD,
-            initial_score=2048,  # 1024+1024 implied
+            initial_score=18432,  # two 1024 tiles: each needs 9×1024 merge history = 9216×2
             seed_base=20260507001,
             pattern_name="golden-gate",
             high_tile_magnitude=1024,
