@@ -100,8 +100,8 @@ def test_inert_aversive_not_returned():
 def test_aversive_radius_widens_low_relevance_above_floor():
     """A live aversive record at low-but-above-floor relevance gets boosted."""
     q = [1.0, 0.0, 0.0, 0.0]
-    # cosine ≈ 0.555 — above 0.4 floor, below 0.7 cap → widened to 0.7
-    embedding_low = [1.0, 1.5, 0.0, 0.0]
+    # cosine ≈ 0.693 — above 0.66 floor, below 0.7 cap → widened to 0.7
+    embedding_low = [0.48, 0.5, 0.0, 0.0]
     aversive = _rec(
         "aversive_one",
         embedding=embedding_low,

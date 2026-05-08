@@ -49,7 +49,22 @@ class RetrievedMemory:
     relevance: float  # raw cosine; pre-boost; for graded-affect formula (ADR-0012)
 
 
-AVERSIVE_RELEVANCE_FLOOR = 0.4
+# AVERSIVE_RELEVANCE_FLOOR: raised from 0.4 to 0.66 per ADR-0012.
+# Empirically derived: instrumented Phase 0.8 §3.2b golden Y_on run on
+# 2026-05-08 surfaced 52 aversive-tagged candidates (across 12 distinct
+# moves of 150) with raw cosine in the [0.1714, 0.6525] band on the
+# trivial easy-win-1024 golden board where the gate's specificity null
+# demands zero aversive surfacing. New floor = 0.66 is the smallest
+# value strictly excluding the observed max leak (0.6525); preserves
+# headroom for legitimate cliff-board surfacing (Phase 0.7 cliff-test
+# trap-similar embeddings produce cosines well above 0.7 for true
+# matches; retrieval is a coarse pre-filter, not the trap-detection
+# layer).
+# Run artifact: nova-agent/runs/2026-05-08-phase08-run-rerun/golden/
+# retrievals_y_on_-8570493758050568564.jsonl (gitignored; reproducible
+# via `python -m nova_agent.lab.trauma_ablation --stage=golden
+# --log-retrievals --tier=production`).
+AVERSIVE_RELEVANCE_FLOOR = 0.66
 AVERSIVE_WIDENED_RELEVANCE = 0.7
 
 
