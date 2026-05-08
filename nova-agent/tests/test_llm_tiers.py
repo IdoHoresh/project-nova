@@ -13,9 +13,9 @@ def test_invalid_raises(monkeypatch):
         tiers.current_tier()
 
 
-def test_dev_uses_flash_for_decision(monkeypatch):
+def test_dev_uses_haiku_for_decision(monkeypatch):
     monkeypatch.setenv("NOVA_TIER", "dev")
-    assert tiers.model_for("decision") == "gemini-2.5-flash"
+    assert tiers.model_for("decision") == "claude-haiku-4-5"
 
 
 def test_production_uses_sonnet_for_tot(monkeypatch):

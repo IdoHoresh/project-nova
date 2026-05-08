@@ -9,9 +9,10 @@ plumbing   — UI-dev / smoke / infra-only mode. Flash-Lite EVERYWHERE.
              tuning Arbiter thresholds, evaluating Tree-of-Thoughts
              quality, or any cognitive-judgment work; Flash-Lite trims
              multi-step deliberation and produces shallow reasoning.
-dev        — daily Flash-everywhere (Flash-Lite is rejected for decisions
-             due to documented JSON reliability issues; kept for
-             importance_rating only).
+dev        — daily Haiku-everywhere (swapped from Flash 2026-05-08: Flash
+             hits 10K req/day hard cap mid-run; Haiku has no per-day
+             request cap). Flash-Lite kept for importance_rating (separate
+             quota, unaffected by the Flash daily limit).
 production — Week 5–6 §8 acceptance: Flash for decision/bot, Sonnet 4.6
              for tot + reflection. ToT moved Pro → Sonnet 4.6 in
              ADR-0006 Amendment 1 (2026-05-06) — the 1000 RPD daily
@@ -49,11 +50,11 @@ TIERS: dict[TierName, TierConfig] = {
         "importance_rating": "gemini-2.5-flash-lite",
     },
     "dev": {
-        "decision": "gemini-2.5-flash",
-        "tot": "gemini-2.5-flash",
+        "decision": "claude-haiku-4-5",
+        "tot": "claude-haiku-4-5",
         "tot_branches": 3,
-        "reflection": "gemini-2.5-flash",
-        "perception_fallback": "gemini-2.5-flash",
+        "reflection": "claude-haiku-4-5",
+        "perception_fallback": "claude-haiku-4-5",
         "importance_rating": "gemini-2.5-flash-lite",
     },
     "production": {
