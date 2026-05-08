@@ -22,6 +22,7 @@ from nova_agent.llm.factory import build_llm
 from nova_agent.memory.aversive import AVERSIVE_TAG, is_catastrophic_loss, tag_aversive
 from nova_agent.llm.protocol import LLM
 from nova_agent.memory.coordinator import MemoryCoordinator
+from nova_agent.memory.retrieval import AVERSIVE_RELEVANCE_FLOOR
 from nova_agent.memory.semantic import SemanticStore
 from nova_agent.memory.types import AffectSnapshot, MemoryRecord
 from nova_agent.reflection import run_reflection
@@ -219,7 +220,26 @@ async def run() -> None:
                 break
 
             retrieved = memory.retrieve_for_board(board, k=5)
-            trauma_active = any(AVERSIVE_TAG in m.record.tags for m in retrieved)
+            # Graded trauma intensity (ADR-0012 §Decision Change 1).
+            # Affect-side cosine gate: aversive memories below the empirical
+            # floor are surfaced for cognitive context (React/ToT prompts) but
+            # do NOT contribute to anxiety. Preserves importance-bump design
+            # intent (vigilance-via-salience) while gating affect amplitude on
+            # similarity. See ADR-0012 §Implementation.
+            aversive_in_retrieval = [
+                m
+                for m in retrieved
+                if AVERSIVE_TAG in m.record.tags and m.relevance > AVERSIVE_RELEVANCE_FLOOR
+            ]
+            if aversive_in_retrieval:
+                best = max(
+                    aversive_in_retrieval,
+                    key=lambda m: m.record.aversive_weight * m.relevance,
+                )
+                trauma_intensity = best.record.aversive_weight * best.relevance
+            else:
+                trauma_intensity = 0.0
+            trauma_active = trauma_intensity > 0.0
             await bus.publish(
                 "memory_retrieved",
                 {
@@ -271,12 +291,11 @@ async def run() -> None:
             if prev_board is not None and prev_decision is not None:
                 score_delta = board.score - prev_board.score
                 delta_rpe = compute_rpe(actual_score_delta=score_delta, board_before=prev_board)
-                trauma_triggered = any(AVERSIVE_TAG in m.record.tags for m in retrieved)
                 v = affect.update(
                     rpe=delta_rpe,
                     empty_cells=board.empty_cells,
                     terminal=False,
-                    trauma_triggered=trauma_triggered,
+                    trauma_intensity=trauma_intensity,
                 )
                 snapshot = AffectSnapshot(
                     valence=v.valence,
@@ -296,7 +315,7 @@ async def run() -> None:
                         "anxiety": v.anxiety,
                         "confidence": v.confidence,
                         "rpe": delta_rpe,
-                        "trauma_triggered": trauma_triggered,
+                        "trauma_intensity": trauma_intensity,
                     },
                 )
                 rec_id = memory.write_move(

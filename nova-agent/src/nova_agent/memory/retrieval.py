@@ -46,9 +46,25 @@ def combined_score(
 class RetrievedMemory:
     record: MemoryRecord
     score: float
+    relevance: float  # raw cosine; pre-boost; for graded-affect formula (ADR-0012)
 
 
-AVERSIVE_RELEVANCE_FLOOR = 0.4
+# AVERSIVE_RELEVANCE_FLOOR: raised from 0.4 to 0.66 per ADR-0012.
+# Empirically derived: instrumented Phase 0.8 §3.2b golden Y_on run on
+# 2026-05-08 surfaced 52 aversive-tagged candidates (across 12 distinct
+# moves of 150) with raw cosine in the [0.1714, 0.6525] band on the
+# trivial easy-win-1024 golden board where the gate's specificity null
+# demands zero aversive surfacing. New floor = 0.66 is the smallest
+# value strictly excluding the observed max leak (0.6525); preserves
+# headroom for legitimate cliff-board surfacing (Phase 0.7 cliff-test
+# trap-similar embeddings produce cosines well above 0.7 for true
+# matches; retrieval is a coarse pre-filter, not the trap-detection
+# layer).
+# Run artifact: nova-agent/runs/2026-05-08-phase08-run-rerun/golden/
+# retrievals_y_on_-8570493758050568564.jsonl (gitignored; reproducible
+# via `python -m nova_agent.lab.trauma_ablation --stage=golden
+# --log-retrievals --tier=production`).
+AVERSIVE_RELEVANCE_FLOOR = 0.66
 AVERSIVE_WIDENED_RELEVANCE = 0.7
 
 
@@ -76,6 +92,7 @@ def retrieve_top_k(
     w_importance: float = 1.0,
     w_relevance: float = 1.0,
     aversive_relevance_floor: float = AVERSIVE_RELEVANCE_FLOOR,
+    retrieval_log: list[dict[str, object]] | None = None,
 ) -> list[RetrievedMemory]:
     now = now or datetime.now(timezone.utc)
     scored: list[RetrievedMemory] = []
@@ -83,7 +100,8 @@ def retrieve_top_k(
         if is_inert(rec):
             continue
         rec_recency = recency_score(last_accessed=rec.last_accessed or rec.timestamp, now=now)
-        rec_relevance = cosine(query_embedding, rec.embedding)
+        raw_relevance = cosine(query_embedding, rec.embedding)
+        rec_relevance = raw_relevance
         if AVERSIVE_TAG in rec.tags and rec_relevance > aversive_relevance_floor:
             rec_relevance = max(rec_relevance, AVERSIVE_WIDENED_RELEVANCE)
             rec_relevance *= rec.aversive_weight
@@ -96,7 +114,16 @@ def retrieve_top_k(
             w_importance=w_importance,
             w_relevance=w_relevance,
         )
-        scored.append(RetrievedMemory(record=rec, score=s))
+        scored.append(RetrievedMemory(record=rec, score=s, relevance=raw_relevance))
+        if retrieval_log is not None:
+            retrieval_log.append(
+                {
+                    "record_id": rec.id,
+                    "aversive_tag_present": AVERSIVE_TAG in rec.tags,
+                    "raw_cosine": raw_relevance,
+                    "score": s,
+                }
+            )
     scored.sort(key=lambda x: x.score, reverse=True)
     capped = _enforce_aversive_cap(scored)
     return capped[:k]

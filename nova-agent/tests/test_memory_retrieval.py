@@ -100,8 +100,8 @@ def test_inert_aversive_not_returned():
 def test_aversive_radius_widens_low_relevance_above_floor():
     """A live aversive record at low-but-above-floor relevance gets boosted."""
     q = [1.0, 0.0, 0.0, 0.0]
-    # cosine ≈ 0.555 — above 0.4 floor, below 0.7 cap → widened to 0.7
-    embedding_low = [1.0, 1.5, 0.0, 0.0]
+    # cosine ≈ 0.693 — above 0.66 floor, below 0.7 cap → widened to 0.7
+    embedding_low = [0.48, 0.5, 0.0, 0.0]
     aversive = _rec(
         "aversive_one",
         embedding=embedding_low,
@@ -157,3 +157,75 @@ def test_decayed_aversive_surfaces_less_than_full_weight():
     out_full = retrieve_top_k(candidates=[full], query_embedding=q, k=1)
     out_decayed = retrieve_top_k(candidates=[decayed], query_embedding=q, k=1)
     assert out_full[0].score > out_decayed[0].score
+
+
+def test_retrieved_memory_exposes_raw_cosine_relevance() -> None:
+    """RetrievedMemory.relevance is the raw cosine, NOT the post-boost score input.
+
+    The graded-affect formula in ADR-0012 multiplies aversive_weight × relevance,
+    where `relevance` must be the raw cosine. The aversive widen-and-multiply path
+    only affects the score used for top-k ranking; the surfaced relevance stays raw.
+    """
+    q = [1.0, 0.0, 0.0, 0.0]
+    # cosine([1,1,0,0], [1,0,0,0]) = 1 / sqrt(2) ≈ 0.7071
+    aversive = _rec(
+        "av_one",
+        embedding=[1.0, 1.0, 0.0, 0.0],
+        tags=[AVERSIVE_TAG],
+        aversive_weight=1.0,
+    )
+    out = retrieve_top_k(candidates=[aversive], query_embedding=q, k=1)
+    assert len(out) == 1
+    assert math.isclose(out[0].relevance, 1.0 / math.sqrt(2.0), abs_tol=1e-6)
+
+
+def test_retrieved_memory_relevance_is_raw_even_when_boost_widens() -> None:
+    """Aversive boost widens the score but leaves `relevance` at raw cosine."""
+    q = [1.0, 0.0, 0.0, 0.0]
+    # cosine ≈ 0.555 — above 0.4 floor, below 0.7 cap → score widened to 0.7 × weight
+    aversive = _rec(
+        "av_widened",
+        embedding=[1.0, 1.5, 0.0, 0.0],
+        tags=[AVERSIVE_TAG],
+        aversive_weight=1.0,
+    )
+    out = retrieve_top_k(candidates=[aversive], query_embedding=q, k=1)
+    assert len(out) == 1
+    raw = cosine(q, [1.0, 1.5, 0.0, 0.0])
+    assert math.isclose(out[0].relevance, raw, abs_tol=1e-6)
+
+
+def test_retrieve_top_k_appends_per_candidate_log() -> None:
+    """When `retrieval_log` is provided, retrieve_top_k records every non-inert candidate.
+
+    Each entry: {record_id, aversive_tag_present, raw_cosine, score}. Order is
+    insertion order over `candidates` (post-inert filter). Truncation to top-k
+    happens AFTER logging — the log captures the full cosine distribution.
+    """
+    q = [1.0, 0.0, 0.0, 0.0]
+    av = _rec("av", embedding=[1.0, 1.0, 0.0, 0.0], tags=[AVERSIVE_TAG], aversive_weight=1.0)
+    nonav = _rec("nonav", embedding=[1.0, 0.0, 0.0, 0.0])
+    inert = _rec(
+        "inert", embedding=[1.0, 0.0, 0.0, 0.0], tags=[AVERSIVE_TAG], aversive_weight=0.001
+    )
+    log: list[dict[str, object]] = []
+    retrieve_top_k(
+        candidates=[av, nonav, inert],
+        query_embedding=q,
+        k=1,
+        retrieval_log=log,
+    )
+    ids = [e["record_id"] for e in log]
+    assert ids == ["av", "nonav"]  # inert filtered before log
+    av_entry = next(e for e in log if e["record_id"] == "av")
+    assert av_entry["aversive_tag_present"] is True
+    assert math.isclose(float(av_entry["raw_cosine"]), 1.0 / math.sqrt(2.0), abs_tol=1e-6)
+    assert "score" in av_entry
+
+
+def test_retrieve_top_k_default_does_not_log() -> None:
+    """Default invocation (no retrieval_log) does not allocate or write."""
+    q = [1.0, 0.0, 0.0, 0.0]
+    rec = _rec("r", embedding=[1.0, 0.0, 0.0, 0.0])
+    out = retrieve_top_k(candidates=[rec], query_embedding=q, k=1)
+    assert len(out) == 1

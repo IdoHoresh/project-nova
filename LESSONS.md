@@ -21,6 +21,141 @@
 
 ## Engineering / debugging gotchas
 
+### Trajectory-asymptote on fixes ≠ methodology trigger — investigate at $0 before escalating scope
+
+**Date:** 2026-05-08 | **Cost:** ~$8 burned across three failed verification rounds + ~2h of /redteam back-and-forth proposing anchor-grid pull-forward (Phase 0.9 work) before a $0 code-read + log-grep produced the load-bearing diagnostic data.
+
+**What happened:** Phase 0.8 §3.2b golden gate (strict-zero null, threshold = 0.0) failed three times with mean_anxiety_Y_on shipping at 0.378 → 0.052 → 0.0358. Trajectory was asymptotic, not converging. My instinct was to frame the next decision as binary tactical-vs-methodology: ship a narrow floor raise (tactical) OR pull forward Phase 0.9 anchor-grid retrieval (methodology). /redteam round 7 caught the missing third axis: the empirical trace already on disk had a tight-cluster single-move signature (5 above-floor leaks at cosine [0.6971, 0.7008] all on game-2 move 14) that pointed to a structural cause, not a distribution-tail problem. A 5-min code-read of `retrieve_top_k` + targeted JSONL grep falsified the multi-fire hypothesis cleanly, identified the actual root cause (`tag_aversive` writes 5 correlated precondition embeddings per catastrophe; aversive cap collapses to 1; single fire decays into 0.04 mean), and made the methodology escalation moot — ε-tolerance with drift-tolerant sizing absorbed the irreducible residual.
+
+**Lesson:** When a series of fixes asymptotes toward a small residual (each fix delivers diminishing returns), the trajectory itself is a diagnostic signal: the leak is on a different axis than the one being targeted. Before the next paid run or scope escalation, ask "what's the actual signature in the data we already have?" → "is my hypothesis testable from existing logs?" → "how cheap is the test?" Hypothesis falsification at $0 is the highest-leverage move at this point — and it's right *even when the falsified hypothesis turns out wrong*. Investigate-first sequencing and accurate-prediction are independent properties; only the first matters for the decision.
+
+**How to apply:**
+
+- Treat any 3-fix-and-asymptote pattern as a hard pause for code-read before authorizing another paid run. Specifically: enumerate every plausible leak path on the same axis as the prior fixes (here: cosine-floor-tightening) AND every plausible leak path on adjacent axes (importance-bypass, multi-fire, write-time clustering, downstream cap/max collapse). Existing logs answer most of these for free.
+- Tight-cluster single-event signatures (e.g., 5 leaks with 0.4% cosine spread, all on one move) are structural — *not* distribution tails. Statistical residuals fit a tail; single-event clusters point to a deterministic upstream cause. Distinguish before sizing tolerance bands.
+- For Phase-N+1 scope pull-forward proposals: Phase 0.9 work belongs in Phase 0.9 unless an evidence-driven case demands otherwise. Three failed fixes is a *signal to diagnose harder*, not to escalate scope. The pitch reads worse when the escalation isn't grounded in identified-root-cause data.
+- Diagnostic-question hierarchy when fixes asymptote: (1) what does the data show *exactly*? (2) is the next hypothesis testable from existing artifacts? (3) is there a free verification step before the next paid one?
+
+---
+
+### Cap/max-select collapses render upstream multiplicity cosmetic for the downstream observable
+
+**Date:** 2026-05-08 | **Cost:** ~30 min of considering Option F (`tag_aversive` dedupe writes) as a gate-residual fix before /redteam round 8 caught that cap+max-select downstream collapses already reduced 5 → 1, making the dedupe ~0.5% material on the gate observable.
+
+**What happened:** Investigating the 5× single-move pattern in Phase 0.8 golden Y_on showed `tag_aversive(precondition_records=last_5)` writes 5 correlated aversive memories per catastrophe (5 consecutive late-game boards with similar embeddings). Initial fix proposal: dedupe writes — keep 1 record per catastrophe instead of 5, "attack the clustering at source." But `_enforce_aversive_cap` retains only the highest-scoring aversive in top-k (1 of 5), and `main.py:274`'s `max(aversive_in_retrieval, key=lambda m: m.record.aversive_weight * m.relevance)` selects max even if the cap weren't filtering. The single record that survives both collapses is the one with the highest cosine — exactly what would survive under any reasonable dedupe heuristic too. Whether the input set is 5 or 1, exactly ONE aversive memory feeds `trauma_intensity` per move call. The gate residual difference between writing 5 vs 1: ~0.5% (0.7008 max-of-5 vs 0.6975 mean cosine of 5).
+
+**Lesson:** When a downstream stage (cap, max-select, top-k truncation, last-write-wins, deduplication) collapses N candidates to 1 before reaching the observable, fixing the upstream N is cosmetic for that observable. The intervention has to target the COLLAPSE-SURVIVING value (its cosine, weight, amplitude, or whatever feeds the metric), not the input set size. Upstream multiplicity may have value elsewhere (audit log size, store footprint, debug clarity) but those are separate concerns from the observable being measured.
+
+**How to apply:**
+
+- When a fix proposal targets reducing N upstream of a downstream observable, check the path from N to the observable. If any cap, max-select, top-k, or dedupe-by-key step exists between N and the observable, the proposal is cosmetic for that observable — reframe or relocate it.
+- Generalizable check: walk the data path from candidate-set → observable. Identify every collapse operator. The first collapse downstream of N determines whether N matters for the observable. Upstream multiplicity *before* that collapse is invisible to the observable.
+- This is also a /redteam protocol addition: when a proposal claims to "attack the source" of a metric, audit the data path. "Attacking the source" of a max-collapsed metric means raising or lowering the collapse-surviving value, not changing the input cardinality.
+- Concretely for Project Nova's affect path: aversive memory writes pass through `_enforce_aversive_cap` (top-k retention) and the affect-side `max(aversive_in_retrieval, key=...)` selector. Interventions on `tag_aversive` write semantics are downstream-cosmetic for `trauma_intensity` unless they change the cosine/weight of the surviving record.
+
+---
+
+### ε-tolerance walk-back of a prior-round rejection is data-driven epistemic update, not weakness
+
+**Date:** 2026-05-08 | **Cost:** ~1h of /redteam rounds 7-8 hesitating on ε-tolerance because round-2 had explicitly rejected it; would have shipped Option C (anchor-grid pull-forward, ~80-150 LOC + new ADR) on principle when ε-tolerance with drift-tolerant sizing (~5-8 LOC + ADR amendment) was the right answer empirically.
+
+**What happened:** ADR-0012 round-2 brainstorm rejected ε-tolerance gate softening on the grounds that softening the gate weakens the spec's specificity claim ("trauma must be specific, not generalized"). When three fixes failed to close the gate at strict-zero, my framing kept dismissing ε as "walks back round-2 decision" — pejorative framing that biased the option list. /redteam round 7 caught it: round-2 rejected ε *without empirical floor*; round-7 trajectory data (mean asymptotes at 0.04 across runs) provides the empirical anchor that round-2 didn't have. Updating the prior decision based on new evidence is rigor (epistemic update), not weakness (walk-back). The honest framing: "round-2 rejected ε on principle without data; round-7 trajectory data quantifies the irreducible residual; ε floor at 0.06 with 50% headroom over 0.039 max is data-defended, with `max(μ + 3σ, 0.06)` formula adapting as σ measured."
+
+**Lesson:** When a prior brainstorm round rejected an option *without empirical data*, and the current round produces data the prior round lacked, the rejection is reopenable. Calling the reopening a "walk-back" loads the option negatively before its merits are evaluated. Frame it as epistemic update: "new evidence justifies revisiting the prior decision." Without this reframe, /redteam dynamics drift toward sticky-prior bias — the team avoids re-examining rejections even when new data warrants it.
+
+**How to apply:**
+
+- /redteam protocol addition: when an option is dismissed with reference to a prior round's rejection, ask "did the prior round have the data we have now?" If no, the rejection is reopenable on epistemic grounds — evaluate the option as if fresh, then weigh against the prior reasoning.
+- ADR amendments based on new data are first-class epistemic updates. The §Alternatives section should explicitly cite the round and the evidence: "Round-N rejected on basis X; Round-M reopened given evidence Y; final decision Z." This makes the epistemic trajectory legible to future-you and external reviewers.
+- Pejorative framing words to flag during /redteam: "walk-back," "concede," "reverse," "abandon." These connote weakness. Neutral epistemic-update framing: "revise on new evidence," "tighten on additional data," "refine the prior." Use neutral framing in option descriptions; reserve loaded framing for actual mistakes (e.g., a hypothesis that turned out factually wrong).
+- For magnitude-bounded constants (ε floors, tolerances, thresholds): trajectory data across N runs is the appropriate empirical anchor. Sizing rules: floor = max(μ + 3σ across N≥10 runs, absolute_safe_minimum). Recompute as N grows; escalate if floor exceeds a pre-registered ceiling.
+
+---
+
+### Calibration gates are not behavioral gates — null = specificity, not "did the agent still succeed"
+
+**Date:** 2026-05-08 | **Cost:** would have shipped wrong fix shape (ε-tolerance gate softening) if /redteam round 3 hadn't reopened the framing. ~2h of back-and-forth before catching it.
+
+**What happened:** Phase 0.8 golden gate (§3.2b) failed: `mean_anxiety_Y_on = 0.157 > threshold = 0.0`. Initial /redteam round 1 challenged the magnitude: "0.157 on a 0–1 scale is small — does it actually corrupt move selection? If the agent still merged correctly on the golden board, this is cosmetic noise, not a behavioral failure." The framing pulled the brainstorm toward "verify behavior on golden board first" before fixing the mechanism.
+
+This is the wrong question for a calibration gate. The golden board has only one move (1024+1024 → trivial merge). Behavior cannot fork. The gate's purpose is *specificity*: trauma must fire on trap-similar boards only, not generalize to easy boards. The null hypothesis is "no false positives on trivial inputs." `mean_anxiety = 0.157 ≠ 0` falsifies the null *regardless of whether the agent merged correctly*. Behavioral tests belong on hard boards (cliff scenarios) where moves fork; calibration tests live on trivial boards where they don't.
+
+**Lesson:** Calibration gates and behavioral gates measure different things. Calibration null = specificity (mechanism doesn't fire on inputs the spec says it shouldn't). Behavioral null = mechanism doesn't corrupt action selection. A calibration failure ("0.157 ≠ 0 on the easy board") cannot be downgraded to "but did it still play correctly?" — that's a category error.
+
+**How to apply:**
+
+- When a /redteam challenge frames a calibration result as "but did it actually break behavior?", check whether the test scenario allows behavior to vary. If the test deliberately uses a trivial input (golden board, sentinel data), the answer is "no, and that's the point" — calibration is the right frame.
+- When designing a gate, write the null in the spec body in the form "mechanism does NOT fire under condition X." If condition X is a triviality (no trauma signal present), the null is specificity. If condition X is "complex environment," the null is behavioral robustness. Don't conflate.
+- Spec defenses table should explicitly distinguish: "this gate is calibration (specificity) — behavioral gates are §X.Y." Future-reviewer who asks "why didn't you measure behavior here?" gets the right answer.
+
+---
+
+### When calibration baseline is strict-zero, any nonzero mechanism output = false positive — tighten the upstream surfacer, don't soften the gate
+
+**Date:** 2026-05-08 | **Cost:** 1 round of /redteam with wrong recommendation locked in (ε=0.05 gate floor) before the next round caught the framing error.
+
+**What happened:** Phase 0.8 golden gate baseline: `μ_anxiety = 0`, `σ_anxiety = 0` over 10 Y_off sessions on the golden board. Threshold `μ + 2σ = 0.0` is a knife-edge. Y_on with the binary `trauma_triggered` flag fired +0.3 on the golden board (false positive on the cliff-trauma memory leaking into an easy-board retrieval), producing `mean_anxiety = 0.157 > 0` — fail.
+
+Initial fix instinct: "any nonzero mechanism output fails the strict-zero gate, so add an ε-tolerance floor: `threshold = max(μ + 2σ, 0.05)`." This advocates softening the gate. /redteam round 3 caught the framing error: the gate isn't broken — *retrieval is leaking*. Cosine 0.4–0.6 between random board states is permissive; that's where false positives surface. Strict-zero is the correct encoding of §3.2b's intent ("trauma must be specific, not generalized"). Adding ε weakens the spec and masks the leak.
+
+**Lesson:** When a calibration gate has strict-zero null and the mechanism fails it, the question is "what is leaking into the test?" — not "how do we tolerate the leak?" The gate's intent encodes the spec. Softening the gate weakens what the spec measures. Find the upstream surfacer (retrieval permissiveness, predicate over-firing, sentinel contamination) and tighten *that*.
+
+**How to apply:**
+
+- When a /redteam round proposes a tolerance band, ε floor, or "soft" version of a gate, the steelman question is: does the proposal preserve the spec's intent, or does it merely make the test easier to pass? If the latter, reject and look upstream.
+- Strict-zero null = strong specificity claim. The proper response to mechanism failure under strict-zero is mechanism redesign + upstream tightening, not gate relaxation. Reserve ε-tolerance for cases where the baseline is genuinely noisy (σ > 0 with finite-sample variance).
+- ADR framing: when defending a gate threshold, name the intent it encodes. "Threshold = 0 because §X.Y requires zero false positives on trivial inputs" reads stronger than "threshold = 0 because empirical baseline is 0." The first explains *why* the gate stays strict even after a failure; the second invites softening.
+
+---
+
+### Verify the metric you claim alignment with before drafting the ADR
+
+**Date:** 2026-05-08 | **Cost:** caught mid-/redteam (~5 min preflight read of `retrieval.py:81`) before drafting ADR-0012 with wrong framing. Walking back the framing post-draft would have cost ~30 min + a confusing artifact.
+
+**What happened:** Drafting ADR-0012 (graded affect response replacing binary trauma flag), I asserted "metric-aligned with §3.2 anchor-grid DV" as a defense for using `aversive_weight × relevance` from retrieval scoring. /redteam round 2 challenged the assumption: does retrieval actually use anchor-grid distance, or does it use something else (cosine, Hamming, Euclidean)? Preflight read of `retrieval.py:81`:
+
+```python
+rec_relevance = cosine(query_embedding, rec.embedding)
+```
+
+Retrieval uses LLM-embedding cosine, not anchor-grid distance. The "metric-aligned with §3.2" claim is false. ADR-0012 must drop the alignment claim and explicitly name "cosine retrieval may surface embedding-similar boards that aren't trap-similar; anchor-grid retrieval gate deferred to Phase 0.9" as a known limitation.
+
+**Lesson:** When an ADR claims architectural alignment between two surfaces (retrieval ↔ DV metric, cache ↔ store, bus protocol ↔ event schema), verify the claim by reading both source surfaces before locking the ADR's framing. Surface names ("relevance," "score," "similarity") are labels; the actual operation matters. An ADR drafted on assumed-but-unverified premises is a worse pitch artifact than a 5-min preflight delay.
+
+**How to apply:**
+
+- Before drafting an ADR with an alignment claim, list the two surfaces and `grep -n` the actual metric/operation each uses. Read the source. If they differ, either (a) the alignment claim is wrong (drop it), or (b) the alignment is a *future* refactor (name it explicitly as a follow-up).
+- The same discipline applies to "reuses existing X" claims in ADRs — verify X exists in the form claimed. The ADR review checklist should include "for every alignment / reuse claim: cite the file:line that demonstrates the claim."
+- /redteam protocol addition: when reviewing an ADR draft, scan for alignment-style claims and check each one against source. Treats them like spec preconditions — verify, don't assume.
+
+---
+
+### Cross-check formulas across bullets when sizing magnitude-bounded fixes — bullets using different implicit formulas → wrong constant
+
+**Date:** 2026-05-08 | **Cost:** caught mid-/redteam by round 3 before locking ε=0.05 as the gate floor. Sloppy bullet table would have shipped with internally-inconsistent math defending the constant.
+
+**What happened:** Proposing ε=0.05 as a tolerance floor for the golden gate, I sized the constant via a bullet table of expected single-fire bumps:
+
+| Scenario | Stated bump | Formula that matches |
+|---|---|---|
+| Just-tagged, relevance 0.41 | 0.003 | `0.3 × 1.0 × ((0.41 − 0.4)/0.6) = 0.005` (graded-above-floor) |
+| Just-tagged, relevance 0.7 | 0.21 | `0.3 × 1.0 × 0.7 = 0.21` (raw multiply) |
+| 3-survival, relevance 0.7 | 0.026 | `0.3 × 0.125 × 0.7 = 0.026` (raw multiply) |
+
+Two different formulas in the same table, defending the same proposal. The 0.41 bullet implicitly used graded-above-floor while the proposal text said "raw `aversive_weight × relevance`." /redteam round 3 caught the inconsistency: math drives the ε choice; sloppy math → wrong ε.
+
+The ε=0.05 was further off-target because it was sized against the post-extinction (3-survival, weight=0.125) population, but the actual Y_on test population on golden is just-tagged (weight=1.0). Wrong target population → ε buffers a population that doesn't exist in the test.
+
+**Lesson:** When sizing a magnitude-bounded constant (ε floor, threshold, tolerance, budget cap), pin one formula explicitly *before* computing the bound. Cross-check every bullet uses that formula. Cross-check that the bullets cover the actual population the constant must defend against, not a convenient adjacent one.
+
+**How to apply:**
+
+- When defending a constant in a brainstorm or ADR, write the formula on its own line *before* the bullet table. Every bullet's number must trace back to that formula with explicit substitutions.
+- For population coverage: name the actual test scenario the constant defends against (here: "just-tagged Y_on on golden, weight=1.0"). Bullets must include that scenario, not just adjacent populations (3-survival post-extinction). The ε for the actual population may differ by an order of magnitude.
+- /redteam protocol — when the recommendation includes a numerical constant, the round-2 reviewer's job is to check (a) does every bullet use the same formula, (b) does the bullet table cover the actual test population, (c) does the numerical defense survive substituting the worst-case input the constant must reject.
+
+---
+
 ### Production-code predicate names are labels, not contracts — enumerate every conjunctive gate before depending on the predicate firing
 
 **Date:** 2026-05-07 | **Cost:** would have been a complete power-calc collapse on Phase 0.8 if we'd locked the wrong game-1 starting condition; caught mid-spec via /redteam verification before any code shipped. Three independent strikes during the Phase 0.8 brainstorm:

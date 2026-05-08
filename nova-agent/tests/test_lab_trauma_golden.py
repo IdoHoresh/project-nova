@@ -1,4 +1,5 @@
 # nova-agent/tests/test_lab_trauma_golden.py
+import inspect
 import json
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from nova_agent.lab.trauma_ablation import (
     _read_golden_calibration,
     _check_golden_gate_passed,
 )
+from nova_agent.lab import trauma_ablation as ta
 
 
 # --- Seed namespace isolation ---
@@ -78,3 +80,22 @@ def test_check_golden_gate_passed_succeeds_on_pass_status(tmp_path: Path) -> Non
     (golden_dir / "result.json").write_text(json.dumps({"status": "pass"}))
     # Must not raise
     _check_golden_gate_passed(tmp_path)
+
+
+# --- Phase 0.8 §3.2b retrieval logging signatures ---
+
+
+def test_run_golden_arm_signature_accepts_log_retrievals() -> None:
+    """_run_golden_arm accepts log_retrievals kwarg (Phase 0.8 §3.2b precheck)."""
+    sig = inspect.signature(ta._run_golden_arm)
+    assert "log_retrievals" in sig.parameters
+    param = sig.parameters["log_retrievals"]
+    assert param.default is False
+    assert param.annotation in (bool, "bool")
+
+
+def test_run_golden_gate_forwards_log_retrievals() -> None:
+    """run_golden_gate exposes log_retrievals and defaults False."""
+    sig = inspect.signature(ta.run_golden_gate)
+    assert "log_retrievals" in sig.parameters
+    assert sig.parameters["log_retrievals"].default is False

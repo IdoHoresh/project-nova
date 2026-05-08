@@ -38,6 +38,9 @@ def _to_gemini_content(messages: list[dict[str, Any]]) -> list[types.Content]:
     return contents
 
 
+_REQUEST_TIMEOUT_S = 60  # Flash averages ~2s; 60s catches silent hangs without false positives
+
+
 class GeminiLLM:
     def __init__(
         self,
@@ -47,7 +50,10 @@ class GeminiLLM:
         daily_cap_usd: float,
         thinking_budget: int | None = None,
     ):
-        self._client = genai.Client(api_key=api_key)
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=_REQUEST_TIMEOUT_S * 1000),
+        )
         self.model = model
         self.budget = BudgetGuard(daily_cap_usd=daily_cap_usd)
         # thinking_budget=None → SDK default (model decides). thinking_budget=0
@@ -59,6 +65,32 @@ class GeminiLLM:
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
     def complete(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        response_schema: type[BaseModel] | None = None,
+    ) -> tuple[str, Usage]:
+        try:
+            return self._complete_inner(
+                system=system,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                response_schema=response_schema,
+            )
+        except Exception as exc:
+            log.error(
+                "llm.gemini.error",
+                model=self.model,
+                exc_type=type(exc).__name__,
+                exc=str(exc),
+            )
+            raise
+
+    def _complete_inner(
         self,
         *,
         system: str,

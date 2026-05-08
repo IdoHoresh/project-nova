@@ -215,6 +215,25 @@ trigger.
 
 ---
 
+### Phase 0.8 Runner — Live Progress Logging `[NEW]`
+
+The trauma-ablation runner (`trauma_ablation.py`) emits only LLM
+token/cost lines during execution. There is no session-progress output
+(`"session 3/20 complete"`, gate pass/fail, DV values per session).
+Makes it impossible to monitor long pilot/surrogate/main runs without
+reading raw events.jsonl bus records.
+
+**Gap:** Add structlog lines at session boundaries: session index,
+arm (y_on/y_off), game number (1/2), r_post value, running halt
+checks. One line per K=2 pair completion. Gate-level summary on
+stage exit (locked_T, pass/fail, exit code).
+
+**Action:** Small addition to `run_pilot`, `run_surrogate`, `run_main`
+inner loops. No architecture change. Pick up when next touching the
+runner.
+
+---
+
 ## Deferred — off-current-thesis, revisit post-Phase 4
 
 ### Adversarial "Boredom" Explorer `[deferred]`

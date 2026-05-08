@@ -9,9 +9,10 @@ plumbing   — UI-dev / smoke / infra-only mode. Flash-Lite EVERYWHERE.
              tuning Arbiter thresholds, evaluating Tree-of-Thoughts
              quality, or any cognitive-judgment work; Flash-Lite trims
              multi-step deliberation and produces shallow reasoning.
-dev        — daily Flash-everywhere (Flash-Lite is rejected for decisions
-             due to documented JSON reliability issues; kept for
-             importance_rating only).
+dev        — Flash-everywhere (reverted from Haiku 2026-05-08: Anthropic
+             529 overloaded errors killed pilot mid-run; Flash quota resets
+             daily at midnight Pacific and is sufficient for one full pilot
+             run ~4K calls). Flash-Lite kept for importance_rating.
 production — Week 5–6 §8 acceptance: Flash for decision/bot, Sonnet 4.6
              for tot + reflection. ToT moved Pro → Sonnet 4.6 in
              ADR-0006 Amendment 1 (2026-05-06) — the 1000 RPD daily

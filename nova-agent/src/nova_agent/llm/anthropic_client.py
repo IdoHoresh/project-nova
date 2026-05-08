@@ -16,7 +16,7 @@ class AnthropicLLM:
         self.model = model
         self.budget = BudgetGuard(daily_cap_usd=daily_cap_usd)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=30))
     def complete(
         self,
         *,
@@ -34,6 +34,30 @@ class AnthropicLLM:
         # future ADR if drift surfaces.
         del response_schema  # explicit unused-arg hint for readers
 
+        try:
+            return self._complete_inner(
+                system=system,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except Exception as exc:
+            log.error(
+                "llm.anthropic.error",
+                model=self.model,
+                exc_type=type(exc).__name__,
+                exc=str(exc),
+            )
+            raise
+
+    def _complete_inner(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+    ) -> tuple[str, Usage]:
         resp = self._client.messages.create(
             model=self.model,
             system=system,

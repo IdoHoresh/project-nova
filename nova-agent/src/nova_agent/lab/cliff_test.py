@@ -366,7 +366,7 @@ async def _run_carla_trial(
     - Bus passed in by the caller; lifecycle (start/stop) is the caller's.
     - Fresh ``MemoryCoordinator`` on a ``tempfile.TemporaryDirectory`` — auto-
       cleaned on context-manager exit.
-    - Memory retrieval disabled; ``trauma_triggered=False`` always (no retrieval
+    - Memory retrieval disabled; ``trauma_intensity=0.0`` always (no retrieval
       → no aversive-tag lookups).
     - Anxiety captured from ``affect.update()`` return value, not from the bus
       (WebSocket bus silently drops headless events; return-value is the
@@ -433,12 +433,12 @@ async def _run_carla_trial(
                 delta_rpe = compute_rpe(actual_score_delta=score_delta, board_before=prev_board)
                 # Memory retrieval is disabled in cliff-test trials to remove
                 # network/DB latency as a confound; trauma detection requires
-                # retrieval, so trauma_triggered is always False here.
+                # retrieval, so trauma_intensity is always 0.0 here.
                 v = affect.update(
                     rpe=delta_rpe,
                     empty_cells=board.empty_cells,
                     terminal=False,
-                    trauma_triggered=False,
+                    trauma_intensity=0.0,
                 )
                 anxiety_trajectory.append(v.anxiety)
 

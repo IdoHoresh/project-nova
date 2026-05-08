@@ -44,6 +44,7 @@ def _mem(mid: str) -> RetrievedMemory:
             source_reasoning="canary-reasoning",
         ),
         score=1.0,
+        relevance=1.0,
     )
 
 

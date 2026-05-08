@@ -22,7 +22,7 @@ class AffectState:
         rpe: float,
         empty_cells: int,
         terminal: bool,
-        trauma_triggered: bool,
+        trauma_intensity: float,
     ) -> AffectVector:
         v = self.vector
         valence = v.valence * 0.95
@@ -42,8 +42,7 @@ class AffectState:
         arousal += 0.4 * pressure + 0.2 * abs(rpe)
 
         anxiety += 0.7 * max(0.0, (3 - empty_cells) / 3)
-        if trauma_triggered:
-            anxiety += 0.3
+        anxiety += 0.3 * _clamp(trauma_intensity, 0.0, 1.0)
         if terminal:
             anxiety = 1.0
 
