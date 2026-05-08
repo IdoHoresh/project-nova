@@ -137,7 +137,8 @@ def test_lock_golden_thresholds_computes_correctly() -> None:
     mu = 6.0  # mean of [2,4,6,8,10]
     sigma = statistics.stdev([2, 4, 6, 8, 10])
     assert thresholds["move_threshold"] == math.ceil(mu + sigma)
-    assert thresholds["anxiety_threshold"] == pytest.approx(0.1 + 2 * 0.0, abs=1e-9)
+    # mu_a = 0.1, sigma_a = 0 → mu + 3σ = 0.1 → max(0.1, 0.06) = 0.1
+    assert thresholds["anxiety_threshold"] == pytest.approx(0.1, abs=1e-9)
 
 
 def test_lock_golden_thresholds_uses_only_merge_successful_for_moves() -> None:
@@ -152,7 +153,17 @@ def test_lock_golden_thresholds_uses_only_merge_successful_for_moves() -> None:
     all_anx = [0.2] * 8 + [0.5] * 2
     mu_a = statistics.mean(all_anx)
     sigma_a = statistics.stdev(all_anx)
-    assert thresholds["anxiety_threshold"] == pytest.approx(mu_a + 2 * sigma_a)
+    # max(μ + 3σ, 0.06) — round-8 ADR-0012 amendment
+    assert thresholds["anxiety_threshold"] == pytest.approx(max(mu_a + 3 * sigma_a, 0.06))
+
+
+def test_lock_golden_thresholds_floor_when_zero_variance() -> None:
+    """Strict-zero baseline: σ=0 → mu+3σ=mu; floor 0.06 absorbs irreducible residual."""
+    # Y_off baseline scenario: all sessions report mean_anxiety=0.0 (no aversive on Y_off)
+    sessions = [{"moves_to_merge": 1, "mean_anxiety": 0.0}] * 10
+    thresholds = _lock_golden_thresholds(sessions)
+    # mu_a = 0, sigma_a = 0 → mu+3σ = 0 → max(0, 0.06) = 0.06 (floor active)
+    assert thresholds["anxiety_threshold"] == pytest.approx(0.06, abs=1e-9)
 
 
 def test_pilot_budget_cap_is_35() -> None:

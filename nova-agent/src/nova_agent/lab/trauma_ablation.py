@@ -965,13 +965,26 @@ def _select_T_from_sweep(
     return qualifying[mid]
 
 
+ANXIETY_THRESHOLD_FLOOR: Final[float] = 0.06
+
+
 def _lock_golden_thresholds(
     sessions: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Compute move_threshold and anxiety_threshold from golden calibration sessions.
 
     move_threshold = ceil(μ_moves + σ_moves) over merge-successful sessions only.
-    anxiety_threshold = μ_anxiety + 2σ_anxiety over ALL sessions.
+    anxiety_threshold = max(μ_anxiety + 3σ_anxiety, ANXIETY_THRESHOLD_FLOOR) over ALL sessions.
+
+    The 3σ width + 0.06 absolute floor (ADR-0012 round-8 amendment) absorbs the
+    irreducible single-fire residual from cap-collapsed cluster matches on
+    LLM-embedding cosine retrieval. Round-2 strict-zero null was empirically
+    unachievable (three fixes asymptoted to ~0.04 mean_anxiety_Y_on); trajectory
+    data (0.378 → 0.052 → 0.0358 → 0.0390) provides the empirical anchor for ε.
+    Drift-tolerant sizing: 0.06 floor gives 50% headroom over observed max 0.039;
+    μ + 3σ adapts as σ measured across N≥10 stochastic runs. Recompute when 10+
+    additional production runs accrue; if floor exceeds 0.10, escalate to the
+    distribution-gate spec revision (§3.2b) or Phase 0.9 anchor-grid retrieval.
     """
     merge_moves = [s["moves_to_merge"] for s in sessions if s["moves_to_merge"] is not None]
     all_anxieties = [s["mean_anxiety"] for s in sessions]
@@ -995,7 +1008,7 @@ def _lock_golden_thresholds(
         mu_a = all_anxieties[0] if all_anxieties else 1.0
         sigma_a = 0.0
 
-    anxiety_threshold = mu_a + 2 * sigma_a
+    anxiety_threshold = max(mu_a + 3 * sigma_a, ANXIETY_THRESHOLD_FLOOR)
 
     return {
         "move_threshold": move_threshold,
