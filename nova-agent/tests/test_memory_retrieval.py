@@ -157,3 +157,39 @@ def test_decayed_aversive_surfaces_less_than_full_weight():
     out_full = retrieve_top_k(candidates=[full], query_embedding=q, k=1)
     out_decayed = retrieve_top_k(candidates=[decayed], query_embedding=q, k=1)
     assert out_full[0].score > out_decayed[0].score
+
+
+def test_retrieved_memory_exposes_raw_cosine_relevance() -> None:
+    """RetrievedMemory.relevance is the raw cosine, NOT the post-boost score input.
+
+    The graded-affect formula in ADR-0012 multiplies aversive_weight × relevance,
+    where `relevance` must be the raw cosine. The aversive widen-and-multiply path
+    only affects the score used for top-k ranking; the surfaced relevance stays raw.
+    """
+    q = [1.0, 0.0, 0.0, 0.0]
+    # cosine([1,1,0,0], [1,0,0,0]) = 1 / sqrt(2) ≈ 0.7071
+    aversive = _rec(
+        "av_one",
+        embedding=[1.0, 1.0, 0.0, 0.0],
+        tags=[AVERSIVE_TAG],
+        aversive_weight=1.0,
+    )
+    out = retrieve_top_k(candidates=[aversive], query_embedding=q, k=1)
+    assert len(out) == 1
+    assert math.isclose(out[0].relevance, 1.0 / math.sqrt(2.0), abs_tol=1e-6)
+
+
+def test_retrieved_memory_relevance_is_raw_even_when_boost_widens() -> None:
+    """Aversive boost widens the score but leaves `relevance` at raw cosine."""
+    q = [1.0, 0.0, 0.0, 0.0]
+    # cosine ≈ 0.555 — above 0.4 floor, below 0.7 cap → score widened to 0.7 × weight
+    aversive = _rec(
+        "av_widened",
+        embedding=[1.0, 1.5, 0.0, 0.0],
+        tags=[AVERSIVE_TAG],
+        aversive_weight=1.0,
+    )
+    out = retrieve_top_k(candidates=[aversive], query_embedding=q, k=1)
+    assert len(out) == 1
+    raw = cosine(q, [1.0, 1.5, 0.0, 0.0])
+    assert math.isclose(out[0].relevance, raw, abs_tol=1e-6)

@@ -46,6 +46,7 @@ def combined_score(
 class RetrievedMemory:
     record: MemoryRecord
     score: float
+    relevance: float  # raw cosine; pre-boost; for graded-affect formula (ADR-0012)
 
 
 AVERSIVE_RELEVANCE_FLOOR = 0.4
@@ -83,7 +84,8 @@ def retrieve_top_k(
         if is_inert(rec):
             continue
         rec_recency = recency_score(last_accessed=rec.last_accessed or rec.timestamp, now=now)
-        rec_relevance = cosine(query_embedding, rec.embedding)
+        raw_relevance = cosine(query_embedding, rec.embedding)
+        rec_relevance = raw_relevance
         if AVERSIVE_TAG in rec.tags and rec_relevance > aversive_relevance_floor:
             rec_relevance = max(rec_relevance, AVERSIVE_WIDENED_RELEVANCE)
             rec_relevance *= rec.aversive_weight
@@ -96,7 +98,7 @@ def retrieve_top_k(
             w_importance=w_importance,
             w_relevance=w_relevance,
         )
-        scored.append(RetrievedMemory(record=rec, score=s))
+        scored.append(RetrievedMemory(record=rec, score=s, relevance=raw_relevance))
     scored.sort(key=lambda x: x.score, reverse=True)
     capped = _enforce_aversive_cap(scored)
     return capped[:k]
