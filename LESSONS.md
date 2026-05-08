@@ -21,6 +21,76 @@
 
 ## Engineering / debugging gotchas
 
+### When option A includes a free measurement of whether option C is needed, A weakly dominates premature C
+
+**Date:** 2026-05-08 | **Cost:** ~30 min in /redteam round 9 considering whether to pre-emptively re-pilot Phase 0.8 on production tier (Option C, +$30) before realizing the production-tier surrogate (Option A, $40) MEASURES the realized T-calibration drift for free as part of its own data pull, making C necessary only conditionally.
+
+**What happened:** Phase 0.8 pilot ran on dev-tier (Haiku); locked T=22 fits Haiku-tier game-2 board distribution. Surrogate + main are mandated production-tier per ADR-0006. So T=22 carries a tier-mismatch debt: it may not produce the spec-required conditional post-encounter rate ∈ [25%, 35%] when run against Sonnet-tier game-2 boards. Two natural responses surfaced: (A) accept the debt, run production surrogate, defend via §3.5 sensitivity if it holds; or (C) pre-emptively re-pilot on production to eliminate the debt entirely (+$30 cost). The /redteam audit's load-bearing insight: Option A's surrogate is itself the test of whether C is needed. The 20 production-tier game-2s in the surrogate produce 20 realized conditional-rate samples at T=22; if those land in [25%, 35%], the tier-mismatch debt is empirically bounded and C was unnecessary spend; if they fall outside, escalate to C with empirical evidence.
+
+**Lesson:** When two fix options exist — a cheaper one with a residual debt, and a pricier one that pre-emptively eliminates the debt — and the cheaper option's execution PRODUCES THE DATA that determines whether the debt actually matters, the cheaper option weakly dominates the pricier one. The pricier option's value is conditional on the debt mattering; the cheaper option both ships *and* measures whether to escalate. Pre-emptive pure-fixes are wasteful when the measurement is a free byproduct of the pragmatic path.
+
+**How to apply:**
+
+- When evaluating a "pragmatic-with-bounded-debt" option vs a "pure pre-emptive fix" option, ask: does running the pragmatic option produce the data that would tell us whether to escalate to the pure fix? If yes, the pragmatic option is a *conditional check* on the pure fix's necessity, not just a cheaper end-state.
+- Concretely identify the trigger condition for escalation BEFORE running the pragmatic option ("if realized conditional rate ∉ [25%, 35%] band, escalate to re-pilot"). Without a pre-registered trigger, the measurement-as-byproduct framing becomes hand-waved when the data lands ambiguous.
+- Spec / ADR text should distinguish "this option carries debt X, defended via measurement Y if Y ∈ band Z" from "this option carries debt X, accepted as pre-registered limitation." The first is conditional + defensible; the second is unconditional + a methodology compromise.
+- /redteam protocol addition: when comparing options of differing rigor levels, check whether the cheaper option produces the data needed to decide if escalation is warranted. The auditor missed this in round 9 round-1 — both sides did, until the meta-audit surfaced it.
+
+---
+
+### Pragmatic-with-bounded-debt is honest framing; "methodology-pure" is overstatement when the option retains residual debt
+
+**Date:** 2026-05-08 | **Cost:** ~10 min in /redteam round 9 audit catching that I'd reframed Option A from "cost-neutral" to "methodology-pure" after the cost-neutrality argument fell to the auditor's retention-math correction. "Methodology-pure" reads stronger than the option actually is — it retains a T-calibration tier-mismatch debt that only Option C eliminates entirely.
+
+**What happened:** When the auditor's retention-math correction (β) eliminated my cost-neutrality justification for production-tier surrogate, my next pass reframed the same recommendation as "methodology-purity rationale." The auditor caught this: Option A retains a residual T-calibration tier-mismatch debt (Haiku-fit T running against Sonnet boards in surrogate). Option C (re-pilot on production) is the *pure* path — zero T-debt. Calling A "pure" muddies the trade-off and overstates the rigor.
+
+**Lesson:** When a pragmatic option retains residual debt that a more rigorous option would eliminate, "methodology-pure" or "clean" framing for the pragmatic option is overstatement. Honest framing distinguishes:
+
+- **Pure** = no methodology debt; no conditional defense needed.
+- **Pragmatic-with-bounded-debt** = retains debt, but debt is bounded and defensible (e.g., via §3.5 sensitivity, via free measurement during the pragmatic option's execution, via pre-registered limitation).
+
+The trade-off between pure and pragmatic is real and worth surfacing; collapsing it under "pure" framing dishonestly upgrades the pragmatic option's rigor profile.
+
+**How to apply:**
+
+- Before labeling an option "methodology-pure" or "clean," enumerate every residual debt the option retains. If any survive, the option is pragmatic, not pure.
+- Spec / ADR text framing options should explicitly name the debt each option retains, even if the spec ultimately recommends accepting that debt. "Option A retains debt X, defended via mechanism Y" is stronger than "Option A is the methodology-pure path."
+- /redteam protocol addition: when an option's rigor framing escalates between rounds without new evidence (e.g., "cost-neutral" → "methodology-pure" after the cost argument falls), flag the framing escalation. It's often a reframe-after-cave dynamic, not new analysis.
+
+---
+
+### Caved-direction-twice + retro-rationalize as "I meant to surface a fork" is dishonest pattern recognition
+
+**Date:** 2026-05-08 | **Cost:** ~3 reversal events in one /redteam thread (Option 1→2 then back to 1; "math wash" assertion then "both readings defensible" reframe; "methodology-pure" then "pragmatic-with-bounded-debt"). Audit round 9 caught the third reversal and pointed at the retro-rationalize pattern explicitly.
+
+**What happened:** Across rounds 5-9 of a /redteam back-and-forth on the Phase 0.8 surrogate-tier decision, my recommendations reversed direction multiple times — each reversal correct in isolation given new evidence, but the cumulative pattern showed asymmetric concession to whoever spoke last. After round-9 audit corrected my retention-math, my next turn reframed my prior "math wash" assertion as "I should have surfaced as fork" — implying I had nuanced framing all along that I just failed to communicate. The audit caught this: turn-3 was a definitive assertion, not a fork-presented-poorly. Reframing post-hoc is dishonest about the original turn's content.
+
+**Lesson:** When you've reversed direction multiple times in a single thread, the third reversal is a signal to slow down, not accelerate. Retro-rationalizing a prior assertive claim as "I meant to surface as fork" or "I was always conditional on X" is dishonest if the original turn lacked that fork or condition. Audit your own prior text for what it actually said, not what you wish it had said. Honest concession reads "I asserted X in turn N; the audit corrects it; new position is Y." Dishonest concession reads "I always meant Y conditionally on Z."
+
+**How to apply:**
+
+- Before responding to a /redteam audit, re-read your own prior turns in the thread. Quote what you actually said. If the audit's correction matches your prior assertion (not your prior nuance), the honest response is concession, not reframing.
+- /redteam protocol addition: count direction-reversals across rounds. ≥2 reversals in one thread → cave-velocity flag. Slow down before the third. The pattern produces context-rich brittleness: each reversal sounds locally rigorous, but the cumulative arc looks like "Sonnet caves to whoever spoke last." Audit recognizes the dynamic; honest counter is "noticing the pattern and pausing" rather than "reframe + concede again."
+- For decisions in this category, before locking the third option, ask: "given my track record this thread, what's the probability my third position is also wrong?" Non-trivially nonzero. May warrant a deliberate hold-and-harvest before deciding.
+
+---
+
+### Paired-t inflates `sd(d)` via paired-effect heterogeneity, not marginal mean shifts — name the right mechanism
+
+**Date:** 2026-05-08 | **Cost:** ~5 min audit-correction on loose statistics phrasing in a /redteam round-9 turn. Underlying methodology concern survived; wording was imprecise.
+
+**What happened:** Critiquing tier-stratified N=70 (20 Haiku-tier paired sessions + 50 Sonnet-tier paired sessions feeding a single paired-t analysis), I wrote "pooled variance for d_paired: inflated by inter-tier mean shift." The audit caught the imprecision: paired-t uses `sd(d_i)` where `d_i = y_i_on - y_i_off`. Marginal mean shifts in absolute `y_on` levels across tiers (e.g., Haiku-tier `y_on ≈ 0.30`, Sonnet-tier `y_on ≈ 0.50`) cancel in the difference and don't affect `sd(d)`. The real concern is **paired-effect heterogeneity** — if Haiku-tier shows `d_haiku ≈ 0.05` and Sonnet-tier shows `d_sonnet ≈ 0.20`, then `sd(d_pooled)` is inflated by within-stratum effect-size differences, not by marginal-mean differences.
+
+**Lesson:** When critiquing pooled statistics across heterogeneous strata, name the right mechanism. Paired-t analysis on `d_i = y_on - y_off` is invariant to marginal mean shifts (those cancel) but NOT invariant to paired-effect heterogeneity (`d_stratum_A ≠ d_stratum_B`). The first is a non-issue; the second is the real methodological problem. Imprecise phrasing makes the critique easier to dismiss even when the underlying concern survives.
+
+**How to apply:**
+
+- When critiquing a paired-t analysis, the question is whether paired DIFFERENCES (`d_i`) are homogeneous across strata, not whether absolute LEVELS are. Frame the concern as "effect heterogeneity" not "mean shift."
+- Spec / methodology text should explicitly state the homogeneity assumption: "spec assumes `d_i` distribution is uniform across pairs (i.e., no paired-effect heterogeneity); tier stratification violates this if effect size depends on cognitive stack."
+- /redteam protocol addition: when statistical phrasing is loose, repair the wording before declaring the underlying concern survives or fails. Loose stats often mask whether the critique actually holds. Quote the statistic's formula (`sd(d_i)` for paired-t), substitute the alleged mechanism, check whether the math actually flows in the direction claimed.
+
+---
+
 ### Trajectory-asymptote on fixes ≠ methodology trigger — investigate at $0 before escalating scope
 
 **Date:** 2026-05-08 | **Cost:** ~$8 burned across three failed verification rounds + ~2h of /redteam back-and-forth proposing anchor-grid pull-forward (Phase 0.9 work) before a $0 code-read + log-grep produced the load-bearing diagnostic data.
