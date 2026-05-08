@@ -61,13 +61,24 @@ class MemoryCoordinator:
             return
         self.vector.upsert(rec.id, rec.embedding)
 
-    def retrieve_for_board(self, board: BoardState, k: int = 5) -> list[RetrievedMemory]:
+    def retrieve_for_board(
+        self,
+        board: BoardState,
+        k: int = 5,
+        *,
+        retrieval_log: list[dict[str, object]] | None = None,
+    ) -> list[RetrievedMemory]:
         emb = embed_board(board.grid)
         candidate_ids = [id_ for id_, _ in self.vector.search(emb, k=min(50, max(k * 10, 10)))]
         candidates = [r for r in (self.episodic.get(i) for i in candidate_ids) if r]
         if not candidates:
             return []
-        retrieved = retrieve_top_k(candidates=candidates, query_embedding=emb, k=k)
+        retrieved = retrieve_top_k(
+            candidates=candidates,
+            query_embedding=emb,
+            k=k,
+            retrieval_log=retrieval_log,
+        )
         if retrieved:
             self.episodic.batch_update_last_accessed(
                 [m.record.id for m in retrieved],

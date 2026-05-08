@@ -193,3 +193,39 @@ def test_retrieved_memory_relevance_is_raw_even_when_boost_widens() -> None:
     assert len(out) == 1
     raw = cosine(q, [1.0, 1.5, 0.0, 0.0])
     assert math.isclose(out[0].relevance, raw, abs_tol=1e-6)
+
+
+def test_retrieve_top_k_appends_per_candidate_log() -> None:
+    """When `retrieval_log` is provided, retrieve_top_k records every non-inert candidate.
+
+    Each entry: {record_id, aversive_tag_present, raw_cosine, score}. Order is
+    insertion order over `candidates` (post-inert filter). Truncation to top-k
+    happens AFTER logging — the log captures the full cosine distribution.
+    """
+    q = [1.0, 0.0, 0.0, 0.0]
+    av = _rec("av", embedding=[1.0, 1.0, 0.0, 0.0], tags=[AVERSIVE_TAG], aversive_weight=1.0)
+    nonav = _rec("nonav", embedding=[1.0, 0.0, 0.0, 0.0])
+    inert = _rec(
+        "inert", embedding=[1.0, 0.0, 0.0, 0.0], tags=[AVERSIVE_TAG], aversive_weight=0.001
+    )
+    log: list[dict[str, object]] = []
+    retrieve_top_k(
+        candidates=[av, nonav, inert],
+        query_embedding=q,
+        k=1,
+        retrieval_log=log,
+    )
+    ids = [e["record_id"] for e in log]
+    assert ids == ["av", "nonav"]  # inert filtered before log
+    av_entry = next(e for e in log if e["record_id"] == "av")
+    assert av_entry["aversive_tag_present"] is True
+    assert math.isclose(float(av_entry["raw_cosine"]), 1.0 / math.sqrt(2.0), abs_tol=1e-6)
+    assert "score" in av_entry
+
+
+def test_retrieve_top_k_default_does_not_log() -> None:
+    """Default invocation (no retrieval_log) does not allocate or write."""
+    q = [1.0, 0.0, 0.0, 0.0]
+    rec = _rec("r", embedding=[1.0, 0.0, 0.0, 0.0])
+    out = retrieve_top_k(candidates=[rec], query_embedding=q, k=1)
+    assert len(out) == 1

@@ -77,6 +77,7 @@ def retrieve_top_k(
     w_importance: float = 1.0,
     w_relevance: float = 1.0,
     aversive_relevance_floor: float = AVERSIVE_RELEVANCE_FLOOR,
+    retrieval_log: list[dict[str, object]] | None = None,
 ) -> list[RetrievedMemory]:
     now = now or datetime.now(timezone.utc)
     scored: list[RetrievedMemory] = []
@@ -99,6 +100,15 @@ def retrieve_top_k(
             w_relevance=w_relevance,
         )
         scored.append(RetrievedMemory(record=rec, score=s, relevance=raw_relevance))
+        if retrieval_log is not None:
+            retrieval_log.append(
+                {
+                    "record_id": rec.id,
+                    "aversive_tag_present": AVERSIVE_TAG in rec.tags,
+                    "raw_cosine": raw_relevance,
+                    "score": s,
+                }
+            )
     scored.sort(key=lambda x: x.score, reverse=True)
     capped = _enforce_aversive_cap(scored)
     return capped[:k]
