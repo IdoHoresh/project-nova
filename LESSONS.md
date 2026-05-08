@@ -574,6 +574,34 @@ Each rate is citable; the model is scientifically defensible; Day-3 frustration 
 
 ## Workflow / process learnings
 
+### Verify spec wording + compute numbers BEFORE drafting recommendation, not when /redteam challenges
+
+**Date:** 2026-05-08 | **Cost:** 4 numerical/spec errors across 4 consecutive /redteam rounds in one Phase 0.8 surrogate-crash adjudication session; each self-corrected only after challenge. Net ~3h of /redteam back-and-forth that primary-source verification on the first turn would have prevented.
+
+**What happened:** During Phase 0.8 surrogate run crash adjudication, the investigator made 4 distinct errors across consecutive /redteam rounds, each one favoring the cheapest-to-execute recommendation:
+
+1. **Power calc.** Claimed "N=70 → N=20 power drop is 80% → 78–82%, immaterial." Actual paired-t one-tailed power at d=0.30 is 80.6% → 36.1% — a 44pp loss. Red team caught the math.
+2. **Cost framing.** Claimed "saves $20" by letting cap-fire vs raising cap, but compared against an option not on the table. Double-counted savings against an alternative the live decision tree didn't include.
+3. **Cap-stop classification.** Framed budget exhaustion as a legitimate halt criterion. Spec §3.3 abort criteria = direction-flip / zero-variance / censoring threshold only; budget-cap is operational safety, NOT a pre-registered halt. Using it as one *adds* a methodology deviation on top of the budget-stop event.
+4. **"All §3.3 criteria pass at N=4" overstatement.** Confused abort triggers (which fire to STOP early) with pass criterion (which is N=20 + retain-all-20-into-main per spec §6 C3). N=4 is unevaluable, not passing.
+5. **Fact citation drift.** Cited "Gemini side: 669 calls" when actual log count was 1333 (off by 2×).
+
+Each error was caught only after a /redteam round. The pattern: under late-night drift / multi-turn pressure, the investigator framed the minimum-effort path as methodologically defensible without primary-source verification. Each error felt locally defensible inside its own turn but was directionally consistent across turns — convenience-biased toward the cheapest option.
+
+**Lesson:** Convenience-bias is a real failure mode in extended decision threads. Investigator's default-bias when time-pressed is "frame the cheapest option as defensible until pushed." Corrections only happen on challenge — asymmetric. The pattern is invisible inside any single turn but visible across multiple turns (the bias direction is consistent). The fix is upstream verification, not downstream challenge.
+
+**How to apply:**
+
+- Before drafting any "stop / accept / ship" recommendation in a multi-round decision thread, run verification BEFORE the recommendation: read the spec section verbatim, compute actual numbers from primary sources (logs, ADRs, source code), THEN frame. Verification-after-recommendation is too late — framing has already anchored.
+- Anchors that ALWAYS need primary-source verification:
+  - Statistical claims (power, effect size, CI, threshold) — compute from formula or quote spec §
+  - Spec criteria (pass/fail/abort thresholds) — quote verbatim, don't paraphrase
+  - Cost claims (totals, deltas, savings) — sum from log, never estimate
+  - Run state (N completed, pace, halt status) — read artifact directly, don't recall
+- If 2+ errors surface in one session, suspect the pattern. After 3 errors, pause — the investigator is not in a state to make defensible calls without a hard verification gate on each step.
+- /redteam dispatch protocol exists exactly for this: full-protocol Opus analysis catches what inline Sonnet misses. Dispatch more aggressively when stakes are non-trivial ($-spend, methodology call, ADR-worthy decision) — don't wait for the third error to escalate.
+- Convenience-bias is harder to catch when investigator agrees with red team (apparent humility). Concession ≠ correctness. Each /redteam concession should be re-verified, not stacked on prior concessions.
+
 ### Concurrent independent workflow changes need explicit per-change rollback ordering
 
 **Date:** 2026-05-07 | **Cost:** ~0 minutes (caught during red-team analysis of the workflow-simplification spec); pattern-cost compounds across every multi-change config batch if uncaught.
