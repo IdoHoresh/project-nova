@@ -22,6 +22,7 @@ from nova_agent.llm.factory import build_llm
 from nova_agent.memory.aversive import AVERSIVE_TAG, is_catastrophic_loss, tag_aversive
 from nova_agent.llm.protocol import LLM
 from nova_agent.memory.coordinator import MemoryCoordinator
+from nova_agent.memory.retrieval import AVERSIVE_RELEVANCE_FLOOR
 from nova_agent.memory.semantic import SemanticStore
 from nova_agent.memory.types import AffectSnapshot, MemoryRecord
 from nova_agent.reflection import run_reflection
@@ -219,8 +220,17 @@ async def run() -> None:
                 break
 
             retrieved = memory.retrieve_for_board(board, k=5)
-            # Graded trauma intensity (ADR-0012 §Decision Change 1)
-            aversive_in_retrieval = [m for m in retrieved if AVERSIVE_TAG in m.record.tags]
+            # Graded trauma intensity (ADR-0012 §Decision Change 1).
+            # Affect-side cosine gate: aversive memories below the empirical
+            # floor are surfaced for cognitive context (React/ToT prompts) but
+            # do NOT contribute to anxiety. Preserves importance-bump design
+            # intent (vigilance-via-salience) while gating affect amplitude on
+            # similarity. See ADR-0012 §Implementation.
+            aversive_in_retrieval = [
+                m
+                for m in retrieved
+                if AVERSIVE_TAG in m.record.tags and m.relevance > AVERSIVE_RELEVANCE_FLOOR
+            ]
             if aversive_in_retrieval:
                 best = max(
                     aversive_in_retrieval,

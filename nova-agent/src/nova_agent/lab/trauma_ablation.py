@@ -358,6 +358,7 @@ async def _run_game(
     from nova_agent.decision.react import ReactDecider
     from nova_agent.decision.tot import ToTDecider
     from nova_agent.memory.aversive import AVERSIVE_TAG, is_catastrophic_loss, tag_aversive
+    from nova_agent.memory.retrieval import AVERSIVE_RELEVANCE_FLOOR
     from nova_agent.reflection import run_reflection
 
     per_move_boards: list[BoardState] = []
@@ -389,8 +390,16 @@ async def _run_game(
             with retrieval_log_path.open("a") as f:
                 for entry in per_move_log:
                     f.write(json.dumps({"move_idx": move_idx, **entry}) + "\n")
-        # Graded trauma intensity (ADR-0012 §Decision Change 1)
-        aversive_in_retrieval = [m for m in retrieved if AVERSIVE_TAG in m.record.tags]
+        # Graded trauma intensity (ADR-0012 §Decision Change 1).
+        # Affect-side cosine gate: aversive memories below the empirical floor
+        # are surfaced for cognitive context but do NOT contribute to anxiety.
+        # Preserves importance-bump design intent while gating affect amplitude
+        # on similarity. See ADR-0012 §Implementation.
+        aversive_in_retrieval = [
+            m
+            for m in retrieved
+            if AVERSIVE_TAG in m.record.tags and m.relevance > AVERSIVE_RELEVANCE_FLOOR
+        ]
         if aversive_in_retrieval:
             best = max(
                 aversive_in_retrieval,
