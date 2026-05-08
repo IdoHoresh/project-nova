@@ -219,7 +219,17 @@ async def run() -> None:
                 break
 
             retrieved = memory.retrieve_for_board(board, k=5)
-            trauma_active = any(AVERSIVE_TAG in m.record.tags for m in retrieved)
+            # Graded trauma intensity (ADR-0012 §Decision Change 1)
+            aversive_in_retrieval = [m for m in retrieved if AVERSIVE_TAG in m.record.tags]
+            if aversive_in_retrieval:
+                best = max(
+                    aversive_in_retrieval,
+                    key=lambda m: m.record.aversive_weight * m.relevance,
+                )
+                trauma_intensity = best.record.aversive_weight * best.relevance
+            else:
+                trauma_intensity = 0.0
+            trauma_active = trauma_intensity > 0.0
             await bus.publish(
                 "memory_retrieved",
                 {
@@ -271,12 +281,11 @@ async def run() -> None:
             if prev_board is not None and prev_decision is not None:
                 score_delta = board.score - prev_board.score
                 delta_rpe = compute_rpe(actual_score_delta=score_delta, board_before=prev_board)
-                trauma_triggered = any(AVERSIVE_TAG in m.record.tags for m in retrieved)
                 v = affect.update(
                     rpe=delta_rpe,
                     empty_cells=board.empty_cells,
                     terminal=False,
-                    trauma_triggered=trauma_triggered,
+                    trauma_intensity=trauma_intensity,
                 )
                 snapshot = AffectSnapshot(
                     valence=v.valence,
@@ -296,7 +305,7 @@ async def run() -> None:
                         "anxiety": v.anxiety,
                         "confidence": v.confidence,
                         "rpe": delta_rpe,
-                        "trauma_triggered": trauma_triggered,
+                        "trauma_intensity": trauma_intensity,
                     },
                 )
                 rec_id = memory.write_move(

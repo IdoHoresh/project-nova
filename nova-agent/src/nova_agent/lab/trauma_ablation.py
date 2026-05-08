@@ -389,7 +389,17 @@ async def _run_game(
             with retrieval_log_path.open("a") as f:
                 for entry in per_move_log:
                     f.write(json.dumps({"move_idx": move_idx, **entry}) + "\n")
-        trauma_active = any(AVERSIVE_TAG in m.record.tags for m in retrieved)
+        # Graded trauma intensity (ADR-0012 §Decision Change 1)
+        aversive_in_retrieval = [m for m in retrieved if AVERSIVE_TAG in m.record.tags]
+        if aversive_in_retrieval:
+            best = max(
+                aversive_in_retrieval,
+                key=lambda m: m.record.aversive_weight * m.relevance,
+            )
+            trauma_intensity = best.record.aversive_weight * best.relevance
+        else:
+            trauma_intensity = 0.0
+        trauma_active = trauma_intensity > 0.0
 
         # Decide: ToT or React?
         use_tot = should_use_tot(board=board, affect=affect.vector)
@@ -415,7 +425,12 @@ async def _run_game(
         post_board = sim_io.read_board()
         per_move_boards.append(post_board)
 
-        # Track anxiety
+        # Track anxiety. NOTE: lag-1 capture — this records the anxiety value
+        # produced by the PREVIOUS move's affect.update (which runs after this
+        # append, gated on prev_board != None). The first entry is therefore
+        # the AffectState's neutral baseline, and subsequent entries lag one
+        # move behind their causally-paired retrieval. Side-finding from
+        # ADR-0012 brainstorm; not load-bearing for the §3.2b golden gate.
         per_move_anxieties.append(affect.vector.anxiety)
 
         # Compute RPE and update affect (if not first move)
@@ -426,7 +441,7 @@ async def _run_game(
                 rpe=rpe_val,
                 empty_cells=len([c for row in post_board.grid for c in row if c == 0]),
                 terminal=False,
-                trauma_triggered=trauma_active,
+                trauma_intensity=trauma_intensity,
             )
 
         # Write move to memory
