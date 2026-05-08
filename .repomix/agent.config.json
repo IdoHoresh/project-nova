@@ -1,0 +1,39 @@
+{
+  "output": {
+    "filePath": "notebooklm-bundles/02-nova-agent-code.md",
+    "style": "markdown",
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "showLineNumbers": false,
+    "topFilesLength": 20,
+    "headerText": "Project Nova — nova-agent (Python cognitive architecture)\n\nThis bundle contains the full Python source tree for the cognitive agent: perception, memory, affect, decision (ToT), reflection, bus, LLM adapters, plus the test suite and project configs. Read this alongside 01-root-context.md (architecture overview) and 04-product-strategy.md (why these subsystems exist).",
+    "instructionFilePath": ""
+  },
+  "include": [
+    "nova-agent/src/**",
+    "nova-agent/tests/**",
+    "nova-agent/pyproject.toml",
+    "nova-agent/pytest.ini",
+    "nova-agent/README.md"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/__pycache__/**",
+      "**/.pytest_cache/**",
+      "**/.mypy_cache/**",
+      "**/.ruff_cache/**",
+      "**/uv.lock",
+      "**/runs/**",
+      "**/data/local/**",
+      "**/*.sqlite",
+      "**/*.db"
+    ]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  }
+}

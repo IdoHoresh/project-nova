@@ -1,0 +1,47 @@
+{
+  "output": {
+    "filePath": "notebooklm-bundles/03-nova-viewer-code.md",
+    "style": "markdown",
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "showLineNumbers": false,
+    "topFilesLength": 20,
+    "headerText": "Project Nova — nova-viewer (Next.js 16 + React 19 brain panel)\n\nThis bundle contains the TypeScript/React source for the live brain-panel viewer: WebSocket bus consumer, panels for memory/affect/decision, replay UI. Read alongside 01-root-context.md and 04-product-strategy.md.",
+    "instructionFilePath": ""
+  },
+  "include": [
+    "nova-viewer/app/**",
+    "nova-viewer/lib/**",
+    "nova-viewer/public/**",
+    "nova-viewer/AGENTS.md",
+    "nova-viewer/CLAUDE.md",
+    "nova-viewer/README.md",
+    "nova-viewer/package.json",
+    "nova-viewer/tsconfig.json",
+    "nova-viewer/next.config.ts",
+    "nova-viewer/eslint.config.mjs",
+    "nova-viewer/postcss.config.mjs",
+    "nova-viewer/vitest.config.ts",
+    "nova-viewer/test-setup.ts",
+    "nova-viewer/pnpm-workspace.yaml"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/node_modules/**",
+      "**/.next/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/*.lock",
+      "**/pnpm-lock.yaml",
+      "**/patches/**",
+      "**/coverage/**"
+    ]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  }
+}
