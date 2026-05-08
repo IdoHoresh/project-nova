@@ -329,6 +329,7 @@ async def _run_game(
     trauma_enabled: bool,
     force_trauma_on_game_over: bool,
     max_moves: int,
+    retrieval_log_path: Path | None = None,
 ) -> GameResult:
     """Run a single game with configurable trauma flags.
 
@@ -380,7 +381,14 @@ async def _run_game(
             break
 
         # Retrieve memories for current board
-        retrieved = memory.retrieve_for_board(board, k=5)
+        per_move_log: list[dict[str, object]] | None = (
+            [] if retrieval_log_path is not None else None
+        )
+        retrieved = memory.retrieve_for_board(board, k=5, retrieval_log=per_move_log)
+        if retrieval_log_path is not None and per_move_log is not None:
+            with retrieval_log_path.open("a") as f:
+                for entry in per_move_log:
+                    f.write(json.dumps({"move_idx": move_idx, **entry}) + "\n")
         trauma_active = any(AVERSIVE_TAG in m.record.tags for m in retrieved)
 
         # Decide: ToT or React?
@@ -1197,6 +1205,7 @@ async def _run_golden_arm(
     reflection_llm: Any,  # LLM
     trauma_enabled: bool,
     force_trauma_on_game_over: bool,
+    log_retrievals: bool = False,
 ) -> dict[str, Any]:
     """Game-1 warmup (fresh-start) + game-2 (golden board, 20-move cap) for one arm."""
     # Lazy imports to avoid circular deps
@@ -1210,6 +1219,7 @@ async def _run_golden_arm(
 
     arm_dir = run_dir / "golden" / str(seed) / arm
     arm_dir.mkdir(parents=True, exist_ok=True)
+    retrieval_log_path = arm_dir / "retrievals.jsonl" if log_retrievals else None
 
     sqlite_path = arm_dir / "episodic.db"
     lance_path = arm_dir / "vector.lance"
@@ -1238,6 +1248,7 @@ async def _run_golden_arm(
             trauma_enabled=trauma_enabled,
             force_trauma_on_game_over=force_trauma_on_game_over,
             max_moves=MAX_MOVES_PHASE_08,
+            retrieval_log_path=retrieval_log_path,
         )
         affect.reset_for_new_game()
 
@@ -1268,6 +1279,7 @@ async def _run_golden_arm(
             trauma_enabled=trauma_enabled,
             force_trauma_on_game_over=force_trauma_on_game_over,
             max_moves=GOLDEN_GAME_MAX_MOVES,
+            retrieval_log_path=retrieval_log_path,
         )
     finally:
         await bus.stop()
@@ -1283,6 +1295,10 @@ async def _run_golden_arm(
     mean_anxiety = statistics.mean(game2.per_move_anxieties) if game2.per_move_anxieties else 0.0
 
     # Clean up arm directory to avoid bloating golden/ folder
+    if log_retrievals and retrieval_log_path is not None and retrieval_log_path.exists():
+        # Move retrievals JSONL up one level before deleting arm_dir
+        preserved = run_dir / "golden" / f"retrievals_{arm}_{seed}.jsonl"
+        shutil.move(str(retrieval_log_path), str(preserved))
     shutil.rmtree(arm_dir, ignore_errors=True)
 
     return {"moves_to_merge": moves_to_merge, "mean_anxiety": mean_anxiety}
@@ -1295,6 +1311,7 @@ async def run_golden_gate(
     decision_llm: Any,  # LLM
     deliberation_llm: Any,  # LLM
     reflection_llm: Any,  # LLM
+    log_retrievals: bool = False,
 ) -> int:
     """Run §3.2b rationality gate. Returns 0=pass, EXIT_GOLDEN_FAIL=fail.
 
@@ -1320,6 +1337,7 @@ async def run_golden_gate(
         reflection_llm=reflection_llm,
         trauma_enabled=True,
         force_trauma_on_game_over=True,
+        log_retrievals=log_retrievals,
     )
     y_off = await _run_golden_arm(
         arm="y_off",
@@ -1330,6 +1348,7 @@ async def run_golden_gate(
         reflection_llm=reflection_llm,
         trauma_enabled=False,
         force_trauma_on_game_over=False,
+        log_retrievals=log_retrievals,
     )
 
     golden_dir = run_dir / "golden"
@@ -1741,6 +1760,12 @@ def main() -> None:
     parser.add_argument("--budget-usd", type=float, default=None, dest="budget_usd")
     parser.add_argument("--out", type=Path, default=None, help="Run output directory")
     parser.add_argument("--tier", default="production", help="Model tier (production | demo)")
+    parser.add_argument(
+        "--log-retrievals",
+        action="store_true",
+        dest="log_retrievals",
+        help="Per-candidate retrieval JSONL logging (Phase 0.8 §3.2b empirical-floor precheck)",
+    )
     args = parser.parse_args()
 
     # Resolve defaults
@@ -1786,6 +1811,7 @@ def main() -> None:
                 decision_llm=decision_llm,
                 deliberation_llm=deliberation_llm,
                 reflection_llm=reflection_llm,
+                log_retrievals=args.log_retrievals,
             )
         )
     elif args.stage == "surrogate":
