@@ -196,7 +196,7 @@ async def run() -> None:
     tot_decider = ToTDecider(llm=deliberation_llm, bus=bus)
     memory = MemoryCoordinator(sqlite_path=s.sqlite_path, lancedb_path=s.lancedb_path)
     semantic = SemanticStore(s.sqlite_path.parent / "semantic.db")
-    affect = AffectState()
+    affect = AffectState(null_empty_cells_term=s.null_empty_cells_anxiety_term)
 
     log.info("nova.started", model=decision_model, device=s.adb_device_id, tier=s.tier)
     try:

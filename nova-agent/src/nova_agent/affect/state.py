@@ -13,8 +13,13 @@ class AffectState:
     near the baseline.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, null_empty_cells_term: bool = False) -> None:
         self.vector = AffectVector()
+        # Spec §2.1 / §4.1 — Phase 0.7a counterfactual gate. When True, the
+        # `0.7 * max(0.0, (3 - empty_cells) / 3)` anxiety term in update() is
+        # skipped, isolating non-empty_cells anxiety drivers (trauma_intensity,
+        # RPE-via-frustration). Default False — production unchanged.
+        self._null_empty_cells_term = null_empty_cells_term
 
     def update(
         self,
@@ -41,7 +46,8 @@ class AffectState:
         pressure = 1.0 - empty_cells / 16
         arousal += 0.4 * pressure + 0.2 * abs(rpe)
 
-        anxiety += 0.7 * max(0.0, (3 - empty_cells) / 3)
+        if not self._null_empty_cells_term:
+            anxiety += 0.7 * max(0.0, (3 - empty_cells) / 3)
         anxiety += 0.3 * _clamp(trauma_intensity, 0.0, 1.0)
         if terminal:
             anxiety = 1.0

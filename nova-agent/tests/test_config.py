@@ -44,3 +44,27 @@ def test_settings_default_paths(monkeypatch):
     s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert str(s.sqlite_path).endswith("nova.db")
     assert str(s.lancedb_path).endswith("lancedb")
+
+
+def test_settings_default_null_empty_cells_anxiety_term_is_false(monkeypatch):
+    """Production runs must default to the full formula. Spec §4.1.
+
+    Asserts the new ablation field exists on Settings AND defaults to False
+    so a missing env var keeps the empty_cells anxiety term active.
+    """
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.delenv("NOVA_NULL_EMPTY_CELLS_ANXIETY_TERM", raising=False)
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.null_empty_cells_anxiety_term is False
+
+
+def test_settings_null_empty_cells_anxiety_term_reads_env(monkeypatch):
+    """pydantic-settings parses NOVA_NULL_EMPTY_CELLS_ANXIETY_TERM=1 to True
+    via standard bool coercion. Spec §2.1.
+    """
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIzaSy-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("NOVA_NULL_EMPTY_CELLS_ANXIETY_TERM", "1")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.null_empty_cells_anxiety_term is True

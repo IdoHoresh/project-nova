@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     # Cost guardrail (USD); 0 means no limit
     daily_budget_usd: float = Field(20.0, alias="NOVA_DAILY_BUDGET_USD")
 
+    # Phase 0.7a counterfactual ablation flag (spec §2.1 + §4.1). When True,
+    # AffectState.update() skips the `0.7 * max(0.0, (3 - empty_cells) / 3)`
+    # anxiety term, isolating the contribution of trauma_intensity / RPE-driven
+    # anxiety drivers. Default False — production behavior unchanged. Sourced
+    # via env var NOVA_NULL_EMPTY_CELLS_ANXIETY_TERM=1.
+    null_empty_cells_anxiety_term: bool = Field(False, alias="NOVA_NULL_EMPTY_CELLS_ANXIETY_TERM")
+
 
 _settings: Settings | None = None
 

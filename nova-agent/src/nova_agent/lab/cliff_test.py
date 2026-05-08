@@ -376,7 +376,9 @@ async def _run_carla_trial(
     seed = scenario.seed(trial_index)
     sim = Game2048Sim(seed=seed, scenario=scenario)
     io = SimGameIO(sim=sim)
-    affect = AffectState()
+    from nova_agent.config import get_settings
+
+    affect = AffectState(null_empty_cells_term=get_settings().null_empty_cells_anxiety_term)
     react_decider = ReactDecider(llm=decision_llm)
     tot_decider = ToTDecider(llm=tot_llm, bus=bus)
 
