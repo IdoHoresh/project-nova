@@ -54,3 +54,28 @@ def test_plumbing_uses_fewer_tot_branches(monkeypatch):
     proportional to the savings from cheaper-per-call models."""
     monkeypatch.setenv("NOVA_TIER", "plumbing")
     assert tiers.model_for("tot_branches") == 2
+
+
+def test_phase_0_7a_routes_all_cognitive_roles_to_gemini_pro(monkeypatch):
+    """Phase 0.7a counterfactual run (spec 2026-05-09-phase-0.7a-counterfactual-design.md
+    §2.2) must run gemini-2.5-pro paid tier on every cognitive role to
+    reproduce the 2026-05-06 morning-pilot model surface while testing the
+    null_empty_cells_anxiety_term ablation. ADR-0006 Amendment 1 moved
+    production-tier ToT off Pro for daily-quota reasons; Phase 0.7a is a
+    one-shot N=15 run (~1575 calls) that runs on paid Pro to disambiguate
+    C1 (mechanical empty_cells dominance) from C6B (Gemini-specific
+    reasoning failure on the recalibrated grids)."""
+    monkeypatch.setenv("NOVA_TIER", "phase_0_7a")
+    assert tiers.model_for("decision") == "gemini-2.5-pro"
+    assert tiers.model_for("tot") == "gemini-2.5-pro"
+    assert tiers.model_for("reflection") == "gemini-2.5-pro"
+    assert tiers.model_for("perception_fallback") == "gemini-2.5-pro"
+    # importance_rating stays on flash-lite for cost: it's a memory-write
+    # ranker, not a cognitive-judgment role, and routing it to Pro would
+    # roughly triple the per-trial call cost without changing the
+    # counterfactual signal under test.
+    assert tiers.model_for("importance_rating") == "gemini-2.5-flash-lite"
+    # tot_branches=4 matches the original ADR-0006 production-tier setting
+    # the morning pilot ran with, so the counterfactual reproduces the
+    # morning-pilot ToT depth exactly.
+    assert tiers.model_for("tot_branches") == 4

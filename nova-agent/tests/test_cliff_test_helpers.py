@@ -9,6 +9,7 @@ import pytest
 
 from nova_agent.action.adb import SwipeDirection
 from nova_agent.lab.cliff_test import (
+    _ALLOWED_TIERS,
     _BudgetState,
     _CSV_COLUMNS,
     _append_csv_row,
@@ -277,3 +278,25 @@ class TestApplyWithTiebreak:
         board = io.read_board()
         with pytest.raises(ValueError, match="no legal move"):
             _apply_with_tiebreak(io, "swipe_up", board)
+
+
+class TestAllowedTiers:
+    """Spec §2.6 + ADR-0006 require cognitive-judgment models to run at
+    a vetted tier. Phase 0.7a counterfactual (spec
+    2026-05-09-phase-0.7a-counterfactual-design.md §8 step 6) adds a
+    one-shot phase_0_7a tier that pins gemini-2.5-pro across all
+    cognitive roles for the N=15 paid pilot.
+    """
+
+    def test_production_and_demo_remain_allowed(self) -> None:
+        assert "production" in _ALLOWED_TIERS
+        assert "demo" in _ALLOWED_TIERS
+
+    def test_phase_0_7a_is_allowed(self) -> None:
+        assert "phase_0_7a" in _ALLOWED_TIERS
+
+    def test_dev_and_plumbing_remain_refused(self) -> None:
+        """dev / plumbing route Flash-Lite to cognitive-judgment roles
+        and must never run a Carla pilot — degrades the result."""
+        assert "dev" not in _ALLOWED_TIERS
+        assert "plumbing" not in _ALLOWED_TIERS

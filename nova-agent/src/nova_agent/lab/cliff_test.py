@@ -44,8 +44,13 @@ from nova_agent.memory.types import AffectSnapshot
 from nova_agent.perception.types import BoardState
 from nova_agent.reflection import run_reflection
 
-# Per spec §2.6 + ADR-0006: cognitive-judgment models must run at production tier.
-_ALLOWED_TIERS: Final[frozenset[str]] = frozenset({"production", "demo"})
+# Per spec §2.6 + ADR-0006: cognitive-judgment models must run at a vetted tier.
+# `phase_0_7a` is a one-shot tier for the Phase 0.7a counterfactual paid Gemini
+# Pro pilot (spec 2026-05-09-phase-0.7a-counterfactual-design.md §2.2 + §8 step
+# 6); it pins gemini-2.5-pro across every cognitive role for N=15 trials and is
+# NOT a sustained-work tier (cost / daily-quota tradeoffs documented in
+# nova_agent/llm/tiers.py docstring).
+_ALLOWED_TIERS: Final[frozenset[str]] = frozenset({"production", "demo", "phase_0_7a"})
 
 EXIT_OK: Final[int] = 0
 EXIT_SOFT_CAP: Final[int] = 2
