@@ -1744,6 +1744,11 @@ def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
     os.environ["NOVA_TIER"] = tier  # wire --tier CLI arg to model_tiers.current_tier()
     s = get_settings()
     budget = SessionBudget(cap_usd=budget_usd)
+    # Phase 0.7a §5.2 — per-call cost-abort gate (defense-in-depth on paid runs).
+    # Mirrors cliff_test.py wiring; 0 disables the gate while preserving the
+    # cumulative session cap. trauma_ablation is Phase 0.8 territory; arming
+    # the gate here is preventative coverage, not an active 0.7a path.
+    per_call_cap_usd = s.per_call_cost_abort_usd
 
     decision_model = str(model_tiers.model_for("decision"))
     decision_llm = BudgetedLLM(
@@ -1755,6 +1760,7 @@ def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
             thinking_budget=_flash_thinking_budget(decision_model),
         ),
         budget,
+        per_call_cap_usd=per_call_cap_usd,
     )
     deliberation_model = str(model_tiers.model_for("tot"))
     deliberation_llm = BudgetedLLM(
@@ -1766,6 +1772,7 @@ def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
             thinking_budget=_flash_thinking_budget(deliberation_model),
         ),
         budget,
+        per_call_cap_usd=per_call_cap_usd,
     )
     reflection_model = str(model_tiers.model_for("reflection"))
     reflection_llm = BudgetedLLM(
@@ -1777,6 +1784,7 @@ def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
             thinking_budget=_flash_thinking_budget(reflection_model),
         ),
         budget,
+        per_call_cap_usd=per_call_cap_usd,
     )
     return decision_llm, deliberation_llm, reflection_llm
 

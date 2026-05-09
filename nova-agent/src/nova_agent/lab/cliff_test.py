@@ -899,11 +899,18 @@ def main() -> None:
     session_cap_usd = float(os.environ.get("NOVA_SESSION_CAP_USD", "15.0"))
     session_budget = SessionBudget(cap_usd=session_cap_usd)
 
+    # Phase 0.7a §5.2 — per-call cost-abort gate (defends paid-tier runs against
+    # a single runaway request). 0 disables. Read directly from env so the harness
+    # stays decoupled from get_settings()'s required-secrets bootstrap.
+    per_call_cap_usd = float(os.environ.get("NOVA_PER_CALL_COST_ABORT_USD", "0.50"))
+
     raw_decision, raw_tot, raw_reflection, raw_bot = _build_llms()
-    decision_llm: LLM = BudgetedLLM(raw_decision, session_budget)
-    tot_llm: LLM = BudgetedLLM(raw_tot, session_budget)
-    reflection_llm: LLM = BudgetedLLM(raw_reflection, session_budget)
-    bot_llm: LLM = BudgetedLLM(raw_bot, session_budget)
+    decision_llm: LLM = BudgetedLLM(raw_decision, session_budget, per_call_cap_usd=per_call_cap_usd)
+    tot_llm: LLM = BudgetedLLM(raw_tot, session_budget, per_call_cap_usd=per_call_cap_usd)
+    reflection_llm: LLM = BudgetedLLM(
+        raw_reflection, session_budget, per_call_cap_usd=per_call_cap_usd
+    )
+    bot_llm: LLM = BudgetedLLM(raw_bot, session_budget, per_call_cap_usd=per_call_cap_usd)
 
     try:
         code = asyncio.run(

@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     # via env var NOVA_NULL_EMPTY_CELLS_ANXIETY_TERM=1.
     null_empty_cells_anxiety_term: bool = Field(False, alias="NOVA_NULL_EMPTY_CELLS_ANXIETY_TERM")
 
+    # Phase 0.7a §5.2 — per-call cost-abort gate (USD).
+    # Pre-call estimate = (prompt_chars/4 × input_rate) + (max_tokens × output_rate);
+    # if it exceeds this cap, BudgetedLLM raises BudgetExceeded BEFORE the API call.
+    # Defends against runaway single-call costs (oversized max_tokens, huge prompt)
+    # independently of the cumulative session cap (NOVA_SESSION_CAP_USD).
+    # Default 0.50 matches spec §5.2 / recalibration spec §5.0.1. 0 disables.
+    per_call_cost_abort_usd: float = Field(0.50, alias="NOVA_PER_CALL_COST_ABORT_USD")
+
 
 _settings: Settings | None = None
 
