@@ -44,8 +44,13 @@ from nova_agent.memory.types import AffectSnapshot
 from nova_agent.perception.types import BoardState
 from nova_agent.reflection import run_reflection
 
-# Per spec §2.6 + ADR-0006: cognitive-judgment models must run at production tier.
-_ALLOWED_TIERS: Final[frozenset[str]] = frozenset({"production", "demo"})
+# Per spec §2.6 + ADR-0006: cognitive-judgment models must run at a vetted tier.
+# `phase_0_7a` is a one-shot tier for the Phase 0.7a counterfactual paid Gemini
+# Pro pilot (spec 2026-05-09-phase-0.7a-counterfactual-design.md §2.2 + §8 step
+# 6); it pins gemini-2.5-pro across every cognitive role for N=15 trials and is
+# NOT a sustained-work tier (cost / daily-quota tradeoffs documented in
+# nova_agent/llm/tiers.py docstring).
+_ALLOWED_TIERS: Final[frozenset[str]] = frozenset({"production", "demo", "phase_0_7a"})
 
 EXIT_OK: Final[int] = 0
 EXIT_SOFT_CAP: Final[int] = 2
@@ -376,7 +381,9 @@ async def _run_carla_trial(
     seed = scenario.seed(trial_index)
     sim = Game2048Sim(seed=seed, scenario=scenario)
     io = SimGameIO(sim=sim)
-    affect = AffectState()
+    from nova_agent.config import get_settings
+
+    affect = AffectState(null_empty_cells_term=get_settings().null_empty_cells_anxiety_term)
     react_decider = ReactDecider(llm=decision_llm)
     tot_decider = ToTDecider(llm=tot_llm, bus=bus)
 
@@ -398,7 +405,9 @@ async def _run_carla_trial(
             if is_game_over(board):
                 break
 
-            mode = "tot" if should_use_tot(board=board, affect=affect.vector) else "react"
+            empty_cells_pre = board.empty_cells
+            tot_fired = should_use_tot(board=board, affect=affect.vector)
+            mode = "tot" if tot_fired else "react"
             try:
                 if mode == "tot":
                     decision = await tot_decider.decide(
@@ -425,20 +434,25 @@ async def _run_carla_trial(
             cost_usd += _carla_call_cost_estimate(mode)
 
             io.apply_move(SwipeDirection(decision.action))
+            empty_cells_post = io.read_board().empty_cells
+
+            # Memory retrieval is disabled in cliff-test trials to remove
+            # network/DB latency as a confound; trauma detection requires
+            # retrieval, so trauma_intensity is always 0.0 here. Routed
+            # through a local so the per_move event records the wire value
+            # instead of a hard-coded literal.
+            trauma_intensity_passed = 0.0
 
             # Affect update — only when there is a previous board to compute
             # RPE against (first move has no reference point).
             if prev_board is not None and prev_decision is not None:
                 score_delta = board.score - prev_board.score
                 delta_rpe = compute_rpe(actual_score_delta=score_delta, board_before=prev_board)
-                # Memory retrieval is disabled in cliff-test trials to remove
-                # network/DB latency as a confound; trauma detection requires
-                # retrieval, so trauma_intensity is always 0.0 here.
                 v = affect.update(
                     rpe=delta_rpe,
                     empty_cells=board.empty_cells,
                     terminal=False,
-                    trauma_intensity=0.0,
+                    trauma_intensity=trauma_intensity_passed,
                 )
                 anxiety_trajectory.append(v.anxiety)
 
@@ -460,6 +474,30 @@ async def _run_carla_trial(
                     source_reasoning=prev_decision.reasoning,
                     affect=snapshot,
                 )
+
+            # Phase 0.7a §2.4 — per-move trajectory event. Fires every move
+            # so analyze_results.py can build a paired (empty_cells, anxiety)
+            # Pearson series. On move 0 the affect vector is the initial
+            # baseline (no update yet) and trauma_intensity_passed is 0.0.
+            await bus.publish(
+                "per_move",
+                {
+                    "move_index": move_index,
+                    "empty_cells_pre": empty_cells_pre,
+                    "empty_cells_post": empty_cells_post,
+                    "affect_vector": {
+                        "valence": affect.vector.valence,
+                        "arousal": affect.vector.arousal,
+                        "dopamine": affect.vector.dopamine,
+                        "frustration": affect.vector.frustration,
+                        "anxiety": affect.vector.anxiety,
+                        "confidence": affect.vector.confidence,
+                    },
+                    "trauma_intensity": trauma_intensity_passed,
+                    "tot_fired": tot_fired,
+                    "chosen_action": decision.action,
+                },
+            )
 
             prev_board = board
             prev_decision = decision
@@ -774,6 +812,25 @@ def _default_output_dir() -> Path:
     return Path("runs") / ts
 
 
+def _decision_thinking_budget(model: str) -> int:
+    """Pick the right Gemini thinking_budget for the decision/bot slots.
+
+    Flash family: 0 (disable thinking, free the full max_output_tokens
+    budget for visible JSON; gemini_client.py:59-63). Positive values on
+    Flash truncate decision JSON mid-string.
+
+    Pro: rejects 0 with HTTP 400 INVALID_ARGUMENT — Pro's reasoning IS the
+    model's output, so a positive cap is required. 1024 mirrors the tot
+    slot's existing Pro setting and is sufficient for single-move decisions.
+
+    Anthropic models: factory.py routes claude-* to AnthropicLLM, which
+    ignores thinking_budget. Returning 0 is harmless for the kwarg path.
+    """
+    if model.startswith("gemini-2.5-pro"):
+        return 1024
+    return 0
+
+
 def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
     """Construct the four LLMs the runner needs via tier-resolved model names.
 
@@ -803,23 +860,24 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
     anthropic_api_key = settings.anthropic_api_key
     daily_cap_usd = settings.daily_budget_usd
 
-    # Gemini thinking budgets — mirror main.py:165-193. Without these, Flash
-    # burns the entire max_output_tokens budget on hidden reasoning (see
-    # gemini_client.py:53-58 doc), leaving the visible JSON truncated mid-
-    # string. AnthropicLLM ignores thinking_budget, so the kwarg is safe to
-    # pass uniformly. Per ADR-0006 Amendment 1, the production-tier ToT now
-    # routes to Claude Sonnet 4.6 (Anthropic) — the thinking_budget=1024 on
-    # the second build_llm call is therefore a no-op at runtime; we keep
-    # the kwarg for code symmetry and so a future re-routing back to Gemini
-    # Pro (Pro accepts a positive cap, rejects 0) does not need to touch
-    # this construction site.
+    # Gemini thinking budgets — mirror main.py:165-193. Decision/bot slots
+    # use _decision_thinking_budget() so Flash gets 0 (frees the full
+    # max_output_tokens budget for visible JSON; gemini_client.py:59-63) and
+    # Pro gets a positive cap (Pro rejects 0 with HTTP 400 INVALID_ARGUMENT —
+    # under phase_0_7a tier the decision model is gemini-2.5-pro for the
+    # counterfactual run). ToT slot keeps thinking_budget=1024 — Pro-safe
+    # under phase_0_7a, no-op for production tier (claude-sonnet-4-6 ignores
+    # the kwarg per factory.py contract). Reflection slot omits the kwarg
+    # so GeminiLLM uses the SDK default (Pro-compatible) and AnthropicLLM
+    # ignores it.
+    decision_thinking_budget = _decision_thinking_budget(decision_model)
     return (
         build_llm(
             model=decision_model,
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
-            thinking_budget=0,
+            thinking_budget=decision_thinking_budget,
         ),
         build_llm(
             model=tot_model,
@@ -839,7 +897,7 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
-            thinking_budget=0,
+            thinking_budget=decision_thinking_budget,
         ),  # bot — same family as decision per Bot spec §2.4
     )
 
@@ -866,11 +924,18 @@ def main() -> None:
     session_cap_usd = float(os.environ.get("NOVA_SESSION_CAP_USD", "15.0"))
     session_budget = SessionBudget(cap_usd=session_cap_usd)
 
+    # Phase 0.7a §5.2 — per-call cost-abort gate (defends paid-tier runs against
+    # a single runaway request). 0 disables. Read directly from env so the harness
+    # stays decoupled from get_settings()'s required-secrets bootstrap.
+    per_call_cap_usd = float(os.environ.get("NOVA_PER_CALL_COST_ABORT_USD", "0.50"))
+
     raw_decision, raw_tot, raw_reflection, raw_bot = _build_llms()
-    decision_llm: LLM = BudgetedLLM(raw_decision, session_budget)
-    tot_llm: LLM = BudgetedLLM(raw_tot, session_budget)
-    reflection_llm: LLM = BudgetedLLM(raw_reflection, session_budget)
-    bot_llm: LLM = BudgetedLLM(raw_bot, session_budget)
+    decision_llm: LLM = BudgetedLLM(raw_decision, session_budget, per_call_cap_usd=per_call_cap_usd)
+    tot_llm: LLM = BudgetedLLM(raw_tot, session_budget, per_call_cap_usd=per_call_cap_usd)
+    reflection_llm: LLM = BudgetedLLM(
+        raw_reflection, session_budget, per_call_cap_usd=per_call_cap_usd
+    )
+    bot_llm: LLM = BudgetedLLM(raw_bot, session_budget, per_call_cap_usd=per_call_cap_usd)
 
     try:
         code = asyncio.run(

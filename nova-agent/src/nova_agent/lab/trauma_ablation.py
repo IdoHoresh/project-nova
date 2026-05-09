@@ -601,7 +601,9 @@ async def _run_arm(
     sqlite_path, lance_path = _per_arm_db_paths(run_dir, stage=stage, seed=seed_base, arm=arm)
     memory = MemoryCoordinator(sqlite_path=sqlite_path, lancedb_path=lance_path)
     semantic = SemanticStore(path=sqlite_path.parent / "semantic.db")
-    affect = AffectState()
+    from nova_agent.config import get_settings
+
+    affect = AffectState(null_empty_cells_term=get_settings().null_empty_cells_anxiety_term)
 
     scenario_g1 = load_scenario("near-dead")  # game-1: triggers game_over in ~5-30 moves
     scenario_g2 = load_scenario("fresh-start")  # game-2: standard fresh-start (measured)
@@ -1055,7 +1057,9 @@ async def _run_golden_calibration_session(
         lancedb_path=memory_dir / "vector.lance",
     )
     semantic = SemanticStore(memory_dir / "semantic.db")
-    affect = AffectState()
+    from nova_agent.config import get_settings
+
+    affect = AffectState(null_empty_cells_term=get_settings().null_empty_cells_anxiety_term)
     bus = RecordingEventBus(
         host="127.0.0.1",
         port=0,
@@ -1262,7 +1266,9 @@ async def _run_golden_arm(
     lance_path = arm_dir / "vector.lance"
     memory = MemoryCoordinator(sqlite_path=sqlite_path, lancedb_path=lance_path)
     semantic = SemanticStore(arm_dir / "semantic.db")
-    affect = AffectState()
+    from nova_agent.config import get_settings
+
+    affect = AffectState(null_empty_cells_term=get_settings().null_empty_cells_anxiety_term)
 
     scenario = load_scenario("fresh-start")
     record_path = arm_dir / "events.jsonl"
@@ -1738,6 +1744,11 @@ def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
     os.environ["NOVA_TIER"] = tier  # wire --tier CLI arg to model_tiers.current_tier()
     s = get_settings()
     budget = SessionBudget(cap_usd=budget_usd)
+    # Phase 0.7a §5.2 — per-call cost-abort gate (defense-in-depth on paid runs).
+    # Mirrors cliff_test.py wiring; 0 disables the gate while preserving the
+    # cumulative session cap. trauma_ablation is Phase 0.8 territory; arming
+    # the gate here is preventative coverage, not an active 0.7a path.
+    per_call_cap_usd = s.per_call_cost_abort_usd
 
     decision_model = str(model_tiers.model_for("decision"))
     decision_llm = BudgetedLLM(
@@ -1749,6 +1760,7 @@ def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
             thinking_budget=_flash_thinking_budget(decision_model),
         ),
         budget,
+        per_call_cap_usd=per_call_cap_usd,
     )
     deliberation_model = str(model_tiers.model_for("tot"))
     deliberation_llm = BudgetedLLM(
@@ -1760,6 +1772,7 @@ def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
             thinking_budget=_flash_thinking_budget(deliberation_model),
         ),
         budget,
+        per_call_cap_usd=per_call_cap_usd,
     )
     reflection_model = str(model_tiers.model_for("reflection"))
     reflection_llm = BudgetedLLM(
@@ -1771,6 +1784,7 @@ def _build_stack(tier: str, budget_usd: float) -> tuple[Any, Any, Any]:
             thinking_budget=_flash_thinking_budget(reflection_model),
         ),
         budget,
+        per_call_cap_usd=per_call_cap_usd,
     )
     return decision_llm, deliberation_llm, reflection_llm
 

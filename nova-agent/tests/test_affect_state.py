@@ -87,3 +87,30 @@ def test_trauma_intensity_zero_adds_no_anxiety() -> None:
     a.update(rpe=0.0, empty_cells=10, terminal=False, trauma_intensity=0.0)
     expected_baseline = 0.7 * max(0.0, (3 - 10) / 3)  # = 0.0
     assert math.isclose(a.vector.anxiety, max(0.0, expected_baseline), abs_tol=1e-6)
+
+
+def test_null_empty_cells_term_zeroes_anxiety_contribution() -> None:
+    """Spec §4.1 TDD test 1.
+
+    With null_empty_cells_term=True, three back-to-back updates at
+    empty_cells=0 (worst case for the empty-cells anxiety driver) and zero
+    other inputs must leave anxiety near baseline. Without the flag, anxiety
+    would climb to ~0.86 by move 3 (0.7 + decay residue).
+    """
+    a = AffectState(null_empty_cells_term=True)
+    for _ in range(3):
+        a.update(rpe=0.0, empty_cells=0, terminal=False, trauma_intensity=0.0)
+    assert a.vector.anxiety < 0.05
+
+
+def test_default_constructor_preserves_full_formula() -> None:
+    """Spec §4.1 TDD test 2.
+
+    The default constructor (no flag) keeps the empty_cells anxiety driver
+    active. Same input sequence as the null test must push anxiety past 0.7
+    by move 3, confirming the production path is unchanged.
+    """
+    a = AffectState()
+    for _ in range(3):
+        a.update(rpe=0.0, empty_cells=0, terminal=False, trauma_intensity=0.0)
+    assert a.vector.anxiety > 0.7

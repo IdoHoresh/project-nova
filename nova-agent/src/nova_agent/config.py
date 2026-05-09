@@ -80,6 +80,21 @@ class Settings(BaseSettings):
     # Cost guardrail (USD); 0 means no limit
     daily_budget_usd: float = Field(20.0, alias="NOVA_DAILY_BUDGET_USD")
 
+    # Phase 0.7a counterfactual ablation flag (spec §2.1 + §4.1). When True,
+    # AffectState.update() skips the `0.7 * max(0.0, (3 - empty_cells) / 3)`
+    # anxiety term, isolating the contribution of trauma_intensity / RPE-driven
+    # anxiety drivers. Default False — production behavior unchanged. Sourced
+    # via env var NOVA_NULL_EMPTY_CELLS_ANXIETY_TERM=1.
+    null_empty_cells_anxiety_term: bool = Field(False, alias="NOVA_NULL_EMPTY_CELLS_ANXIETY_TERM")
+
+    # Phase 0.7a §5.2 — per-call cost-abort gate (USD).
+    # Pre-call estimate = (prompt_chars/4 × input_rate) + (max_tokens × output_rate);
+    # if it exceeds this cap, BudgetedLLM raises BudgetExceeded BEFORE the API call.
+    # Defends against runaway single-call costs (oversized max_tokens, huge prompt)
+    # independently of the cumulative session cap (NOVA_SESSION_CAP_USD).
+    # Default 0.50 matches spec §5.2 / recalibration spec §5.0.1. 0 disables.
+    per_call_cost_abort_usd: float = Field(0.50, alias="NOVA_PER_CALL_COST_ABORT_USD")
+
 
 _settings: Settings | None = None
 
