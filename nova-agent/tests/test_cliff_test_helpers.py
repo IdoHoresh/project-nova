@@ -15,6 +15,7 @@ from nova_agent.lab.cliff_test import (
     _append_csv_row,
     _apply_with_tiebreak,
     _check_anxiety_threshold,
+    _decision_thinking_budget,
     _first_threshold_index,
 )
 from nova_agent.lab.io import SimGameIO
@@ -300,3 +301,31 @@ class TestAllowedTiers:
         and must never run a Carla pilot — degrades the result."""
         assert "dev" not in _ALLOWED_TIERS
         assert "plumbing" not in _ALLOWED_TIERS
+
+
+class TestDecisionThinkingBudget:
+    """Decision/bot Gemini thinking budget. Pro requires a positive value
+    (its reasoning IS the model's output; 0 → 400 INVALID_ARGUMENT). Flash
+    requires 0 to free max_output_tokens for visible JSON; positive values
+    on Flash truncate decision JSON mid-string. The helper picks the right
+    value per model family so phase_0_7a tier (Pro everywhere) and
+    production tier (Flash for decision) both work without per-tier
+    branching at the call site.
+    """
+
+    def test_pro_returns_positive_thinking_budget(self) -> None:
+        """gemini-2.5-pro rejects thinking_budget=0; needs a positive cap."""
+        assert _decision_thinking_budget("gemini-2.5-pro") > 0
+
+    def test_flash_returns_zero(self) -> None:
+        """gemini-2.5-flash needs thinking_budget=0 to keep visible JSON intact."""
+        assert _decision_thinking_budget("gemini-2.5-flash") == 0
+
+    def test_flash_lite_returns_zero(self) -> None:
+        """gemini-2.5-flash-lite shares the Flash output-token-pressure
+        constraint."""
+        assert _decision_thinking_budget("gemini-2.5-flash-lite") == 0
+
+    def test_anthropic_returns_zero(self) -> None:
+        """AnthropicLLM ignores the kwarg (factory.py contract); 0 is fine."""
+        assert _decision_thinking_budget("claude-sonnet-4-6") == 0

@@ -812,6 +812,25 @@ def _default_output_dir() -> Path:
     return Path("runs") / ts
 
 
+def _decision_thinking_budget(model: str) -> int:
+    """Pick the right Gemini thinking_budget for the decision/bot slots.
+
+    Flash family: 0 (disable thinking, free the full max_output_tokens
+    budget for visible JSON; gemini_client.py:59-63). Positive values on
+    Flash truncate decision JSON mid-string.
+
+    Pro: rejects 0 with HTTP 400 INVALID_ARGUMENT — Pro's reasoning IS the
+    model's output, so a positive cap is required. 1024 mirrors the tot
+    slot's existing Pro setting and is sufficient for single-move decisions.
+
+    Anthropic models: factory.py routes claude-* to AnthropicLLM, which
+    ignores thinking_budget. Returning 0 is harmless for the kwarg path.
+    """
+    if model.startswith("gemini-2.5-pro"):
+        return 1024
+    return 0
+
+
 def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
     """Construct the four LLMs the runner needs via tier-resolved model names.
 
@@ -841,23 +860,24 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
     anthropic_api_key = settings.anthropic_api_key
     daily_cap_usd = settings.daily_budget_usd
 
-    # Gemini thinking budgets — mirror main.py:165-193. Without these, Flash
-    # burns the entire max_output_tokens budget on hidden reasoning (see
-    # gemini_client.py:53-58 doc), leaving the visible JSON truncated mid-
-    # string. AnthropicLLM ignores thinking_budget, so the kwarg is safe to
-    # pass uniformly. Per ADR-0006 Amendment 1, the production-tier ToT now
-    # routes to Claude Sonnet 4.6 (Anthropic) — the thinking_budget=1024 on
-    # the second build_llm call is therefore a no-op at runtime; we keep
-    # the kwarg for code symmetry and so a future re-routing back to Gemini
-    # Pro (Pro accepts a positive cap, rejects 0) does not need to touch
-    # this construction site.
+    # Gemini thinking budgets — mirror main.py:165-193. Decision/bot slots
+    # use _decision_thinking_budget() so Flash gets 0 (frees the full
+    # max_output_tokens budget for visible JSON; gemini_client.py:59-63) and
+    # Pro gets a positive cap (Pro rejects 0 with HTTP 400 INVALID_ARGUMENT —
+    # under phase_0_7a tier the decision model is gemini-2.5-pro for the
+    # counterfactual run). ToT slot keeps thinking_budget=1024 — Pro-safe
+    # under phase_0_7a, no-op for production tier (claude-sonnet-4-6 ignores
+    # the kwarg per factory.py contract). Reflection slot omits the kwarg
+    # so GeminiLLM uses the SDK default (Pro-compatible) and AnthropicLLM
+    # ignores it.
+    decision_thinking_budget = _decision_thinking_budget(decision_model)
     return (
         build_llm(
             model=decision_model,
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
-            thinking_budget=0,
+            thinking_budget=decision_thinking_budget,
         ),
         build_llm(
             model=tot_model,
@@ -877,7 +897,7 @@ def _build_llms() -> tuple[LLM, LLM, LLM, LLM]:
             google_api_key=google_api_key,
             anthropic_api_key=anthropic_api_key,
             daily_cap_usd=daily_cap_usd,
-            thinking_budget=0,
+            thinking_budget=decision_thinking_budget,
         ),  # bot — same family as decision per Bot spec §2.4
     )
 
