@@ -9,6 +9,67 @@
 
 ---
 
+## Erratum (2026-05-09, posted same day)
+
+**This memo's framing of the verdict was wrong as originally written.** Two sub-verdicts must be distinguished. Per `docs/external-review/decisions/2026-05-09-rpe-pivot-layer2-round2.md` finding 1 ([critical]), correcting before any rewrite ADR cites this memo.
+
+### What was wrong
+
+The memo states (§"Per-move trajectory observations" + §"Implication for the rewrite ADR"):
+
+> "the architecture's *non-`empty_cells`* anxiety drivers — trauma_intensity (memory retrieval composite) and the RPE → frustration → anxiety chain — produced zero predictive signal across 658 in-domain observations."
+
+> "The drivers spec §7 names as candidates (a) RPE plateau (frustration-derived) and (b) memory-retrieval composite are *currently in the formula and currently silent*."
+
+The "currently silent" framing for the RPE → frustration → anxiety chain is **factually incorrect**. A grep of `nova-agent/src/nova_agent/affect/state.py` shows that all anxiety-write sites are:
+
+```python
+# Line 37 — decay
+anxiety = v.anxiety * 0.85
+
+# Line 49-50 — empty_cells term, gated by counterfactual flag
+if not self._null_empty_cells_term:
+    anxiety += 0.7 * max(0.0, (3 - empty_cells) / 3)
+
+# Line 51 — trauma_intensity term
+anxiety += 0.3 * _clamp(trauma_intensity, 0.0, 1.0)
+
+# Line 52-53 — terminal override
+if terminal:
+    anxiety = 1.0
+```
+
+**Frustration is computed (line 44) but never appears in any anxiety-write expression in any file under `nova-agent/src/nova_agent/`.** The "RPE → frustration → anxiety" driver named in this memo and elsewhere in `methodology.md` is **not implemented in the code as shipped to Phase 0.7a**. It cannot be "silent" — it does not exist.
+
+This is not a tone correction. It is a verdict-scope correction.
+
+### Two sub-verdicts (replacing the original "C1 fully confirmed")
+
+**(a) C1-as-implemented: confirmed.** With the `empty_cells` term nulled, the architecture as shipped to Phase 0.7a has only one remaining anxiety driver (`trauma_intensity` via line 51) and decay (line 37). `trauma_intensity` was 0.0 across all 658 per-move events (no aversive memories existed mid-game). Decay alone cannot drive anxiety to threshold from 0.0. Therefore anxiety stayed at 0.0 across the run and `t_predicts != None` was structurally impossible. R1 fired as designed against the architecture-as-shipped.
+
+**(b) C1-as-specified: untested.** Phase 0.7a does NOT tell us whether the architecture-as-described in `methodology.md` (with frustration → anxiety wired, the RPE chain functioning) would have produced `t_predicts != None`. The counterfactual could not test a driver that did not exist in the code. Whether wiring the linkage produces predictive lead-time is a separate empirical question, partially addressed by `docs/external-review/decisions/2026-05-09-rpe-pivot-desk-demo.py` (which finds wiring + scaling produces a saturating signal on snake-collapse-128 + corner-abandonment-256 but cannot fire on 512-wall under any function family because frustration was 0/199 nonzero events on that scenario).
+
+### What this erratum does NOT do
+
+- Does NOT retract the empirical finding that the architecture-as-shipped fails to produce predictive lead-time without `empty_cells`. That finding stands.
+- Does NOT retract R1's mechanical applicability. R1 fires on the architecture-as-coded.
+- Does NOT excuse the original wording. Per `LESSONS.md` §4.2 (no retro-rationalization): the original "currently silent" wording was wrong. It should have been written as "the RPE → frustration → anxiety chain claimed in `methodology.md` is not wired in the code, and the only implemented non-`empty_cells` driver (`trauma_intensity` via memory retrieval) was 0.0 across the run." That is the correct framing. This erratum does not dress up the original framing as a typo or as "what I meant"; it concedes the original was wrong.
+
+### What changes downstream
+
+- The rewrite ADR's preamble cites THIS erratum, not the original "C1 fully confirmed" framing.
+- The methodology audit (separate spec, ≤4h timebox per round 2 finding 3) is now mandatory before the rewrite ADR can be drafted, because at least one `methodology.md` claim has been shown to be code-fictional and other claims may be too. Audit priority list: see `docs/external-review/decisions/2026-05-09-rpe-pivot-layer2-round2.md` finding 5.
+- The memo's "Recommendations" §4 (last bullet on `rpe.py:14-18` axis bias) is also misframed — the axis treatment is documented design intent, not a bug. The fix is a methodology debate (whether the design is correct), not a bug repair. Out of scope for this erratum; will be addressed in the rewrite ADR if it intersects the new scope.
+
+### Cross-references for the corrected reading
+
+- `docs/external-review/decisions/2026-05-09-rpe-pivot-test6-results.md` — Pearson + frustration distribution + grep finding
+- `docs/external-review/decisions/2026-05-09-rpe-pivot-desk-demo.py` — wiring + scaling does not pass spec R2 on 512-wall under any function family
+- `docs/external-review/decisions/2026-05-09-rpe-pivot-layer2-round2.md` — Layer 2 round 2 review that prompted this erratum
+- `nova-agent/src/nova_agent/affect/state.py` lines 37, 49-53 — the load-bearing code excerpt
+
+---
+
 ## Pre-registered decision rule (spec §3)
 
 The decision rule was committed pre-execution. No goalpost moves.
