@@ -21,6 +21,30 @@
 
 ## Engineering / debugging gotchas
 
+### Hybrid recommendations hide motivated reasoning — audit each pro independently, not as a bundle
+
+**Date:** 2026-05-09 | **Cost:** ~25 min in /redteam Opus dispatch on Phase 0.7b harness decision (Options A/B/C). Original recommendation pushed Option C as "smallest diff + preserve determinism + addresses audit"; red team showed all three pros were either unearned, false at the methodology level, or self-canceling.
+
+**What happened:** Methodology audit §2.1 found Phase 0.7a's `cliff_test.py` had `trauma_intensity` hardcoded to 0.0 and retrieval disabled, nulling one of three anxiety drivers. Three options surfaced for Phase 0.7b: (A) switch to production main-loop, (B) keep `cliff_test.py` as-is, (C) extend `cliff_test.py` to enable retrieval. Original recommendation: Option C — framed as the "careful synthesis" that addressed the audit concern AND preserved determinism AND was the smallest diff. Red team (Opus) decomposed each pro:
+
+- **"Smallest diff"** — true at code level, false at methodology level. C inherits a recipe (retrieval-enabled) whose preconditions (episodic memory across episodes) don't apply to cliff_test (fresh tempdir per trial).
+- **"Preserve determinism"** — not yet earned. Retrieval introduces ≥4 non-determinism sources (embedding output, vector store insertion order, top-k tie-breaking, time-dependent decay) that "seed memory + fixed scenarios" doesn't fully mitigate.
+- **"Address the audit concern"** — actually moot. The memory-seed problem means cliff_test trials start with empty stores AND have no game-over events to fire `tag_aversive`, so retrieval has nothing to surface. trauma_intensity computes to 0.0 anyway. C is operationally equivalent to B with extra wiring.
+
+The hybrid pattern: each pro felt rigorous in isolation; bundled together they felt like the disciplined synthesis. Decomposed individually, all three failed. The clean simple solution to the audit concern was "amend the adjudication memo." The clean simple solution to Phase 0.7b was "match Phase 0.7a's harness for single-variable comparison" (Option B). The clean simple solution to trauma's contribution was "Phase 0.8 on rewritten architecture" (already roadmap). Three separate clean solutions. Option C fused them into a hybrid that created new methodology debt.
+
+**Lesson:** When a recommendation is framed as "addresses concern X AND preserves property Y AND is smallest diff Z," that's a hybrid. Hybrids feel disciplined because they bundle multiple wins; they are also where motivated reasoning hides because each individual concern has a clean simple solution and the hybrid is what lets you avoid choosing between them. The synthesis-feel is the failure mode signal, not a quality signal.
+
+**How to apply:**
+
+- When proposing a hybrid option (A+B+C synthesis), audit each pro independently against its own steel-man counter-claim before bundling. If any pro fails individually — "actually I haven't earned 'preserves determinism' yet, that's conditional on a stability check that hasn't run" — the bundle inherits that failure.
+- If three concerns each have a clean simple solution (different from the hybrid's solution), prefer running the three clean solutions in sequence over the hybrid. The hybrid's bundling creates new methodology debt by mixing the falsification gates of independent questions.
+- /redteam protocol addition: when the original recommendation is a hybrid, decompose it into N atomic claims and test each. The hybrid's overall framing should fall out of the per-claim analysis, not be evaluated holistically.
+- Track this pattern across rounds. If the recommender's pattern is "after considering A/B/C, propose hybrid that combines features," surface the meta-pattern to the recommender — it's a tell that motivated reasoning is operating below conscious awareness.
+- When red team flags a hybrid's "smallest diff" pro: ask "smallest at code level or methodology level?" Code-level smallness can mask methodology-level scope creep.
+
+---
+
 ### When option A includes a free measurement of whether option C is needed, A weakly dominates premature C
 
 **Date:** 2026-05-08 | **Cost:** ~30 min in /redteam round 9 considering whether to pre-emptively re-pilot Phase 0.8 on production tier (Option C, +$30) before realizing the production-tier surrogate (Option A, $40) MEASURES the realized T-calibration drift for free as part of its own data pull, making C necessary only conditionally.
