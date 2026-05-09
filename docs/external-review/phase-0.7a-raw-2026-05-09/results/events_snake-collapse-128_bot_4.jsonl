@@ -1,0 +1,5 @@
+{"t": 0.00021516700508072972, "event": "bot_call_attempt", "data": {"trial": 4, "move_index": 0, "attempt_n": 1}}
+{"t": 65.2305333330005, "event": "bot_call_parse_failure", "data": {"trial": 4, "move_index": 0, "raw_response_excerpt": "", "excerpt_length": 0, "attempt_n": 1}}
+{"t": 127.95763504199567, "event": "bot_call_attempt", "data": {"trial": 4, "move_index": 0, "attempt_n": 1}}
+{"t": 181.122597708003, "event": "bot_call_parse_failure", "data": {"trial": 4, "move_index": 0, "raw_response_excerpt": "", "excerpt_length": 0, "attempt_n": 2}}
+{"t": 244.16578329200274, "event": "bot_trial_aborted", "data": {"trial": 4, "reason": "parse_failure", "last_move_index": 0}}
